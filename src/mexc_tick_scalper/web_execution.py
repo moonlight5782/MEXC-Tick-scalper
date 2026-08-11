@@ -23,11 +23,40 @@ DEMO_HOST = "futures.testnet.mexc.com"
 LIVE_FUTURES_HOST = "futures.mexc.com"
 
 
+def _normalize_js_json(value: Any) -> Any:
+    """Normalize Python numeric values to the JSON representation used by JS.
+
+    In particular JSON.stringify(100.0) emits 100, while Python json.dumps emits
+    100.0. The signed string and the transmitted string must be byte-identical.
+    """
+    if isinstance(value, dict):
+        return {key: _normalize_js_json(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_normalize_js_json(item) for item in value]
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            return None
+        if value == 0:
+            return 0
+        if value.is_integer():
+            return int(value)
+    return value
+
+
+def _json_body(payload: Any) -> str:
+    return json.dumps(
+        _normalize_js_json(payload),
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
+
+
 def _signature(token: str, payload: Any, timestamp_ms: int) -> str:
     """Browser signature used by MEXC web Futures requests."""
     ts = str(timestamp_ms)
     seed = hashlib.md5((token + ts).encode()).hexdigest()[7:]
-    body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+    body = _json_body(payload)
     return hashlib.md5((ts + body + seed).encode()).hexdigest()
 
 
@@ -143,8 +172,12 @@ class MexcWebExecutionAdapter:
     async def _request(self, method: str, path: str, *, params: dict[str, Any] | None = None, payload: Any | None = None) -> Any:
         session = await self._ensure_session()
         url = f"{self.config.base_url}{path}"
-        headers = self._headers(payload if method.upper() == "POST" else None)
-        async with session.request(method, url, params=params, json=payload, headers=headers) as response:
+        is_post = method.upper() == "POST"
+        headers = self._headers(payload if is_post else None)
+        request_kwargs: dict[str, Any] = {"params": params, "headers": headers}
+        if is_post and payload is not None:
+            request_kwargs["data"] = _json_body(payload).encode("utf-8")
+        async with session.request(method, url, **request_kwargs) as response:
             text = await response.text()
             try:
                 data = json.loads(text)
@@ -286,6 +319,7 @@ class MexcWebExecutionAdapter:
         vol = await self._to_contract_vol(symbol, qty)
         if vol <= 0:
             return OrderFill(symbol, side, qty, 0.0, 0.0, 0.0, "", client_order_id)
+        external_id = client_order_id[:32]
         payload = {
             "symbol": symbol,
             "price": price,
@@ -294,10 +328,10 @@ class MexcWebExecutionAdapter:
             "side": 1 if side is OrderSide.LONG else 3,
             "type": 3,
             "openType": 1,
-            "externalOid": client_order_id[:32],
+            "externalOid": external_id,
         }
         submitted = await self._request("POST", "/private/order/submit", payload=payload)
-        order = await self._wait_for_order_result(symbol, client_order_id[:32])
+        order = await self._wait_for_order_result(symbol, external_id)
         filled_base_qty = await self._from_contract_vol(symbol, float(order.get("dealVol") or 0))
         return OrderFill(
             symbol=symbol,
@@ -328,6 +362,7 @@ class MexcWebExecutionAdapter:
         if vol <= 0:
             raise MexcWebError(f"close quantity below minimum contract volume for {symbol}")
         close_side = 4 if position.side is OrderSide.LONG else 2
+        external_id = client_order_id[:32]
         payload: dict[str, Any] = {
             "symbol": symbol,
             "price": position.entry_price,
@@ -335,12 +370,12 @@ class MexcWebExecutionAdapter:
             "side": close_side,
             "type": 5,
             "openType": 1,
-            "externalOid": client_order_id[:32],
+            "externalOid": external_id,
         }
         if position.position_id is not None:
             payload["positionId"] = position.position_id
         submitted = await self._request("POST", "/private/order/submit", payload=payload)
-        order = await self._wait_for_order_result(symbol, client_order_id[:32])
+        order = await self._wait_for_order_result(symbol, external_id)
         filled_base_qty = await self._from_contract_vol(symbol, float(order.get("dealVol") or 0))
         return OrderFill(
             symbol=symbol,
