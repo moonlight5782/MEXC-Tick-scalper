@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import os
 import time
 from dataclasses import dataclass
@@ -18,10 +19,7 @@ class MexcWebError(RuntimeError):
 
 
 def _signature(token: str, payload: Any, timestamp_ms: int) -> str:
-    """Reverse-engineered browser signature used by MEXC web Futures requests.
-
-    Kept isolated so it is testable and replaceable if MEXC changes the web client.
-    """
+    """Reverse-engineered browser signature used by MEXC web Futures requests."""
     ts = str(timestamp_ms)
     seed = hashlib.md5((token + ts).encode()).hexdigest()[7:]
     body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
@@ -57,18 +55,15 @@ class WebExecutionConfig:
 class MexcWebExecutionAdapter:
     """MEXC Futures browser-session adapter.
 
-    Private requests use the WEB session token in the Authorization header.
-    POST requests additionally use x-mxc-nonce/x-mxc-sign matching the current
-    browser signing scheme. Writes are disabled by default and must be explicitly
-    enabled by the caller; this makes read-only session probing safe by default.
-
-    The base URL is configurable because Demo Trading uses a separate environment
-    and MEXC does not publish a stable automation API for the demo web terminal.
+    Controller quantities are expressed in base-asset units. MEXC order `vol`
+    is contract volume, therefore this adapter converts through contractSize and
+    volUnit. Writes are disabled by default.
     """
 
     def __init__(self, config: WebExecutionConfig) -> None:
         self.config = config
         self._session: aiohttp.ClientSession | None = None
+        self._contract_cache: dict[str, dict[str, Any]] = {}
 
     async def __aenter__(self) -> "MexcWebExecutionAdapter":
         await self._ensure_session()
@@ -124,13 +119,62 @@ class MexcWebExecutionAdapter:
             await self._session.close()
 
     async def probe(self) -> dict[str, Any]:
-        """Read-only authentication probe: USDT asset + open positions."""
         asset = await self._request("GET", "/private/account/asset/USDT")
         positions = await self._request("GET", "/private/position/open_positions")
         return {"asset": asset, "positions": positions}
 
     async def get_fee_rates(self) -> Any:
         return await self._request("GET", "/private/account/contract/fee_rate")
+
+    async def get_contract_detail(self, symbol: str) -> dict[str, Any]:
+        key = symbol.upper()
+        if key in self._contract_cache:
+            return self._contract_cache[key]
+        response = await self._request("GET", "/contract/detail", params={"symbol": symbol})
+        data = response.get("data") if isinstance(response, dict) else None
+        if isinstance(data, list):
+            item = next((x for x in data if str(x.get("symbol", "")).upper() == key), None)
+        else:
+            item = data if isinstance(data, dict) else None
+        if not item:
+            raise MexcWebError(f"contract detail missing for {symbol}")
+        self._contract_cache[key] = item
+        return item
+
+    async def get_best_price(self, symbol: str, side: OrderSide) -> float:
+        response = await self._request("GET", f"/contract/depth/{symbol}", params={"limit": 5})
+        data = response.get("data", response) if isinstance(response, dict) else response
+        if not isinstance(data, dict):
+            raise MexcWebError(f"depth response missing for {symbol}")
+        levels = data.get("asks") if side is OrderSide.LONG else data.get("bids")
+        if not levels:
+            raise MexcWebError(f"empty order book for {symbol}")
+        return float(levels[0][0])
+
+    async def _contract_size(self, symbol: str) -> float:
+        detail = await self.get_contract_detail(symbol)
+        size = float(detail.get("contractSize") or 0)
+        if size <= 0:
+            raise MexcWebError(f"invalid contractSize for {symbol}: {size}")
+        return size
+
+    async def _to_contract_vol(self, symbol: str, base_qty: float) -> float:
+        if base_qty <= 0:
+            raise ValueError("qty must be positive")
+        detail = await self.get_contract_detail(symbol)
+        contract_size = float(detail.get("contractSize") or 0)
+        vol_unit = float(detail.get("volUnit") or 1)
+        min_vol = float(detail.get("minVol") or vol_unit)
+        if contract_size <= 0 or vol_unit <= 0:
+            raise MexcWebError(f"invalid contract sizing metadata for {symbol}")
+        raw = base_qty / contract_size
+        vol = math.floor((raw + 1e-12) / vol_unit) * vol_unit
+        if vol < min_vol:
+            return 0.0
+        return int(vol) if float(vol).is_integer() else vol
+
+    async def _from_contract_vol(self, symbol: str, vol: float) -> float:
+        return float(vol) * await self._contract_size(symbol)
 
     async def get_position(self, symbol: str) -> PositionSnapshot | None:
         response = await self._request("GET", "/private/position/open_positions", params={"symbol": symbol})
@@ -140,14 +184,14 @@ class MexcWebExecutionAdapter:
         for item in data or []:
             if str(item.get("symbol", "")).upper() != symbol.upper():
                 continue
-            qty = float(item.get("holdVol") or 0)
-            if qty <= 0:
+            hold_vol = float(item.get("holdVol") or 0)
+            if hold_vol <= 0:
                 continue
             side = OrderSide.LONG if int(item.get("positionType") or 0) == 1 else OrderSide.SHORT
             return PositionSnapshot(
                 symbol=symbol,
                 side=side,
-                qty=qty,
+                qty=await self._from_contract_vol(symbol, hold_vol),
                 entry_price=float(item.get("holdAvgPrice") or item.get("openAvgPrice") or 0),
                 leverage=int(item.get("leverage") or 1),
                 isolated=int(item.get("openType") or 0) == 1,
@@ -158,14 +202,11 @@ class MexcWebExecutionAdapter:
         return None
 
     async def _get_order_by_external_id(self, symbol: str, client_order_id: str) -> dict[str, Any] | None:
-        response = await self._request(
-            "GET",
-            f"/private/order/external/{symbol}/{client_order_id}",
-        )
+        response = await self._request("GET", f"/private/order/external/{symbol}/{client_order_id}")
         data = response.get("data") if isinstance(response, dict) else None
         return data if isinstance(data, dict) else None
 
-    async def _wait_for_ioc_result(self, symbol: str, client_order_id: str, timeout_seconds: float = 1.2) -> dict[str, Any]:
+    async def _wait_for_order_result(self, symbol: str, client_order_id: str, timeout_seconds: float = 1.2) -> dict[str, Any]:
         deadline = time.monotonic() + timeout_seconds
         last: dict[str, Any] | None = None
         while time.monotonic() < deadline:
@@ -193,10 +234,13 @@ class MexcWebExecutionAdapter:
         self._require_write()
         if price <= 0 or qty <= 0 or leverage <= 0:
             raise ValueError("price, qty and leverage must be positive")
+        vol = await self._to_contract_vol(symbol, qty)
+        if vol <= 0:
+            return OrderFill(symbol, side, qty, 0.0, 0.0, 0.0, "", client_order_id)
         payload = {
             "symbol": symbol,
             "price": price,
-            "vol": qty,
+            "vol": vol,
             "leverage": leverage,
             "side": 1 if side is OrderSide.LONG else 3,
             "type": 3,
@@ -204,12 +248,13 @@ class MexcWebExecutionAdapter:
             "externalOid": client_order_id,
         }
         submitted = await self._request("POST", "/private/order/submit", payload=payload)
-        order = await self._wait_for_ioc_result(symbol, client_order_id)
+        order = await self._wait_for_order_result(symbol, client_order_id)
+        filled_base_qty = await self._from_contract_vol(symbol, float(order.get("dealVol") or 0))
         return OrderFill(
             symbol=symbol,
             side=side,
             requested_qty=qty,
-            filled_qty=float(order.get("dealVol") or 0),
+            filled_qty=filled_base_qty,
             avg_price=float(order.get("dealAvgPrice") or price),
             fee_usdt=float(order.get("takerFee") or 0) + float(order.get("makerFee") or 0),
             order_id=str(order.get("orderId") or (submitted.get("data") if isinstance(submitted, dict) else "")),
@@ -229,11 +274,15 @@ class MexcWebExecutionAdapter:
         position = await self.get_position(symbol)
         if position is None:
             raise MexcWebError(f"no open position for {symbol}")
+        base_qty = min(qty, position.qty)
+        vol = await self._to_contract_vol(symbol, base_qty)
+        if vol <= 0:
+            raise MexcWebError(f"close quantity below minimum contract volume for {symbol}")
         close_side = 4 if position.side is OrderSide.LONG else 2
         payload: dict[str, Any] = {
             "symbol": symbol,
             "price": position.entry_price,
-            "vol": min(qty, position.qty),
+            "vol": vol,
             "side": close_side,
             "type": 5,
             "openType": 1,
@@ -242,12 +291,13 @@ class MexcWebExecutionAdapter:
         if position.position_id is not None:
             payload["positionId"] = position.position_id
         submitted = await self._request("POST", "/private/order/submit", payload=payload)
-        order = await self._wait_for_ioc_result(symbol, client_order_id)
+        order = await self._wait_for_order_result(symbol, client_order_id)
+        filled_base_qty = await self._from_contract_vol(symbol, float(order.get("dealVol") or 0))
         return OrderFill(
             symbol=symbol,
             side=side,
             requested_qty=qty,
-            filled_qty=float(order.get("dealVol") or 0),
+            filled_qty=filled_base_qty,
             avg_price=float(order.get("dealAvgPrice") or position.entry_price),
             fee_usdt=float(order.get("takerFee") or 0) + float(order.get("makerFee") or 0),
             order_id=str(order.get("orderId") or (submitted.get("data") if isinstance(submitted, dict) else "")),
