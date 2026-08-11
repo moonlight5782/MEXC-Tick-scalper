@@ -42,6 +42,18 @@ async def _wait_for_remote_position(adapter: MexcWebExecutionAdapter, symbol: st
     return None
 
 
+def _trade_pnl(entry_side: OrderSide, entry_price: float, exit_price: float, qty: float, leverage: int, fees: float) -> tuple[float, float, float]:
+    if entry_price <= 0 or qty <= 0:
+        return 0.0, 0.0, 0.0
+    direction = 1.0 if entry_side is OrderSide.LONG else -1.0
+    price_return = direction * (exit_price - entry_price) / entry_price
+    gross_pnl = direction * (exit_price - entry_price) * qty
+    net_pnl = gross_pnl - fees
+    margin = entry_price * qty / max(1, leverage)
+    roe = net_pnl / margin if margin > 0 else 0.0
+    return net_pnl, price_return * 100.0, roe * 100.0
+
+
 async def run(args: argparse.Namespace) -> None:
     cfg = load_config(args.config)
     market_cfg = cfg.get("mexc", {})
@@ -82,6 +94,11 @@ async def run(args: argparse.Namespace) -> None:
         cycles = 0
         deadline = time.monotonic() + int(args.session_seconds)
         next_fee_check = 0.0
+        entry_time: float | None = None
+        entry_side: OrderSide | None = None
+        entry_price: float | None = None
+        entry_fee = 0.0
+        session_pnl = 0.0
 
         console.print(
             f"FAST DEMO TICK TEST {symbol}: momentum={momentum_ticks} reversal={reversal_ticks} "
@@ -109,8 +126,23 @@ async def run(args: argparse.Namespace) -> None:
                     console.print(
                         f"EXIT qty={fill.filled_qty:g} avg={fill.avg_price:g} fee={fill.fee_usdt:g}"
                     )
+                    if entry_side is not None and entry_price is not None:
+                        fees = entry_fee + fill.fee_usdt
+                        pnl_usdt, price_pct, roe_pct = _trade_pnl(
+                            entry_side, entry_price, fill.avg_price, fill.filled_qty, leverage, fees
+                        )
+                        duration = now_mono - entry_time if entry_time is not None else 0.0
+                        session_pnl += pnl_usdt
+                        console.print(
+                            f"RESULT pnl={pnl_usdt:+.6f} USDT price={price_pct:+.4f}% "
+                            f"ROE={roe_pct:+.2f}% duration={duration:.2f}s session_pnl={session_pnl:+.6f}"
+                        )
                     eligibility = _pause_on_actual_fee(eligibility, fill.fee_usdt, now_ms)
                     cycles += 1
+                    entry_time = None
+                    entry_side = None
+                    entry_price = None
+                    entry_fee = 0.0
                     remote = await controller.reconcile(symbol)
                     if remote is not None:
                         raise MexcWebError(f"position remains after exit: qty={remote.qty}")
@@ -155,6 +187,10 @@ async def run(args: argparse.Namespace) -> None:
                     f"ENTRY {'LONG' if direction == 1 else 'SHORT'} qty={fill.filled_qty:g} "
                     f"avg={fill.avg_price:g} fee={fill.fee_usdt:g}"
                 )
+                entry_time = now_mono
+                entry_side = side
+                entry_price = fill.avg_price
+                entry_fee = fill.fee_usdt
                 eligibility = _pause_on_actual_fee(eligibility, fill.fee_usdt, now_ms)
 
                 remote = await _wait_for_remote_position(adapter, symbol)
@@ -174,7 +210,6 @@ async def run(args: argparse.Namespace) -> None:
             if now_mono >= deadline:
                 break
 
-        # Diagnostic mode must never intentionally leave a position open.
         if symbol in controller.positions:
             managed = controller.positions[symbol]
             close_side = OrderSide.SHORT if managed.snapshot.side is OrderSide.LONG else OrderSide.LONG
@@ -187,9 +222,22 @@ async def run(args: argparse.Namespace) -> None:
             console.print(
                 f"TIMEOUT FLATTEN qty={fill.filled_qty:g} avg={fill.avg_price:g} fee={fill.fee_usdt:g}"
             )
+            if entry_side is not None and entry_price is not None:
+                fees = entry_fee + fill.fee_usdt
+                pnl_usdt, price_pct, roe_pct = _trade_pnl(
+                    entry_side, entry_price, fill.avg_price, fill.filled_qty, leverage, fees
+                )
+                duration = time.monotonic() - entry_time if entry_time is not None else 0.0
+                session_pnl += pnl_usdt
+                console.print(
+                    f"RESULT pnl={pnl_usdt:+.6f} USDT price={price_pct:+.4f}% "
+                    f"ROE={roe_pct:+.2f}% duration={duration:.2f}s session_pnl={session_pnl:+.6f}"
+                )
             await controller.reconcile(symbol)
 
-        console.print(f"[green]FAST DEMO TICK TEST COMPLETE[/green] cycles={cycles}")
+        console.print(
+            f"[green]FAST DEMO TICK TEST COMPLETE[/green] cycles={cycles} session_pnl={session_pnl:+.6f} USDT"
+        )
 
 
 def main() -> None:
