@@ -20,14 +20,11 @@ console = Console()
 
 
 def _load_project_env() -> None:
-    """Load the repository .env regardless of how the launcher was started."""
     project_root = Path(__file__).resolve().parents[2]
-    env_path = project_root / ".env"
-    load_dotenv(env_path, override=False)
+    load_dotenv(project_root / ".env", override=False)
 
 
 async def _tradable_zero_fee_contracts() -> list[dict[str, Any]]:
-    """Return Demo contracts that are zero-fee and currently have a two-sided book."""
     cfg = WebExecutionConfig.demo_from_env(write_enabled=False)
     async with MexcWebExecutionAdapter(cfg) as adapter:
         contracts = await _fetch_contracts(adapter)
@@ -79,9 +76,12 @@ def _show(rows: list[dict[str, Any]]) -> None:
 
 def _ask_int(prompt: str, default: int) -> int:
     raw = input(f"{prompt} [{default}]: ").strip()
-    if not raw:
-        return default
-    return int(raw)
+    return default if not raw else int(raw)
+
+
+def _ask_float(prompt: str, default: float) -> float:
+    raw = input(f"{prompt} [{default:g}]: ").strip()
+    return default if not raw else float(raw)
 
 
 async def main_async() -> None:
@@ -102,15 +102,16 @@ async def main_async() -> None:
 
     symbol = str(selected.get("symbol", "")).upper()
     max_lev = int(selected.get("maxLeverage") or 1)
-    leverage = _ask_int("Leverage", min(50, max_lev))
-    leverage = max(1, min(leverage, max_lev))
+    leverage = max(1, min(_ask_int("Leverage", min(50, max_lev)), max_lev))
     max_cycles = _ask_int("Max cycles", 10)
     seconds = _ask_int("Max session seconds", 300)
 
-    mode = input("Strategy [H=Hybrid microstructure, C=Classic ticks] [H]: ").strip().lower()
+    mode = input("Strategy [H=Reconstructed hybrid, C=Classic ticks] [H]: ").strip().lower()
     hybrid = mode not in {"c", "classic"}
     module = "mexc_tick_scalper.demo_hybrid_test" if hybrid else "mexc_tick_scalper.demo_tick_test"
-    label = "HYBRID" if hybrid else "CLASSIC"
+    label = "RECONSTRUCTED HYBRID" if hybrid else "CLASSIC"
+
+    target_margin = _ask_float("Target margin per IOC cycle, USDT", 2.0) if hybrid else 0.0
 
     console.print(f"Starting {label} {symbol} at {leverage}x, max_cycles={max_cycles}, session={seconds}s")
     cmd = [
@@ -126,7 +127,9 @@ async def main_async() -> None:
         "--leverage",
         str(leverage),
     ]
-    if not hybrid:
+    if hybrid:
+        cmd += ["--target-margin-usdt", str(target_margin)]
+    else:
         cmd += ["--momentum-ticks", "3", "--reversal-ticks", "1"]
 
     completed = subprocess.run(cmd, env=os.environ.copy())
