@@ -32,11 +32,11 @@ class MicrostructureSnapshot:
 
 
 class MicrostructureSignal:
-    """Lightweight signal fusion inspired by smallfish.
+    """Lightweight MEXC trade-flow signal inspired by smallfish.
 
-    Uses only data we already receive reliably from MEXC trade WS:
-    micro-momentum, CVD/trade-flow and activity. Full L2 OBI is intentionally
-    excluded until we maintain a proper multi-level order book locally.
+    Uses data we receive directly from the MEXC trade WebSocket:
+    micro-momentum, CVD/trade-flow and activity. Full L2 OBI remains excluded
+    until a proper multi-level local order book is maintained.
     """
 
     def __init__(self, window_seconds: float = 5.0, min_trade_rate: float = 0.5) -> None:
@@ -75,7 +75,6 @@ class MicrostructureSignal:
         slow = _ema(prices[-16:], span=7)
         momentum_bps = ((fast - slow) / slow) * 10_000 if slow > 0 else 0.0
 
-        # smallfish-inspired fusion: momentum + CVD/trade-flow, with activity as a gate.
         momentum_score = _clamp(momentum_bps / 2.0)
         cvd_score = _clamp(cvd_norm)
         flow_score = _clamp((buy_ratio - 0.5) / 0.20)
@@ -90,28 +89,37 @@ class MicrostructureSignal:
 
 
 @dataclass(slots=True)
-class HoldUntilAgainstExit:
-    """Hold while movement is favorable; exit on confirmed adverse price changes.
+class AsymmetricExitPolicy:
+    """Exit model reconstructed from the old MEXC order history.
 
-    Equal-price trades are ignored. A favorable change resets the adverse counter.
-    A liquidation guard closes before the exchange liquidation boundary is reached.
+    Before a position establishes a favorable excursion, losses are cut quickly.
+    After a winner is established, ordinary counter-ticks are tolerated and the
+    position is held until the microstructure signal meaningfully weakens/flips or
+    price pulls back from the best excursion. A liquidation guard always overrides
+    the strategy.
     """
 
     side: int
     entry_price: float
-    adverse_changes: int = 3
-    liq_buffer_fraction: float = 0.20
+    early_adverse_changes: int = 2
+    liq_buffer_fraction: float = 0.25
+    winner_arm_bps: float = 0.5
+    winner_pullback_bps: float = 1.5
+    flip_confidence: float = 0.30
+    fade_confidence: float = 0.12
+    min_hold_seconds: float = 0.35
     last_price: float | None = None
-    adverse_count: int = 0
     extreme_price: float | None = None
+    adverse_count: int = 0
+    winner_armed: bool = False
 
     def __post_init__(self) -> None:
         if self.side not in (1, -1):
             raise ValueError("side must be +1 or -1")
         if self.entry_price <= 0:
             raise ValueError("entry_price must be positive")
-        if self.adverse_changes < 1:
-            raise ValueError("adverse_changes must be >= 1")
+        if self.early_adverse_changes < 1:
+            raise ValueError("early_adverse_changes must be >= 1")
         if not 0 < self.liq_buffer_fraction < 1:
             raise ValueError("liq_buffer_fraction must be between 0 and 1")
         self.last_price = self.entry_price
@@ -128,7 +136,23 @@ class HoldUntilAgainstExit:
             return price >= trigger
         return False
 
-    def on_price(self, price: float, liquidation_price: float | None = None) -> str | None:
+    def _signed_return_bps(self, price: float) -> float:
+        return self.side * (price - self.entry_price) / self.entry_price * 10_000.0
+
+    def _pullback_bps(self, price: float) -> float:
+        assert self.extreme_price is not None
+        if self.side == 1:
+            return max(0.0, (self.extreme_price - price) / self.extreme_price * 10_000.0)
+        return max(0.0, (price - self.extreme_price) / self.extreme_price * 10_000.0)
+
+    def on_tick(
+        self,
+        *,
+        price: float,
+        liquidation_price: float | None,
+        signal: MicrostructureSnapshot,
+        age_seconds: float,
+    ) -> str | None:
         if price <= 0:
             return None
         if self._near_liquidation(price, liquidation_price):
@@ -136,19 +160,42 @@ class HoldUntilAgainstExit:
 
         assert self.last_price is not None
         assert self.extreme_price is not None
-        if price == self.last_price:
+
+        signed_bps = self._signed_return_bps(price)
+        if signed_bps >= self.winner_arm_bps:
+            self.winner_armed = True
+
+        if (self.side == 1 and price > self.extreme_price) or (self.side == -1 and price < self.extreme_price):
+            self.extreme_price = price
+
+        if price != self.last_price:
+            delta = price - self.last_price
+            favorable = delta > 0 if self.side == 1 else delta < 0
+            if favorable:
+                self.adverse_count = 0
+            elif not self.winner_armed:
+                self.adverse_count += 1
+            self.last_price = price
+
+        opposite = signal.direction == -self.side and signal.confidence >= self.flip_confidence
+        supportive = signal.direction == self.side and signal.confidence >= self.fade_confidence
+
+        # The old history shows losing trades typically lasting only a few seconds.
+        if not self.winner_armed:
+            if age_seconds >= self.min_hold_seconds and opposite:
+                return "early_signal_flip"
+            if self.adverse_count >= self.early_adverse_changes:
+                return "early_adverse_cut"
             return None
 
-        delta = price - self.last_price
-        favorable = delta > 0 if self.side == 1 else delta < 0
-        if favorable:
-            self.adverse_count = 0
-            if (self.side == 1 and price > self.extreme_price) or (self.side == -1 and price < self.extreme_price):
-                self.extreme_price = price
-        else:
-            self.adverse_count += 1
-
-        self.last_price = price
-        if self.adverse_count >= self.adverse_changes:
-            return "confirmed_adverse_move"
+        # Winners are given room. Exit on a real signal reversal, or after a
+        # meaningful pullback when the original signal is no longer supportive.
+        if age_seconds >= self.min_hold_seconds and opposite:
+            return "winner_signal_flip"
+        if self._pullback_bps(price) >= self.winner_pullback_bps and not supportive:
+            return "winner_pullback_fade"
         return None
+
+
+# Backwards compatibility for older tests/imports.
+HoldUntilAgainstExit = AsymmetricExitPolicy
