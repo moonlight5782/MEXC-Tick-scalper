@@ -5,18 +5,7 @@ from typing import Iterable
 
 from .exit_logic import TickExitTracker
 from .models import ShadowResult, Tick
-
-
-def _direction(prices: list[float], n: int) -> int:
-    if len(prices) < n + 1:
-        return 0
-    window = prices[-(n + 1):]
-    diffs = [b - a for a, b in zip(window, window[1:])]
-    if all(d > 0 for d in diffs):
-        return 1
-    if all(d < 0 for d in diffs):
-        return -1
-    return 0
+from .signals import momentum_direction
 
 
 def replay(symbol: str, ticks: Iterable[Tick], momentum_ticks: int, reversal_ticks: int, max_hold_seconds: int = 180) -> ShadowResult:
@@ -34,7 +23,7 @@ def replay(symbol: str, ticks: Iterable[Tick], momentum_ticks: int, reversal_tic
         prices.append(tick.price)
 
         if tracker is None:
-            d = _direction(prices, momentum_ticks)
+            d = momentum_direction(prices, momentum_ticks)
             if d == 0:
                 continue
             entry = tick.price
