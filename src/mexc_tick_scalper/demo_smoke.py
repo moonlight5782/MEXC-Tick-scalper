@@ -14,17 +14,17 @@ from .web_fee import read_web_fee_status
 console = Console()
 
 
-def _assert_demo_safety(base_url: str) -> None:
-    lowered = base_url.lower()
-    if "testnet" not in lowered and "demo" not in lowered:
-        raise MexcWebError("refusing writes: base URL does not look like Demo/Testnet")
+def _assert_demo_safety(config: WebExecutionConfig) -> None:
+    config.validate_environment()
+    if config.environment != "demo":
+        raise MexcWebError("refusing writes: adapter is not configured for Demo")
     if os.getenv("MEXC_DEMO_WRITE", "").strip().upper() != "YES":
         raise MexcWebError("refusing writes: set MEXC_DEMO_WRITE=YES for Demo only")
 
 
 async def run(args: argparse.Namespace) -> None:
-    cfg = WebExecutionConfig.from_env(base_url=args.base_url, write_enabled=True)
-    _assert_demo_safety(cfg.base_url)
+    cfg = WebExecutionConfig.demo_from_env(write_enabled=True)
+    _assert_demo_safety(cfg)
     symbol = args.symbol.upper()
     side = OrderSide.LONG if args.side == "long" else OrderSide.SHORT
 
@@ -99,7 +99,6 @@ def main() -> None:
     parser.add_argument("--side", choices=["long", "short"], default="long")
     parser.add_argument("--leverage", type=int, default=5)
     parser.add_argument("--min-vol-multiplier", type=int, default=1)
-    parser.add_argument("--base-url", default=None)
     args = parser.parse_args()
     try:
         asyncio.run(run(args))
