@@ -31,6 +31,17 @@ def _pause_on_actual_fee(eligibility: EligibilityState, actual_fee_usdt: float, 
     )
 
 
+async def _wait_for_remote_position(adapter: MexcWebExecutionAdapter, symbol: str, timeout_seconds: float = 1.0):
+    """Wait briefly for Demo open_positions to reflect an already-filled IOC order."""
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        position = await adapter.get_position(symbol)
+        if position is not None:
+            return position
+        await asyncio.sleep(0.05)
+    return None
+
+
 async def run(args: argparse.Namespace) -> None:
     cfg = load_config(args.config)
     market_cfg = cfg.get("mexc", {})
@@ -145,6 +156,20 @@ async def run(args: argparse.Namespace) -> None:
                     f"avg={fill.avg_price:g} fee={fill.fee_usdt:g}"
                 )
                 eligibility = _pause_on_actual_fee(eligibility, fill.fee_usdt, now_ms)
+
+                remote = await _wait_for_remote_position(adapter, symbol)
+                if remote is None:
+                    controller.positions.pop(symbol, None)
+                    raise MexcWebError(
+                        f"IOC fill reported for {symbol}, but position did not become visible in open_positions within 1s"
+                    )
+                managed = controller.positions.get(symbol)
+                if managed is not None:
+                    managed.snapshot = remote
+                console.print(
+                    f"POSITION CONFIRMED qty={remote.qty:g} entry={remote.entry_price:g} "
+                    f"liq={remote.liquidation_price if remote.liquidation_price is not None else '?'}"
+                )
 
             if now_mono >= deadline:
                 break
