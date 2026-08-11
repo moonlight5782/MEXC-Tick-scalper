@@ -15,6 +15,7 @@ from .market import MexcPublicMarket
 from .scanner import scan_candidates
 from .shadow import best_result
 from .tick_data import append_tick_csv, load_ticks_csv
+from .web_execution import MexcWebError, MexcWebExecutionAdapter, WebExecutionConfig
 
 console = Console()
 
@@ -163,6 +164,35 @@ def cmd_backtest(args: argparse.Namespace) -> None:
     console.print("[green]VALIDATION PASSED[/green]" if passed else "[red]VALIDATION FAILED[/red]")
 
 
+async def cmd_web_probe(args: argparse.Namespace) -> None:
+    """Read-only probe of a WEB session. It cannot place or close orders."""
+    try:
+        web_cfg = WebExecutionConfig.from_env(base_url=args.base_url, write_enabled=False)
+        async with MexcWebExecutionAdapter(web_cfg) as adapter:
+            result = await adapter.probe()
+            fees = None
+            try:
+                fees = await adapter.get_fee_rates()
+            except MexcWebError as exc:
+                console.print(f"[yellow]Fee endpoint unavailable:[/yellow] {exc}")
+
+        console.print(f"[green]WEB session authenticated[/green] against {web_cfg.base_url}")
+        asset_data = result.get("asset", {}).get("data") if isinstance(result.get("asset"), dict) else None
+        if isinstance(asset_data, dict):
+            available = asset_data.get("availableBalance", asset_data.get("available", "?"))
+            equity = asset_data.get("equity", asset_data.get("cashBalance", "?"))
+            console.print(f"USDT available={available} equity={equity}")
+        positions = result.get("positions", {}).get("data", []) if isinstance(result.get("positions"), dict) else []
+        console.print(f"Open positions: {len(positions or [])}")
+        if fees is not None:
+            fee_data = fees.get("data") if isinstance(fees, dict) else None
+            count = len(fee_data) if isinstance(fee_data, list) else (1 if fee_data else 0)
+            console.print(f"Fee records readable: {count}")
+    except MexcWebError as exc:
+        console.print(f"[red]WEB probe failed:[/red] {exc}")
+        raise SystemExit(2) from exc
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="mexc-scalper")
     sub = p.add_subparsers(dest="command", required=True)
@@ -186,6 +216,9 @@ def build_parser() -> argparse.ArgumentParser:
     backtest.add_argument("--input", required=True)
     backtest.add_argument("--train-fraction", type=float, default=0.70)
     backtest.add_argument("--config", default="config.yaml")
+
+    web_probe = sub.add_parser("web-probe", help="Read-only WEB-session auth/balance/position probe")
+    web_probe.add_argument("--base-url", default=None, help="Override MEXC_WEB_BASE_URL, useful for Demo")
     return p
 
 
@@ -199,6 +232,8 @@ def main() -> None:
         asyncio.run(cmd_record(args))
     elif args.command == "backtest":
         cmd_backtest(args)
+    elif args.command == "web-probe":
+        asyncio.run(cmd_web_probe(args))
 
 
 if __name__ == "__main__":
