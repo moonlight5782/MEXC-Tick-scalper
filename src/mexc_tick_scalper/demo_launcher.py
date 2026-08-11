@@ -53,7 +53,6 @@ async def _tradable_zero_fee_contracts() -> list[dict[str, Any]]:
             enriched["spreadPct"] = ((ask - bid) / ((ask + bid) / 2.0)) * 100 if ask + bid > 0 else 0.0
             candidates.append(enriched)
 
-    # Prefer tighter books first; this is only a launcher heuristic, not the final strategy selector.
     candidates.sort(key=lambda row: (float(row.get("spreadPct") or 999.0), str(row.get("symbol", ""))))
     return candidates
 
@@ -108,24 +107,28 @@ async def main_async() -> None:
     max_cycles = _ask_int("Max cycles", 10)
     seconds = _ask_int("Max session seconds", 300)
 
-    console.print(f"Starting {symbol} at {leverage}x, max_cycles={max_cycles}, session={seconds}s")
+    mode = input("Strategy [H=Hybrid microstructure, C=Classic ticks] [H]: ").strip().lower()
+    hybrid = mode not in {"c", "classic"}
+    module = "mexc_tick_scalper.demo_hybrid_test" if hybrid else "mexc_tick_scalper.demo_tick_test"
+    label = "HYBRID" if hybrid else "CLASSIC"
+
+    console.print(f"Starting {label} {symbol} at {leverage}x, max_cycles={max_cycles}, session={seconds}s")
     cmd = [
         sys.executable,
         "-m",
-        "mexc_tick_scalper.demo_tick_test",
+        module,
         "--symbol",
         symbol,
         "--session-seconds",
         str(seconds),
         "--max-cycles",
         str(max_cycles),
-        "--momentum-ticks",
-        "3",
-        "--reversal-ticks",
-        "1",
         "--leverage",
         str(leverage),
     ]
+    if not hybrid:
+        cmd += ["--momentum-ticks", "3", "--reversal-ticks", "1"]
+
     completed = subprocess.run(cmd, env=os.environ.copy())
     raise SystemExit(completed.returncode)
 
