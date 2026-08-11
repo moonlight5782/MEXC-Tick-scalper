@@ -6,6 +6,7 @@ from mexc_tick_scalper.web_execution import (
     MexcWebError,
     MexcWebExecutionAdapter,
     WebExecutionConfig,
+    _json_body,
     _signature,
 )
 
@@ -17,6 +18,11 @@ def test_signature_is_deterministic_for_same_payload_and_timestamp():
     second = _signature(token, payload, 1720000000000)
     assert first == second
     assert len(first) == 32
+
+
+def test_json_body_matches_browser_integer_number_shape():
+    body = _json_body({"price": 100.0, "vol": 1.0, "fraction": 1.25})
+    assert body == '{"price":100,"vol":1,"fraction":1.25}'
 
 
 def test_write_disabled_by_default():
