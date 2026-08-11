@@ -3,6 +3,7 @@ from __future__ import annotations
 from math import inf
 from typing import Iterable
 
+from .exit_logic import TickExitTracker
 from .models import ShadowResult, Tick
 
 
@@ -24,46 +25,33 @@ def replay(symbol: str, ticks: Iterable[Tick], momentum_ticks: int, reversal_tic
         return ShadowResult(symbol, momentum_ticks, reversal_ticks, 0, 0, 0, 0.0, 0.0, 0.0, 0.0, 0.0)
 
     prices: list[float] = []
-    in_pos = False
-    side = 0
+    tracker: TickExitTracker | None = None
     entry = 0.0
-    extreme = 0.0
     entry_ts = 0
-    adverse_count = 0
     pnl_bps: list[float] = []
 
     for tick in seq:
         prices.append(tick.price)
-        if not in_pos:
+
+        if tracker is None:
             d = _direction(prices, momentum_ticks)
             if d == 0:
                 continue
-            in_pos = True
-            side = d
             entry = tick.price
-            extreme = entry
             entry_ts = tick.ts_ms
-            adverse_count = 0
+            tracker = TickExitTracker(
+                side=d,
+                entry_price=entry,
+                reversal_ticks=reversal_ticks,
+            )
             continue
 
-        favorable = (tick.price > extreme) if side == 1 else (tick.price < extreme)
-        adverse = (tick.price < extreme) if side == 1 else (tick.price > extreme)
-
-        if favorable:
-            extreme = tick.price
-            adverse_count = 0
-        elif adverse:
-            adverse_count += 1
-        else:
-            adverse_count = 0
-
         timed_out = tick.ts_ms - entry_ts >= max_hold_seconds * 1000
-        if adverse_count >= reversal_ticks or timed_out:
-            raw = side * (tick.price - entry) / entry * 10_000.0
+        should_exit = tracker.on_tick(tick.price)
+        if should_exit or timed_out:
+            raw = tracker.side * (tick.price - entry) / entry * 10_000.0
             pnl_bps.append(raw)
-            in_pos = False
-            side = 0
-            adverse_count = 0
+            tracker = None
 
     wins = [x for x in pnl_bps if x > 0]
     losses = [x for x in pnl_bps if x < 0]
