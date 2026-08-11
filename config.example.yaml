@@ -8,6 +8,9 @@ fees:
   require_zero_maker: true
   require_zero_taker: true
   unknown_is_blocked: true
+  # Temporary conservative source until the account-specific web fee reader is wired.
+  # Add only symbols you have independently verified as 0% maker AND 0% taker.
+  verified_zero_fee_symbols: []
 
 scanner:
   max_symbols_for_shadow: 12
