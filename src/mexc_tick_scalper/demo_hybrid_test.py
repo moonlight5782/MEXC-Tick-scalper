@@ -9,7 +9,6 @@ from pathlib import Path
 from dotenv import load_dotenv
 from rich.console import Console
 
-from .config import load_config
 from .demo_smoke import _assert_demo_safety
 from .demo_tick_test import _trade_pnl, _wait_for_remote_position
 from .execution import OrderFill, OrderSide, PositionSnapshot
@@ -27,65 +26,119 @@ def _load_project_env() -> None:
     load_dotenv(project_root / ".env", override=False)
 
 
-async def _close_confirmed(
+def _signed_move_bps(side: OrderSide, entry: float, price: float) -> float:
+    if entry <= 0 or price <= 0:
+        return 0.0
+    raw = (price - entry) / entry * 10_000.0
+    return raw if side is OrderSide.LONG else -raw
+
+
+async def _flatten_position(
     adapter: MexcWebExecutionAdapter,
     position: PositionSnapshot,
     reason: str,
 ) -> OrderFill:
+    """Close the full remote position and verify that no residual remains.
+
+    Testnet can acknowledge a market close before open_positions is fully updated.
+    We therefore re-read the position and submit the remaining qty again if needed.
+    A cycle is complete only after get_position() returns None.
+    """
     close_side = OrderSide.SHORT if position.side is OrderSide.LONG else OrderSide.LONG
-    fill = await adapter.close_market_reduce_only(
-        symbol=position.symbol,
-        qty=position.qty,
-        side=close_side,
-        client_order_id=f"hybrid-exit-{uuid.uuid4().hex}",
+    initial_qty = position.qty
+    total_closed = 0.0
+    total_fee = 0.0
+    weighted_price = 0.0
+    last_fill: OrderFill | None = None
+    remaining = position
+
+    for attempt in range(4):
+        if remaining.qty <= 1e-12:
+            break
+        fill = await adapter.close_market_reduce_only(
+            symbol=position.symbol,
+            qty=remaining.qty,
+            side=close_side,
+            client_order_id=f"hybrid-exit-{uuid.uuid4().hex}",
+        )
+        last_fill = fill
+        total_fee += fill.fee_usdt
+
+        deadline = time.monotonic() + 1.5
+        before_qty = remaining.qty
+        observed: PositionSnapshot | None = remaining
+        while time.monotonic() < deadline:
+            observed = await adapter.get_position(position.symbol)
+            if observed is None:
+                closed_now = before_qty
+                px = fill.avg_price
+                total_closed += closed_now
+                weighted_price += px * closed_now
+                remaining = PositionSnapshot(
+                    symbol=position.symbol,
+                    side=position.side,
+                    qty=0.0,
+                    entry_price=position.entry_price,
+                    leverage=position.leverage,
+                    isolated=position.isolated,
+                    position_id=position.position_id,
+                    liquidation_price=position.liquidation_price,
+                    unrealized_pnl=None,
+                )
+                break
+            if observed.side is not position.side:
+                raise MexcWebError(f"{reason}: position side changed while closing")
+            if observed.qty < before_qty - 1e-12:
+                closed_now = before_qty - observed.qty
+                px = fill.avg_price
+                total_closed += closed_now
+                weighted_price += px * closed_now
+                remaining = observed
+                break
+            await asyncio.sleep(0.05)
+        else:
+            remaining = observed or remaining
+
+        if remaining.qty <= 1e-12:
+            break
+
+        # Give testnet a short moment before resubmitting only the true residual.
+        await asyncio.sleep(0.10)
+        fresh = await adapter.get_position(position.symbol)
+        if fresh is None:
+            remaining.qty = 0.0
+            break
+        remaining = fresh
+
+    residual = await adapter.get_position(position.symbol)
+    if residual is not None and residual.qty > 1e-12:
+        raise MexcWebError(f"{reason}: residual position remains qty={residual.qty}")
+
+    if total_closed <= 0:
+        total_closed = initial_qty
+        if last_fill is not None:
+            weighted_price = last_fill.avg_price * initial_qty
+    avg_price = weighted_price / total_closed if total_closed > 0 else (last_fill.avg_price if last_fill else 0.0)
+    assert last_fill is not None
+    return OrderFill(
+        symbol=last_fill.symbol,
+        side=last_fill.side,
+        requested_qty=initial_qty,
+        filled_qty=initial_qty,
+        avg_price=avg_price,
+        fee_usdt=total_fee,
+        order_id=last_fill.order_id,
+        client_order_id=last_fill.client_order_id,
+        position_id=last_fill.position_id,
     )
-
-    deadline = time.monotonic() + 1.0
-    remote = position
-    while time.monotonic() < deadline:
-        current = await adapter.get_position(position.symbol)
-        if current is None:
-            return OrderFill(
-                symbol=fill.symbol,
-                side=fill.side,
-                requested_qty=fill.requested_qty,
-                filled_qty=position.qty,
-                avg_price=fill.avg_price,
-                fee_usdt=fill.fee_usdt,
-                order_id=fill.order_id,
-                client_order_id=fill.client_order_id,
-                position_id=fill.position_id,
-            )
-        remote = current
-        if current.qty < position.qty - 1e-12:
-            closed_qty = position.qty - current.qty
-            return OrderFill(
-                symbol=fill.symbol,
-                side=fill.side,
-                requested_qty=fill.requested_qty,
-                filled_qty=closed_qty,
-                avg_price=fill.avg_price,
-                fee_usdt=fill.fee_usdt,
-                order_id=fill.order_id,
-                client_order_id=fill.client_order_id,
-                position_id=fill.position_id,
-            )
-        await asyncio.sleep(0.05)
-
-    raise MexcWebError(f"{reason}: close was submitted but position is still open qty={remote.qty}")
 
 
 async def run(args: argparse.Namespace) -> None:
     _load_project_env()
-    cfg = load_config(args.config)
     symbol = args.symbol.upper()
 
     web_cfg = WebExecutionConfig.demo_from_env(write_enabled=True)
     _assert_demo_safety(web_cfg)
-
-    # Demo execution, order book and trade tape must come from the same MEXC
-    # testnet environment. Using the live contract websocket here creates false
-    # or irrelevant signals for demo-only symbols.
     market = MexcPublicMarket(
         "https://futures.testnet.mexc.com",
         "wss://futures.testnet.mexc.com/edge",
@@ -119,14 +172,12 @@ async def run(args: argparse.Namespace) -> None:
         entry_price = 0.0
         entry_fee = 0.0
         entry_time = 0.0
+        mfe_bps = 0.0
+        mae_bps = 0.0
         session_pnl = 0.0
         gross_profit = 0.0
         gross_loss = 0.0
-        wins = 0
-        losses = 0
-        cycles = 0
-        signals_seen = 0
-        raw_ticks = 0
+        wins = losses = cycles = signals_seen = raw_ticks = 0
         deadline = time.monotonic() + int(args.session_seconds)
         next_fee_check = 0.0
         next_heartbeat = 0.0
@@ -148,6 +199,11 @@ async def run(args: argparse.Namespace) -> None:
                 fee = await read_web_fee_status(adapter, symbol)
                 eligibility = apply_fee_status(eligibility, fee, now_ms)
                 next_fee_check = now + float(args.fee_check_seconds)
+
+            if position is not None and entry_side is not None:
+                move_bps = _signed_move_bps(entry_side, entry_price, tick.price)
+                mfe_bps = max(mfe_bps, move_bps)
+                mae_bps = min(mae_bps, move_bps)
 
             if now >= next_heartbeat:
                 blockers: list[str] = []
@@ -189,15 +245,10 @@ async def run(args: argparse.Namespace) -> None:
                     age_seconds=now - entry_time,
                 )
                 if reason is not None:
-                    fill = await _close_confirmed(adapter, position, reason)
+                    fill = await _flatten_position(adapter, position, reason)
                     fees = entry_fee + fill.fee_usdt
                     pnl_usdt, price_pct, roe_pct = _trade_pnl(
-                        entry_side or position.side,
-                        entry_price,
-                        fill.avg_price,
-                        fill.filled_qty,
-                        leverage,
-                        fees,
+                        entry_side or position.side, entry_price, fill.avg_price, fill.filled_qty, leverage, fees
                     )
                     session_pnl += pnl_usdt
                     duration = now - entry_time
@@ -207,17 +258,22 @@ async def run(args: argparse.Namespace) -> None:
                     elif pnl_usdt < 0:
                         losses += 1
                         gross_loss += abs(pnl_usdt)
+                    peak_roe = mfe_bps / 100.0 * leverage
+                    worst_roe = mae_bps / 100.0 * leverage
+                    giveback_roe = peak_roe - roe_pct
                     console.print(f"EXIT reason={reason} qty={fill.filled_qty:g} avg={fill.avg_price:g} fee={fill.fee_usdt:g}")
                     console.print(
                         f"RESULT pnl={pnl_usdt:+.6f} USDT price={price_pct:+.4f}% ROE={roe_pct:+.2f}% "
+                        f"MFE={mfe_bps:+.3f}bps MAE={mae_bps:+.3f}bps peak_ROE={peak_roe:+.2f}% "
+                        f"worst_ROE={worst_roe:+.2f}% giveback_ROE={giveback_roe:+.2f}% "
                         f"duration={duration:.2f}s session_pnl={session_pnl:+.6f}"
                     )
                     cycles += 1
                     position = None
                     exit_policy = None
                     entry_side = None
-                    entry_price = 0.0
-                    entry_fee = 0.0
+                    entry_price = entry_fee = entry_time = 0.0
+                    mfe_bps = mae_bps = 0.0
                     if fill.fee_usdt != 0:
                         raise MexcWebError(f"non-zero execution fee observed on exit: {fill.fee_usdt}")
                     if cycles >= int(args.max_cycles):
@@ -235,6 +291,11 @@ async def run(args: argparse.Namespace) -> None:
             if snap.price_changes < int(args.min_price_changes):
                 continue
 
+            # Never layer a new IOC on top of an unobserved residual position.
+            residual = await adapter.get_position(symbol)
+            if residual is not None:
+                raise MexcWebError(f"residual position detected before entry qty={residual.qty}; refusing to stack")
+
             signals_seen += 1
             side = OrderSide.LONG if snap.direction == 1 else OrderSide.SHORT
             ask = await adapter.get_best_price(symbol, OrderSide.LONG)
@@ -244,8 +305,8 @@ async def run(args: argparse.Namespace) -> None:
             if spread_bps > float(args.max_spread_bps):
                 continue
             best_price = ask if side is OrderSide.LONG else bid
-
             requested_qty = max(min_base_qty, target_notional / best_price)
+
             fill = await adapter.open_ioc(
                 symbol=symbol,
                 side=side,
@@ -256,18 +317,27 @@ async def run(args: argparse.Namespace) -> None:
             )
             if fill.filled_qty <= 0:
                 continue
+            if fill.filled_qty > requested_qty * 1.000001:
+                raise MexcWebError(
+                    f"impossible IOC fill: requested={requested_qty} filled={fill.filled_qty}; refusing inconsistent state"
+                )
             if fill.fee_usdt != 0:
                 raise MexcWebError(f"non-zero execution fee observed on entry: {fill.fee_usdt}")
 
             remote = await _wait_for_remote_position(adapter, symbol)
             if remote is None:
                 raise MexcWebError("IOC fill reported but position did not appear in open_positions within 1s")
+            if remote.qty > requested_qty * 1.000001:
+                raise MexcWebError(
+                    f"remote position exceeds IOC request: requested={requested_qty} remote={remote.qty}; refusing to continue"
+                )
 
             position = remote
             entry_side = side
             entry_price = remote.entry_price or fill.avg_price
             entry_fee = fill.fee_usdt
             entry_time = now
+            mfe_bps = mae_bps = 0.0
             exit_policy = AsymmetricExitPolicy(
                 side=1 if side is OrderSide.LONG else -1,
                 entry_price=entry_price,
@@ -279,7 +349,7 @@ async def run(args: argparse.Namespace) -> None:
                 fade_confidence=float(args.exit_fade_confidence),
                 min_hold_seconds=float(args.min_hold_seconds),
             )
-            fill_ratio = fill.filled_qty / requested_qty if requested_qty > 0 else 0.0
+            fill_ratio = remote.qty / requested_qty if requested_qty > 0 else 0.0
             console.print(
                 f"ENTRY {'LONG' if side is OrderSide.LONG else 'SHORT'} requested={requested_qty:g} "
                 f"filled={remote.qty:g} fill_ratio={fill_ratio:.1%} entry={entry_price:g} "
@@ -292,19 +362,22 @@ async def run(args: argparse.Namespace) -> None:
             )
 
         if position is not None:
-            fill = await _close_confirmed(adapter, position, "session_timeout")
+            fill = await _flatten_position(adapter, position, "session_timeout")
             fees = entry_fee + fill.fee_usdt
             pnl_usdt, price_pct, roe_pct = _trade_pnl(
                 entry_side or position.side, entry_price, fill.avg_price, fill.filled_qty, leverage, fees
             )
             session_pnl += pnl_usdt
+            peak_roe = mfe_bps / 100.0 * leverage
+            worst_roe = mae_bps / 100.0 * leverage
             console.print(f"TIMEOUT FLATTEN qty={fill.filled_qty:g} avg={fill.avg_price:g} fee={fill.fee_usdt:g}")
             console.print(
                 f"RESULT pnl={pnl_usdt:+.6f} USDT price={price_pct:+.4f}% ROE={roe_pct:+.2f}% "
-                f"session_pnl={session_pnl:+.6f}"
+                f"MFE={mfe_bps:+.3f}bps MAE={mae_bps:+.3f}bps peak_ROE={peak_roe:+.2f}% "
+                f"worst_ROE={worst_roe:+.2f}% session_pnl={session_pnl:+.6f}"
             )
 
-        pf = gross_profit / gross_loss if gross_loss > 0 else (float('inf') if gross_profit > 0 else 0.0)
+        pf = gross_profit / gross_loss if gross_loss > 0 else (float("inf") if gross_profit > 0 else 0.0)
         win_rate = wins / max(1, wins + losses) * 100.0
         console.print(
             f"HYBRID DEMO COMPLETE cycles={cycles} signals={signals_seen} ticks={raw_ticks} wins={wins} losses={losses} "
