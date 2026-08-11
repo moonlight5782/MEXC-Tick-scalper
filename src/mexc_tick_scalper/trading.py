@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import uuid
 
-from .execution import ExecutionAdapter, OrderSide, PositionSnapshot
+from .execution import ExecutionAdapter, OrderFill, OrderSide, PositionSnapshot
 from .exit_logic import TickExitTracker
 from .models import Tick
 from .risk import PositionPlan
@@ -27,6 +27,8 @@ class TradingController:
         self.execution = execution
         self.reversal_ticks = reversal_ticks
         self.positions: dict[str, ManagedPosition] = {}
+        self.last_entry_fill: OrderFill | None = None
+        self.last_exit_fill: OrderFill | None = None
 
     async def reconcile(self, symbol: str) -> PositionSnapshot | None:
         remote = await self.execution.get_position(symbol)
@@ -74,6 +76,7 @@ class TradingController:
             leverage=plan.leverage,
             client_order_id=f"entry-{uuid.uuid4().hex}",
         )
+        self.last_entry_fill = fill
         if fill.filled_qty <= 0:
             return False
 
@@ -84,6 +87,7 @@ class TradingController:
             entry_price=fill.avg_price,
             leverage=plan.leverage,
             isolated=True,
+            position_id=fill.position_id,
         )
         self.positions[symbol] = ManagedPosition(
             snapshot=snapshot,
@@ -110,6 +114,7 @@ class TradingController:
             side=close_side,
             client_order_id=f"exit-{uuid.uuid4().hex}",
         )
+        self.last_exit_fill = fill
         if fill.filled_qty >= position.qty:
             self.positions.pop(tick.symbol, None)
         else:
