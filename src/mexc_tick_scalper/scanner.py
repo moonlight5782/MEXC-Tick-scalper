@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import aiohttp
 
-from .fees import ConfiguredFeeProvider
+from .fees import FeeProvider
 
 
 @dataclass(slots=True)
@@ -16,7 +16,7 @@ class Candidate:
     spread_bps: float
 
 
-async def scan_candidates(rest_base_url: str, cfg: dict, fee_provider: ConfiguredFeeProvider) -> list[Candidate]:
+async def scan_candidates(rest_base_url: str, cfg: dict, fee_provider: FeeProvider) -> list[Candidate]:
     url = f"{rest_base_url.rstrip('/')}/api/v1/contract/ticker"
     async with aiohttp.ClientSession() as session:
         async with session.get(url, timeout=10) as resp:
