@@ -38,12 +38,6 @@ async def _flatten_position(
     position: PositionSnapshot,
     reason: str,
 ) -> OrderFill:
-    """Close the full remote position and verify that no residual remains.
-
-    Testnet can acknowledge a market close before open_positions is fully updated.
-    We therefore re-read the position and submit the remaining qty again if needed.
-    A cycle is complete only after get_position() returns None.
-    """
     close_side = OrderSide.SHORT if position.side is OrderSide.LONG else OrderSide.LONG
     initial_qty = position.qty
     total_closed = 0.0
@@ -52,7 +46,7 @@ async def _flatten_position(
     last_fill: OrderFill | None = None
     remaining = position
 
-    for attempt in range(4):
+    for _ in range(4):
         if remaining.qty <= 1e-12:
             break
         fill = await adapter.close_market_reduce_only(
@@ -70,10 +64,8 @@ async def _flatten_position(
         while time.monotonic() < deadline:
             observed = await adapter.get_position(position.symbol)
             if observed is None:
-                closed_now = before_qty
-                px = fill.avg_price
-                total_closed += closed_now
-                weighted_price += px * closed_now
+                total_closed += before_qty
+                weighted_price += fill.avg_price * before_qty
                 remaining = PositionSnapshot(
                     symbol=position.symbol,
                     side=position.side,
@@ -90,9 +82,8 @@ async def _flatten_position(
                 raise MexcWebError(f"{reason}: position side changed while closing")
             if observed.qty < before_qty - 1e-12:
                 closed_now = before_qty - observed.qty
-                px = fill.avg_price
                 total_closed += closed_now
-                weighted_price += px * closed_now
+                weighted_price += fill.avg_price * closed_now
                 remaining = observed
                 break
             await asyncio.sleep(0.05)
@@ -102,7 +93,6 @@ async def _flatten_position(
         if remaining.qty <= 1e-12:
             break
 
-        # Give testnet a short moment before resubmitting only the true residual.
         await asyncio.sleep(0.10)
         fresh = await adapter.get_position(position.symbol)
         if fresh is None:
@@ -181,11 +171,13 @@ async def run(args: argparse.Namespace) -> None:
         deadline = time.monotonic() + int(args.session_seconds)
         next_fee_check = 0.0
         next_heartbeat = 0.0
+        latched_snap = None
+        latched_until = 0.0
 
         console.print(
             f"HYBRID DEMO {symbol}: target_margin={target_margin:g} USDT target_notional={target_notional:g} USDT "
             f"leverage={leverage}x confidence>={args.min_confidence:.2f} early_adverse={args.early_adverse_changes} "
-            f"liq_buffer={args.liq_buffer_fraction:.0%}"
+            f"liq_buffer={args.liq_buffer_fraction:.0%} signal_ttl={args.signal_ttl_ms:.0f}ms"
         )
         console.print("SCANNING: waiting for MEXC TESTNET trade ticks...")
 
@@ -204,6 +196,21 @@ async def run(args: argparse.Namespace) -> None:
                 move_bps = _signed_move_bps(entry_side, entry_price, tick.price)
                 mfe_bps = max(mfe_bps, move_bps)
                 mae_bps = min(mae_bps, move_bps)
+
+            valid_signal = (
+                eligibility.can_open_new_position
+                and snap.trade_rate >= float(args.min_trade_rate)
+                and snap.price_changes >= int(args.min_price_changes)
+                and snap.direction != 0
+                and snap.confidence >= float(args.min_confidence)
+            )
+            if position is None and valid_signal:
+                latched_snap = snap
+                latched_until = now + float(args.signal_ttl_ms) / 1000.0
+                console.print(
+                    f"LATCHED SIGNAL direction={snap.direction:+d} confidence={snap.confidence:.3f} "
+                    f"rate={snap.trade_rate:.2f}/s price_changes={snap.price_changes} ttl={args.signal_ttl_ms:.0f}ms"
+                )
 
             if now >= next_heartbeat:
                 blockers: list[str] = []
@@ -228,7 +235,12 @@ async def run(args: argparse.Namespace) -> None:
                         blockers.append("spread")
                 except MexcWebError:
                     blockers.append("book")
-                state = "IN_POSITION" if position is not None else ("READY" if not blockers else "BLOCKED:" + ",".join(blockers))
+                if position is not None:
+                    state = "IN_POSITION"
+                elif latched_snap is not None and now <= latched_until:
+                    state = "LATCHED"
+                else:
+                    state = "READY" if not blockers else "BLOCKED:" + ",".join(blockers)
                 console.print(
                     f"HEARTBEAT ticks={raw_ticks} rate={snap.trade_rate:.2f}/s confidence={snap.confidence:.3f} "
                     f"direction={snap.direction:+d} price_changes={snap.price_changes} spread={spread_txt}bps "
@@ -274,6 +286,8 @@ async def run(args: argparse.Namespace) -> None:
                     entry_side = None
                     entry_price = entry_fee = entry_time = 0.0
                     mfe_bps = mae_bps = 0.0
+                    latched_snap = None
+                    latched_until = 0.0
                     if fill.fee_usdt != 0:
                         raise MexcWebError(f"non-zero execution fee observed on exit: {fill.fee_usdt}")
                     if cycles >= int(args.max_cycles):
@@ -284,20 +298,17 @@ async def run(args: argparse.Namespace) -> None:
 
             if now >= deadline:
                 break
-            if not eligibility.can_open_new_position:
-                continue
-            if snap.direction == 0 or snap.confidence < float(args.min_confidence):
-                continue
-            if snap.price_changes < int(args.min_price_changes):
+
+            active_snap = latched_snap if (latched_snap is not None and now <= latched_until) else None
+            if active_snap is None:
+                latched_snap = None
                 continue
 
-            # Never layer a new IOC on top of an unobserved residual position.
             residual = await adapter.get_position(symbol)
             if residual is not None:
                 raise MexcWebError(f"residual position detected before entry qty={residual.qty}; refusing to stack")
 
-            signals_seen += 1
-            side = OrderSide.LONG if snap.direction == 1 else OrderSide.SHORT
+            side = OrderSide.LONG if active_snap.direction == 1 else OrderSide.SHORT
             ask = await adapter.get_best_price(symbol, OrderSide.LONG)
             bid = await adapter.get_best_price(symbol, OrderSide.SHORT)
             mid = (ask + bid) / 2.0
@@ -307,6 +318,7 @@ async def run(args: argparse.Namespace) -> None:
             best_price = ask if side is OrderSide.LONG else bid
             requested_qty = max(min_base_qty, target_notional / best_price)
 
+            signals_seen += 1
             fill = await adapter.open_ioc(
                 symbol=symbol,
                 side=side,
@@ -315,6 +327,8 @@ async def run(args: argparse.Namespace) -> None:
                 leverage=leverage,
                 client_order_id=f"hybrid-entry-{uuid.uuid4().hex}",
             )
+            latched_snap = None
+            latched_until = 0.0
             if fill.filled_qty <= 0:
                 continue
             if fill.filled_qty > requested_qty * 1.000001:
@@ -356,8 +370,8 @@ async def run(args: argparse.Namespace) -> None:
                 f"liq={remote.liquidation_price if remote.liquidation_price is not None else '?'} fee={fill.fee_usdt:g}"
             )
             console.print(
-                f"SIGNAL confidence={snap.confidence:.3f} momentum={snap.momentum_bps:+.3f}bps "
-                f"CVD={snap.cvd_norm:+.3f} buy_ratio={snap.buy_ratio:.3f} rate={snap.trade_rate:.2f}/s "
+                f"SIGNAL confidence={active_snap.confidence:.3f} momentum={active_snap.momentum_bps:+.3f}bps "
+                f"CVD={active_snap.cvd_norm:+.3f} buy_ratio={active_snap.buy_ratio:.3f} rate={active_snap.trade_rate:.2f}/s "
                 f"spread={spread_bps:.3f}bps"
             )
 
@@ -370,11 +384,13 @@ async def run(args: argparse.Namespace) -> None:
             session_pnl += pnl_usdt
             peak_roe = mfe_bps / 100.0 * leverage
             worst_roe = mae_bps / 100.0 * leverage
+            giveback_roe = peak_roe - roe_pct
             console.print(f"TIMEOUT FLATTEN qty={fill.filled_qty:g} avg={fill.avg_price:g} fee={fill.fee_usdt:g}")
             console.print(
                 f"RESULT pnl={pnl_usdt:+.6f} USDT price={price_pct:+.4f}% ROE={roe_pct:+.2f}% "
                 f"MFE={mfe_bps:+.3f}bps MAE={mae_bps:+.3f}bps peak_ROE={peak_roe:+.2f}% "
-                f"worst_ROE={worst_roe:+.2f}% session_pnl={session_pnl:+.6f}"
+                f"worst_ROE={worst_roe:+.2f}% giveback_ROE={giveback_roe:+.2f}% "
+                f"session_pnl={session_pnl:+.6f}"
             )
 
         pf = gross_profit / gross_loss if gross_loss > 0 else (float("inf") if gross_profit > 0 else 0.0)
@@ -407,6 +423,7 @@ def main() -> None:
     parser.add_argument("--liq-buffer-fraction", type=float, default=0.25)
     parser.add_argument("--fee-check-seconds", type=float, default=15.0)
     parser.add_argument("--heartbeat-seconds", type=float, default=3.0)
+    parser.add_argument("--signal-ttl-ms", type=float, default=500.0)
     args = parser.parse_args()
     try:
         asyncio.run(run(args))
