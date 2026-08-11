@@ -8,6 +8,7 @@ fees:
   require_zero_maker: true
   require_zero_taker: true
   unknown_is_blocked: true
+  recheck_seconds: 30
   # Temporary conservative source until the account-specific web fee reader is wired.
   # Add only symbols you have independently verified as 0% maker AND 0% taker.
   verified_zero_fee_symbols: []
@@ -36,6 +37,7 @@ risk:
   min_leverage: 1
   max_session_loss_usdt: 30.0
   max_consecutive_losses: 8
+  liquidation_buffer_fraction: 0.35
 
 mexc:
   rest_base_url: "https://api.mexc.com"
