@@ -11,7 +11,7 @@ from .config import load_config
 from .demo_smoke import _assert_demo_safety
 from .demo_tick_test import _trade_pnl, _wait_for_remote_position
 from .execution import OrderFill, OrderSide, PositionSnapshot
-from .hybrid_strategy import HoldUntilAgainstExit, MicrostructureSignal
+from .hybrid_strategy import AsymmetricExitPolicy, MicrostructureSignal
 from .market import MexcPublicMarket
 from .state import EligibilityState, apply_fee_status
 from .web_execution import MexcWebError, MexcWebExecutionAdapter, WebExecutionConfig
@@ -33,7 +33,6 @@ async def _close_confirmed(
         client_order_id=f"hybrid-exit-{uuid.uuid4().hex}",
     )
 
-    # Demo may report dealVol=0 briefly even when open_positions already flattened.
     deadline = time.monotonic() + 1.0
     remote = position
     while time.monotonic() < deadline:
@@ -97,25 +96,32 @@ async def run(args: argparse.Namespace) -> None:
         if contract_size <= 0 or min_vol <= 0:
             raise MexcWebError("invalid contract sizing metadata")
 
-        qty = contract_size * min_vol * max(1, int(args.min_vol_multiplier))
+        min_base_qty = contract_size * min_vol
         leverage = min(max(1, int(args.leverage)), max_leverage)
+        target_margin = max(0.01, float(args.target_margin_usdt))
+        target_notional = target_margin * leverage
         signal = MicrostructureSignal(window_seconds=args.signal_window_seconds, min_trade_rate=args.min_trade_rate)
 
         position: PositionSnapshot | None = None
-        exit_tracker: HoldUntilAgainstExit | None = None
+        exit_policy: AsymmetricExitPolicy | None = None
         entry_side: OrderSide | None = None
         entry_price = 0.0
         entry_fee = 0.0
         entry_time = 0.0
         session_pnl = 0.0
+        gross_profit = 0.0
+        gross_loss = 0.0
+        wins = 0
+        losses = 0
         cycles = 0
         signals_seen = 0
         deadline = time.monotonic() + int(args.session_seconds)
         next_fee_check = 0.0
 
         console.print(
-            f"HYBRID DEMO {symbol}: qty={qty:g} leverage={leverage}x confidence>={args.min_confidence:.2f} "
-            f"adverse_changes={args.adverse_changes} liq_buffer={args.liq_buffer_fraction:.0%}"
+            f"HYBRID DEMO {symbol}: target_margin={target_margin:g} USDT target_notional={target_notional:g} USDT "
+            f"leverage={leverage}x confidence>={args.min_confidence:.2f} early_adverse={args.early_adverse_changes} "
+            f"liq_buffer={args.liq_buffer_fraction:.0%}"
         )
 
         async for tick in market.trades(symbol):
@@ -129,8 +135,13 @@ async def run(args: argparse.Namespace) -> None:
                 next_fee_check = now + float(args.fee_check_seconds)
 
             if position is not None:
-                assert exit_tracker is not None
-                reason = exit_tracker.on_price(tick.price, position.liquidation_price)
+                assert exit_policy is not None
+                reason = exit_policy.on_tick(
+                    price=tick.price,
+                    liquidation_price=position.liquidation_price,
+                    signal=snap,
+                    age_seconds=now - entry_time,
+                )
                 if reason is not None:
                     fill = await _close_confirmed(adapter, position, reason)
                     fees = entry_fee + fill.fee_usdt
@@ -144,6 +155,12 @@ async def run(args: argparse.Namespace) -> None:
                     )
                     session_pnl += pnl_usdt
                     duration = now - entry_time
+                    if pnl_usdt > 0:
+                        wins += 1
+                        gross_profit += pnl_usdt
+                    elif pnl_usdt < 0:
+                        losses += 1
+                        gross_loss += abs(pnl_usdt)
                     console.print(
                         f"EXIT reason={reason} qty={fill.filled_qty:g} avg={fill.avg_price:g} fee={fill.fee_usdt:g}"
                     )
@@ -153,7 +170,7 @@ async def run(args: argparse.Namespace) -> None:
                     )
                     cycles += 1
                     position = None
-                    exit_tracker = None
+                    exit_policy = None
                     entry_side = None
                     entry_price = 0.0
                     entry_fee = 0.0
@@ -184,11 +201,12 @@ async def run(args: argparse.Namespace) -> None:
                 continue
             best_price = ask if side is OrderSide.LONG else bid
 
+            requested_qty = max(min_base_qty, target_notional / best_price)
             fill = await adapter.open_ioc(
                 symbol=symbol,
                 side=side,
                 price=best_price,
-                qty=qty,
+                qty=requested_qty,
                 leverage=leverage,
                 client_order_id=f"hybrid-entry-{uuid.uuid4().hex}",
             )
@@ -206,14 +224,21 @@ async def run(args: argparse.Namespace) -> None:
             entry_price = remote.entry_price or fill.avg_price
             entry_fee = fill.fee_usdt
             entry_time = now
-            exit_tracker = HoldUntilAgainstExit(
+            exit_policy = AsymmetricExitPolicy(
                 side=1 if side is OrderSide.LONG else -1,
                 entry_price=entry_price,
-                adverse_changes=int(args.adverse_changes),
+                early_adverse_changes=int(args.early_adverse_changes),
                 liq_buffer_fraction=float(args.liq_buffer_fraction),
+                winner_arm_bps=float(args.winner_arm_bps),
+                winner_pullback_bps=float(args.winner_pullback_bps),
+                flip_confidence=float(args.exit_flip_confidence),
+                fade_confidence=float(args.exit_fade_confidence),
+                min_hold_seconds=float(args.min_hold_seconds),
             )
+            fill_ratio = fill.filled_qty / requested_qty if requested_qty > 0 else 0.0
             console.print(
-                f"ENTRY {'LONG' if side is OrderSide.LONG else 'SHORT'} qty={remote.qty:g} entry={entry_price:g} "
+                f"ENTRY {'LONG' if side is OrderSide.LONG else 'SHORT'} requested={requested_qty:g} "
+                f"filled={remote.qty:g} fill_ratio={fill_ratio:.1%} entry={entry_price:g} "
                 f"liq={remote.liquidation_price if remote.liquidation_price is not None else '?'} fee={fill.fee_usdt:g}"
             )
             console.print(
@@ -235,27 +260,34 @@ async def run(args: argparse.Namespace) -> None:
                 f"session_pnl={session_pnl:+.6f}"
             )
 
+        pf = gross_profit / gross_loss if gross_loss > 0 else (float('inf') if gross_profit > 0 else 0.0)
+        win_rate = wins / max(1, wins + losses) * 100.0
         console.print(
-            f"[green]HYBRID DEMO COMPLETE[/green] cycles={cycles} signals={signals_seen} "
-            f"session_pnl={session_pnl:+.6f} USDT"
+            f"[green]HYBRID DEMO COMPLETE[/green] cycles={cycles} signals={signals_seen} wins={wins} losses={losses} "
+            f"win_rate={win_rate:.1f}% PF={pf:.2f} session_pnl={session_pnl:+.6f} USDT"
         )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="MEXC Demo hybrid microstructure strategy test")
+    parser = argparse.ArgumentParser(description="MEXC Demo reconstructed IOC + microstructure strategy")
     parser.add_argument("--symbol", required=True)
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--session-seconds", type=int, default=300)
     parser.add_argument("--max-cycles", type=int, default=10)
     parser.add_argument("--leverage", type=int, default=50)
-    parser.add_argument("--min-vol-multiplier", type=int, default=1)
+    parser.add_argument("--target-margin-usdt", type=float, default=2.0)
     parser.add_argument("--signal-window-seconds", type=float, default=5.0)
     parser.add_argument("--min-trade-rate", type=float, default=0.5)
     parser.add_argument("--min-confidence", type=float, default=0.35)
     parser.add_argument("--min-price-changes", type=int, default=3)
     parser.add_argument("--max-spread-bps", type=float, default=10.0)
-    parser.add_argument("--adverse-changes", type=int, default=3)
-    parser.add_argument("--liq-buffer-fraction", type=float, default=0.20)
+    parser.add_argument("--early-adverse-changes", type=int, default=2)
+    parser.add_argument("--winner-arm-bps", type=float, default=0.5)
+    parser.add_argument("--winner-pullback-bps", type=float, default=1.5)
+    parser.add_argument("--exit-flip-confidence", type=float, default=0.30)
+    parser.add_argument("--exit-fade-confidence", type=float, default=0.12)
+    parser.add_argument("--min-hold-seconds", type=float, default=0.35)
+    parser.add_argument("--liq-buffer-fraction", type=float, default=0.25)
     parser.add_argument("--fee-check-seconds", type=float, default=15.0)
     args = parser.parse_args()
     try:
