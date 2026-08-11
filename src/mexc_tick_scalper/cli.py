@@ -4,12 +4,14 @@ import argparse
 import asyncio
 import math
 import time
+import uuid
 
 from rich.console import Console
 from rich.table import Table
 
 from .backtest import walk_forward
 from .config import load_config
+from .execution import OrderSide
 from .fees import provider_from_config
 from .market import MexcPublicMarket
 from .scanner import scan_candidates
@@ -193,6 +195,88 @@ async def cmd_web_probe(args: argparse.Namespace) -> None:
         raise SystemExit(2) from exc
 
 
+async def cmd_demo_check(args: argparse.Namespace) -> None:
+    """Read-only MEXC Demo Trading session check."""
+    try:
+        demo_cfg = WebExecutionConfig.demo_from_env(write_enabled=False)
+        async with MexcWebExecutionAdapter(demo_cfg) as adapter:
+            result = await adapter.probe()
+            detail = await adapter.get_contract_detail(args.symbol.upper()) if args.symbol else None
+        console.print(f"[green]DEMO session authenticated[/green] against {demo_cfg.base_url}")
+        asset_data = result.get("asset", {}).get("data") if isinstance(result.get("asset"), dict) else None
+        if isinstance(asset_data, dict):
+            available = asset_data.get("availableBalance", asset_data.get("available", "?"))
+            equity = asset_data.get("equity", asset_data.get("cashBalance", "?"))
+            console.print(f"Demo USDT available={available} equity={equity}")
+        positions = result.get("positions", {}).get("data", []) if isinstance(result.get("positions"), dict) else []
+        console.print(f"Demo open positions: {len(positions or [])}")
+        if detail:
+            console.print(
+                f"{args.symbol.upper()}: contractSize={detail.get('contractSize')} "
+                f"minVol={detail.get('minVol')} maxLeverage={detail.get('maxLeverage')}"
+            )
+    except MexcWebError as exc:
+        console.print(f"[red]DEMO check failed:[/red] {exc}")
+        raise SystemExit(2) from exc
+
+
+async def cmd_demo_roundtrip(args: argparse.Namespace) -> None:
+    """Place one small IOC order and immediately flatten it on MEXC Demo only."""
+    if not args.confirm_demo_order:
+        console.print("[red]Refusing demo write.[/red] Add --confirm-demo-order to place simulated orders.")
+        raise SystemExit(2)
+    if args.notional_usdt <= 0 or args.leverage <= 0:
+        raise SystemExit("--notional-usdt and --leverage must be positive")
+
+    symbol = args.symbol.upper()
+    side = OrderSide.LONG if args.side.lower() == "long" else OrderSide.SHORT
+    close_action_side = OrderSide.SHORT if side is OrderSide.LONG else OrderSide.LONG
+    try:
+        demo_cfg = WebExecutionConfig.demo_from_env(write_enabled=True)
+        async with MexcWebExecutionAdapter(demo_cfg) as adapter:
+            existing = await adapter.get_position(symbol)
+            if existing is not None:
+                raise MexcWebError(f"refusing roundtrip: demo position already open for {symbol}")
+            price = await adapter.get_best_price(symbol, side)
+            qty = args.notional_usdt / price
+            entry_id = f"demo-e-{uuid.uuid4().hex[:20]}"
+            entry = await adapter.open_ioc(
+                symbol=symbol,
+                side=side,
+                price=price,
+                qty=qty,
+                leverage=args.leverage,
+                client_order_id=entry_id,
+            )
+            console.print(
+                f"DEMO IOC requested={entry.requested_qty:g} filled={entry.filled_qty:g} "
+                f"avg={entry.avg_price:g} fee={entry.fee_usdt:g}"
+            )
+            if entry.filled_qty <= 0:
+                console.print("[yellow]IOC did not fill; nothing to close.[/yellow]")
+                return
+            exit_id = f"demo-x-{uuid.uuid4().hex[:20]}"
+            exit_fill = await adapter.close_market_reduce_only(
+                symbol=symbol,
+                qty=entry.filled_qty,
+                side=close_action_side,
+                client_order_id=exit_id,
+            )
+            remaining = await adapter.get_position(symbol)
+            console.print(
+                f"DEMO EXIT filled={exit_fill.filled_qty:g} avg={exit_fill.avg_price:g} "
+                f"fee={exit_fill.fee_usdt:g}"
+            )
+            if remaining is None:
+                console.print("[green]DEMO ROUNDTRIP PASSED: position is flat.[/green]")
+            else:
+                console.print(f"[red]DEMO ROUNDTRIP WARNING: remaining qty={remaining.qty:g}[/red]")
+                raise SystemExit(3)
+    except MexcWebError as exc:
+        console.print(f"[red]DEMO roundtrip failed:[/red] {exc}")
+        raise SystemExit(2) from exc
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="mexc-scalper")
     sub = p.add_subparsers(dest="command", required=True)
@@ -218,7 +302,17 @@ def build_parser() -> argparse.ArgumentParser:
     backtest.add_argument("--config", default="config.yaml")
 
     web_probe = sub.add_parser("web-probe", help="Read-only WEB-session auth/balance/position probe")
-    web_probe.add_argument("--base-url", default=None, help="Override MEXC_WEB_BASE_URL, useful for Demo")
+    web_probe.add_argument("--base-url", default=None, help="Override MEXC_WEB_BASE_URL")
+
+    demo_check = sub.add_parser("demo-check", help="Read-only MEXC Demo Trading session/contract check")
+    demo_check.add_argument("--symbol", default="BTC_USDT")
+
+    demo_roundtrip = sub.add_parser("demo-roundtrip", help="One tiny IOC entry + immediate market flatten on Demo")
+    demo_roundtrip.add_argument("--symbol", default="BTC_USDT")
+    demo_roundtrip.add_argument("--side", choices=["long", "short"], default="long")
+    demo_roundtrip.add_argument("--notional-usdt", type=float, default=10.0)
+    demo_roundtrip.add_argument("--leverage", type=int, default=5)
+    demo_roundtrip.add_argument("--confirm-demo-order", action="store_true")
     return p
 
 
@@ -234,6 +328,10 @@ def main() -> None:
         cmd_backtest(args)
     elif args.command == "web-probe":
         asyncio.run(cmd_web_probe(args))
+    elif args.command == "demo-check":
+        asyncio.run(cmd_demo_check(args))
+    elif args.command == "demo-roundtrip":
+        asyncio.run(cmd_demo_roundtrip(args))
 
 
 if __name__ == "__main__":
