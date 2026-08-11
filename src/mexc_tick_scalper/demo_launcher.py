@@ -4,8 +4,10 @@ import asyncio
 import os
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
 
@@ -14,6 +16,13 @@ from .web_execution import MexcWebError, MexcWebExecutionAdapter, WebExecutionCo
 from .web_fee import provider_from_web_fee_payload
 
 console = Console()
+
+
+def _load_project_env() -> None:
+    """Load the repository .env regardless of how the launcher was started."""
+    project_root = Path(__file__).resolve().parents[2]
+    env_path = project_root / ".env"
+    load_dotenv(env_path, override=False)
 
 
 async def _zero_fee_contracts() -> list[dict[str, Any]]:
@@ -57,6 +66,7 @@ def _ask_int(prompt: str, default: int) -> int:
 
 
 async def main_async() -> None:
+    _load_project_env()
     rows = await _zero_fee_contracts()
     if not rows:
         raise MexcWebError("no Demo contracts with confirmed maker=0 and taker=0")
