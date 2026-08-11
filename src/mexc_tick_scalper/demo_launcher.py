@@ -54,19 +54,22 @@ async def _tradable_zero_fee_contracts() -> list[dict[str, Any]]:
     if not candidates:
         return []
 
-    console.print(f"Measuring TESTNET tick activity for {len(candidates)} zero-fee pairs...")
+    console.print(f"Measuring TESTNET trade + order-book activity for {len(candidates)} zero-fee pairs...")
     activity = await sample_many([str(row.get("symbol", "")).upper() for row in candidates], seconds=6.0)
     for row in candidates:
         sample = activity.get(str(row.get("symbol", "")).upper())
         row["tickRate"] = sample.trade_rate if sample else 0.0
         row["changeRate"] = sample.change_rate if sample else 0.0
+        row["bookChangeRate"] = sample.book_change_rate if sample else 0.0
+        row["activityRate"] = sample.activity_rate if sample else 0.0
         row["sampleTicks"] = sample.ticks if sample else 0
         row["sampleChanges"] = sample.price_changes if sample else 0
+        row["sampleBookChanges"] = sample.book_changes if sample else 0
 
-    # For tick scalping, actual price-change activity is primary; trade rate second; spread third.
     candidates.sort(
         key=lambda row: (
             -float(row.get("changeRate") or 0.0),
+            -float(row.get("bookChangeRate") or 0.0),
             -float(row.get("tickRate") or 0.0),
             float(row.get("spreadPct") or 999.0),
             str(row.get("symbol", "")),
@@ -79,7 +82,8 @@ def _show(rows: list[dict[str, Any]]) -> None:
     table = Table(title=f"MEXC Demo zero-fee pairs ranked by TESTNET activity ({len(rows)})")
     table.add_column("#", justify="right")
     table.add_column("Symbol")
-    table.add_column("Price chg/s", justify="right")
+    table.add_column("Trade chg/s", justify="right")
+    table.add_column("Book chg/s", justify="right")
     table.add_column("Trades/s", justify="right")
     table.add_column("Spread %", justify="right")
     table.add_column("Max lev", justify="right")
@@ -88,6 +92,7 @@ def _show(rows: list[dict[str, Any]]) -> None:
             str(idx),
             str(row.get("symbol", "?")),
             f"{float(row.get('changeRate') or 0):.2f}",
+            f"{float(row.get('bookChangeRate') or 0):.2f}",
             f"{float(row.get('tickRate') or 0):.2f}",
             f"{float(row.get('spreadPct') or 0):.4f}",
             str(row.get("maxLeverage", "?")),
@@ -112,9 +117,12 @@ async def main_async() -> None:
         raise MexcWebError("no Demo contracts currently have confirmed 0/0 fee and a usable bid/ask book")
 
     _show(rows)
-    active_rows = [row for row in rows if float(row.get("changeRate") or 0) > 0]
+    active_rows = [row for row in rows if float(row.get("activityRate") or 0) > 0]
     if not active_rows:
-        raise MexcWebError("all current zero-fee Demo pairs had 0 price changes during the activity sample; testnet is too inactive for a meaningful tick-scalper test right now")
+        raise MexcWebError(
+            "all current zero-fee Demo pairs had 0 trade-price and 0 top-of-book changes during the activity sample; "
+            "testnet is too inactive for a meaningful test right now"
+        )
 
     choice = input("Select pair number (or A for automatic most-active candidate): ").strip().lower()
     if choice in {"a", "auto", ""}:
@@ -124,8 +132,10 @@ async def main_async() -> None:
         if idx < 1 or idx > len(rows):
             raise MexcWebError("invalid pair number")
         selected = rows[idx - 1]
-        if float(selected.get("changeRate") or 0) <= 0:
-            raise MexcWebError(f"{selected.get('symbol')} had no price changes in the TESTNET activity sample; choose an active pair")
+        if float(selected.get("activityRate") or 0) <= 0:
+            raise MexcWebError(
+                f"{selected.get('symbol')} had no trade-price or book movement in the TESTNET activity sample; choose an active pair"
+            )
 
     symbol = str(selected.get("symbol", "")).upper()
     max_lev = int(selected.get("maxLeverage") or 1)
@@ -142,7 +152,8 @@ async def main_async() -> None:
 
     console.print(
         f"Starting {label} {symbol} at {leverage}x, max_cycles={max_cycles}, session={seconds}s "
-        f"sample_activity={float(selected.get('changeRate') or 0):.2f} price_changes/s"
+        f"sample_trade_changes={float(selected.get('changeRate') or 0):.2f}/s "
+        f"sample_book_changes={float(selected.get('bookChangeRate') or 0):.2f}/s"
     )
     cmd = [
         sys.executable,
