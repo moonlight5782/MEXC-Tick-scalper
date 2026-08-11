@@ -11,6 +11,19 @@ import websockets
 from .models import Tick, Ticker
 
 
+def _timestamp_ms(value: object) -> int:
+    """Normalize MEXC timestamps that may arrive in seconds or milliseconds."""
+    try:
+        ts = int(value or 0)
+    except (TypeError, ValueError):
+        ts = 0
+    if ts <= 0:
+        return int(time.time() * 1000)
+    if ts < 10_000_000_000:  # seconds epoch
+        return ts * 1000
+    return ts
+
+
 class MexcPublicMarket:
     def __init__(self, rest_base_url: str, websocket_url: str) -> None:
         self.rest_base_url = rest_base_url.rstrip("/")
@@ -40,7 +53,7 @@ class MexcPublicMarket:
             bid=float(data.get("bid1") or 0),
             ask=float(data.get("ask1") or 0),
             volume24=float(data.get("volume24") or 0),
-            ts_ms=int(data.get("timestamp") or time.time() * 1000),
+            ts_ms=_timestamp_ms(data.get("timestamp")),
         )
 
     async def trades(self, symbol: str) -> AsyncIterator[Tick]:
@@ -72,7 +85,7 @@ class MexcPublicMarket:
                                 price=price,
                                 volume=float(row.get("v") or 0),
                                 side=int(row.get("T") or 0),
-                                ts_ms=int(row.get("t") or msg.get("ts") or time.time() * 1000),
+                                ts_ms=_timestamp_ms(row.get("t") or msg.get("ts")),
                             )
             except asyncio.CancelledError:
                 raise
