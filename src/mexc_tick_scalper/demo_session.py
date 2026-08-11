@@ -11,6 +11,7 @@ from .config import load_config
 from .demo_smoke import _assert_demo_safety
 from .execution import OrderSide
 from .market import MexcPublicMarket
+from .models import FeeStatus
 from .risk import PositionPlan
 from .signals import momentum_direction
 from .state import EligibilityState, apply_fee_status
@@ -31,14 +32,24 @@ async def _warmup_ticks(market: MexcPublicMarket, symbol: str, seconds: int):
     return ticks
 
 
+def _pause_on_actual_fee(eligibility: EligibilityState, actual_fee_usdt: float, now_ms: int) -> EligibilityState:
+    if actual_fee_usdt == 0:
+        return eligibility
+    return apply_fee_status(
+        eligibility,
+        FeeStatus(maker=0.0, taker=1.0, source=f"actual_execution_fee_usdt={actual_fee_usdt}"),
+        now_ms,
+    )
+
+
 async def run(args: argparse.Namespace) -> None:
     cfg = load_config(args.config)
     strategy_cfg = cfg.get("strategy", {})
     market_cfg = cfg.get("mexc", {})
     symbol = args.symbol.upper()
 
-    web_cfg = WebExecutionConfig.from_env(base_url=args.base_url, write_enabled=True)
-    _assert_demo_safety(web_cfg.base_url)
+    web_cfg = WebExecutionConfig.demo_from_env(write_enabled=True)
+    _assert_demo_safety(web_cfg)
 
     market = MexcPublicMarket(
         market_cfg.get("rest_base_url", "https://api.mexc.com"),
@@ -133,12 +144,8 @@ async def run(args: argparse.Namespace) -> None:
                     console.print(
                         f"EXIT qty={fill.filled_qty:g} avg={fill.avg_price:g} fee={fill.fee_usdt:g}"
                     )
+                    eligibility = _pause_on_actual_fee(eligibility, fill.fee_usdt, now_ms)
                     if fill.fee_usdt != 0:
-                        eligibility = apply_fee_status(
-                            eligibility,
-                            await read_web_fee_status(adapter, symbol),
-                            now_ms,
-                        )
                         console.print("[red]Non-zero execution fee observed; new entries paused.[/red]")
                     cycles += 1
                     cooldown_until_ms = now_ms + int(strategy_cfg.get("cooldown_after_exit_ms", 250))
@@ -186,12 +193,8 @@ async def run(args: argparse.Namespace) -> None:
                     f"ENTRY {'LONG' if direction == 1 else 'SHORT'} qty={fill.filled_qty:g} "
                     f"avg={fill.avg_price:g} fee={fill.fee_usdt:g}"
                 )
+                eligibility = _pause_on_actual_fee(eligibility, fill.fee_usdt, now_ms)
                 if fill.fee_usdt != 0:
-                    eligibility = apply_fee_status(
-                        eligibility,
-                        await read_web_fee_status(adapter, symbol),
-                        now_ms,
-                    )
                     console.print("[red]Non-zero entry fee observed; further entries paused.[/red]")
 
             if now_mono >= session_deadline:
@@ -208,7 +211,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Adaptive guarded MEXC Demo tick session")
     parser.add_argument("--symbol", required=True)
     parser.add_argument("--config", default="config.yaml")
-    parser.add_argument("--base-url", default=None)
     parser.add_argument("--warmup-seconds", type=int, default=180)
     parser.add_argument("--session-seconds", type=int, default=600)
     parser.add_argument("--max-cycles", type=int, default=5)
