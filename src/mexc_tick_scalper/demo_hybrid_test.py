@@ -4,7 +4,9 @@ import argparse
 import asyncio
 import time
 import uuid
+from pathlib import Path
 
+from dotenv import load_dotenv
 from rich.console import Console
 
 from .config import load_config
@@ -18,6 +20,11 @@ from .web_execution import MexcWebError, MexcWebExecutionAdapter, WebExecutionCo
 from .web_fee import read_web_fee_status
 
 console = Console()
+
+
+def _load_project_env() -> None:
+    project_root = Path(__file__).resolve().parents[2]
+    load_dotenv(project_root / ".env", override=False)
 
 
 async def _close_confirmed(
@@ -69,6 +76,7 @@ async def _close_confirmed(
 
 
 async def run(args: argparse.Namespace) -> None:
+    _load_project_env()
     cfg = load_config(args.config)
     market_cfg = cfg.get("mexc", {})
     symbol = args.symbol.upper()
@@ -115,16 +123,21 @@ async def run(args: argparse.Namespace) -> None:
         losses = 0
         cycles = 0
         signals_seen = 0
+        raw_ticks = 0
         deadline = time.monotonic() + int(args.session_seconds)
         next_fee_check = 0.0
+        next_heartbeat = 0.0
+        last_spread_bps: float | None = None
 
         console.print(
             f"HYBRID DEMO {symbol}: target_margin={target_margin:g} USDT target_notional={target_notional:g} USDT "
             f"leverage={leverage}x confidence>={args.min_confidence:.2f} early_adverse={args.early_adverse_changes} "
             f"liq_buffer={args.liq_buffer_fraction:.0%}"
         )
+        console.print("SCANNING: waiting for live trade ticks...")
 
         async for tick in market.trades(symbol):
+            raw_ticks += 1
             now = time.monotonic()
             now_ms = int(time.time() * 1000)
             snap = signal.update(tick)
@@ -133,6 +146,37 @@ async def run(args: argparse.Namespace) -> None:
                 fee = await read_web_fee_status(adapter, symbol)
                 eligibility = apply_fee_status(eligibility, fee, now_ms)
                 next_fee_check = now + float(args.fee_check_seconds)
+
+            if now >= next_heartbeat:
+                blockers: list[str] = []
+                if not eligibility.can_open_new_position:
+                    blockers.append("fee")
+                if snap.trade_rate < float(args.min_trade_rate):
+                    blockers.append("rate")
+                if snap.price_changes < int(args.min_price_changes):
+                    blockers.append("price_changes")
+                if snap.direction == 0:
+                    blockers.append("direction")
+                if snap.confidence < float(args.min_confidence):
+                    blockers.append("confidence")
+                spread_txt = "?"
+                try:
+                    ask_hb = await adapter.get_best_price(symbol, OrderSide.LONG)
+                    bid_hb = await adapter.get_best_price(symbol, OrderSide.SHORT)
+                    mid_hb = (ask_hb + bid_hb) / 2.0
+                    last_spread_bps = ((ask_hb - bid_hb) / mid_hb) * 10_000 if mid_hb > 0 else 99999.0
+                    spread_txt = f"{last_spread_bps:.3f}"
+                    if last_spread_bps > float(args.max_spread_bps):
+                        blockers.append("spread")
+                except MexcWebError:
+                    blockers.append("book")
+                state = "IN_POSITION" if position is not None else ("READY" if not blockers else "BLOCKED:" + ",".join(blockers))
+                console.print(
+                    f"HEARTBEAT ticks={raw_ticks} rate={snap.trade_rate:.2f}/s confidence={snap.confidence:.3f} "
+                    f"direction={snap.direction:+d} price_changes={snap.price_changes} spread={spread_txt}bps "
+                    f"fee={fee.maker}/{fee.taker} state={state}"
+                )
+                next_heartbeat = now + float(args.heartbeat_seconds)
 
             if position is not None:
                 assert exit_policy is not None
@@ -161,9 +205,7 @@ async def run(args: argparse.Namespace) -> None:
                     elif pnl_usdt < 0:
                         losses += 1
                         gross_loss += abs(pnl_usdt)
-                    console.print(
-                        f"EXIT reason={reason} qty={fill.filled_qty:g} avg={fill.avg_price:g} fee={fill.fee_usdt:g}"
-                    )
+                    console.print(f"EXIT reason={reason} qty={fill.filled_qty:g} avg={fill.avg_price:g} fee={fill.fee_usdt:g}")
                     console.print(
                         f"RESULT pnl={pnl_usdt:+.6f} USDT price={price_pct:+.4f}% ROE={roe_pct:+.2f}% "
                         f"duration={duration:.2f}s session_pnl={session_pnl:+.6f}"
@@ -263,7 +305,7 @@ async def run(args: argparse.Namespace) -> None:
         pf = gross_profit / gross_loss if gross_loss > 0 else (float('inf') if gross_profit > 0 else 0.0)
         win_rate = wins / max(1, wins + losses) * 100.0
         console.print(
-            f"[green]HYBRID DEMO COMPLETE[/green] cycles={cycles} signals={signals_seen} wins={wins} losses={losses} "
+            f"HYBRID DEMO COMPLETE cycles={cycles} signals={signals_seen} ticks={raw_ticks} wins={wins} losses={losses} "
             f"win_rate={win_rate:.1f}% PF={pf:.2f} session_pnl={session_pnl:+.6f} USDT"
         )
 
@@ -289,6 +331,7 @@ def main() -> None:
     parser.add_argument("--min-hold-seconds", type=float, default=0.35)
     parser.add_argument("--liq-buffer-fraction", type=float, default=0.25)
     parser.add_argument("--fee-check-seconds", type=float, default=15.0)
+    parser.add_argument("--heartbeat-seconds", type=float, default=3.0)
     args = parser.parse_args()
     try:
         asyncio.run(run(args))
