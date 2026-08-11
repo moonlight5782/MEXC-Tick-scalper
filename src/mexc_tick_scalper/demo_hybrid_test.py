@@ -78,14 +78,17 @@ async def _close_confirmed(
 async def run(args: argparse.Namespace) -> None:
     _load_project_env()
     cfg = load_config(args.config)
-    market_cfg = cfg.get("mexc", {})
     symbol = args.symbol.upper()
 
     web_cfg = WebExecutionConfig.demo_from_env(write_enabled=True)
     _assert_demo_safety(web_cfg)
+
+    # Demo execution, order book and trade tape must come from the same MEXC
+    # testnet environment. Using the live contract websocket here creates false
+    # or irrelevant signals for demo-only symbols.
     market = MexcPublicMarket(
-        market_cfg.get("rest_base_url", "https://api.mexc.com"),
-        market_cfg.get("websocket_url", "wss://contract.mexc.com/edge"),
+        "https://futures.testnet.mexc.com",
+        "wss://futures.testnet.mexc.com/edge",
     )
 
     async with MexcWebExecutionAdapter(web_cfg) as adapter:
@@ -127,14 +130,13 @@ async def run(args: argparse.Namespace) -> None:
         deadline = time.monotonic() + int(args.session_seconds)
         next_fee_check = 0.0
         next_heartbeat = 0.0
-        last_spread_bps: float | None = None
 
         console.print(
             f"HYBRID DEMO {symbol}: target_margin={target_margin:g} USDT target_notional={target_notional:g} USDT "
             f"leverage={leverage}x confidence>={args.min_confidence:.2f} early_adverse={args.early_adverse_changes} "
             f"liq_buffer={args.liq_buffer_fraction:.0%}"
         )
-        console.print("SCANNING: waiting for live trade ticks...")
+        console.print("SCANNING: waiting for MEXC TESTNET trade ticks...")
 
         async for tick in market.trades(symbol):
             raw_ticks += 1
@@ -164,9 +166,9 @@ async def run(args: argparse.Namespace) -> None:
                     ask_hb = await adapter.get_best_price(symbol, OrderSide.LONG)
                     bid_hb = await adapter.get_best_price(symbol, OrderSide.SHORT)
                     mid_hb = (ask_hb + bid_hb) / 2.0
-                    last_spread_bps = ((ask_hb - bid_hb) / mid_hb) * 10_000 if mid_hb > 0 else 99999.0
-                    spread_txt = f"{last_spread_bps:.3f}"
-                    if last_spread_bps > float(args.max_spread_bps):
+                    spread_bps = ((ask_hb - bid_hb) / mid_hb) * 10_000 if mid_hb > 0 else 99999.0
+                    spread_txt = f"{spread_bps:.3f}"
+                    if spread_bps > float(args.max_spread_bps):
                         blockers.append("spread")
                 except MexcWebError:
                     blockers.append("book")
