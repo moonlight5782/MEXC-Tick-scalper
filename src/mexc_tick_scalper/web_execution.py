@@ -8,6 +8,7 @@ import os
 import time
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 
 import aiohttp
 
@@ -18,8 +19,12 @@ class MexcWebError(RuntimeError):
     pass
 
 
+DEMO_HOST = "futures.testnet.mexc.com"
+LIVE_FUTURES_HOST = "futures.mexc.com"
+
+
 def _signature(token: str, payload: Any, timestamp_ms: int) -> str:
-    """Reverse-engineered browser signature used by MEXC web Futures requests."""
+    """Browser signature used by MEXC web Futures requests."""
     ts = str(timestamp_ms)
     seed = hashlib.md5((token + ts).encode()).hexdigest()[7:]
     body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
@@ -34,6 +39,7 @@ class WebExecutionConfig:
     referer: str = "https://www.mexc.com/"
     timeout_seconds: float = 5.0
     write_enabled: bool = False
+    environment: str = "live"
 
     @classmethod
     def from_env(cls, *, base_url: str | None = None, write_enabled: bool = False) -> "WebExecutionConfig":
@@ -42,14 +48,52 @@ class WebExecutionConfig:
             raise MexcWebError("MEXC_WEB_TOKEN is not set")
         if not token.startswith("WEB"):
             raise MexcWebError("MEXC_WEB_TOKEN does not look like a WEB session token")
-        return cls(
+        cfg = cls(
             auth_token=token,
             base_url=(base_url or os.getenv("MEXC_WEB_BASE_URL") or "https://futures.mexc.com/api/v1").rstrip("/"),
             origin=os.getenv("MEXC_WEB_ORIGIN", "https://www.mexc.com"),
             referer=os.getenv("MEXC_WEB_REFERER", "https://www.mexc.com/"),
             timeout_seconds=float(os.getenv("MEXC_WEB_TIMEOUT_SECONDS", "5")),
             write_enabled=write_enabled,
+            environment="live",
         )
+        return cfg
+
+    @classmethod
+    def demo_from_env(cls, *, write_enabled: bool = False) -> "WebExecutionConfig":
+        """Build a configuration that is physically unable to target live Futures.
+
+        Demo uses separate environment variables so copying a live .env cannot
+        silently enable demo writes (or vice versa).
+        """
+        token = os.getenv("MEXC_DEMO_WEB_TOKEN", "").strip()
+        if not token:
+            raise MexcWebError("MEXC_DEMO_WEB_TOKEN is not set")
+        if not token.startswith("WEB"):
+            raise MexcWebError("MEXC_DEMO_WEB_TOKEN does not look like a WEB session token")
+        cfg = cls(
+            auth_token=token,
+            base_url=(os.getenv("MEXC_DEMO_WEB_BASE_URL") or f"https://{DEMO_HOST}/api/v1").rstrip("/"),
+            origin=os.getenv("MEXC_DEMO_WEB_ORIGIN", f"https://{DEMO_HOST}"),
+            referer=os.getenv("MEXC_DEMO_WEB_REFERER", f"https://{DEMO_HOST}/futures/BTC_USDT"),
+            timeout_seconds=float(os.getenv("MEXC_DEMO_WEB_TIMEOUT_SECONDS", "5")),
+            write_enabled=write_enabled,
+            environment="demo",
+        )
+        cfg.validate_environment()
+        return cfg
+
+    def validate_environment(self) -> None:
+        host = (urlparse(self.base_url).hostname or "").lower()
+        if self.environment == "demo":
+            if host != DEMO_HOST:
+                raise MexcWebError(
+                    f"DEMO adapter refuses non-testnet host {host!r}; expected {DEMO_HOST!r}"
+                )
+            origin_host = (urlparse(self.origin).hostname or "").lower()
+            referer_host = (urlparse(self.referer).hostname or "").lower()
+            if origin_host != DEMO_HOST or referer_host != DEMO_HOST:
+                raise MexcWebError("DEMO origin/referer must also point to futures.testnet.mexc.com")
 
 
 class MexcWebExecutionAdapter:
@@ -57,10 +101,12 @@ class MexcWebExecutionAdapter:
 
     Controller quantities are expressed in base-asset units. MEXC order `vol`
     is contract volume, therefore this adapter converts through contractSize and
-    volUnit. Writes are disabled by default.
+    volUnit. Writes are disabled by default. Demo config has an additional hard
+    host boundary that rejects any live domain.
     """
 
     def __init__(self, config: WebExecutionConfig) -> None:
+        config.validate_environment()
         self.config = config
         self._session: aiohttp.ClientSession | None = None
         self._contract_cache: dict[str, dict[str, Any]] = {}
@@ -113,6 +159,9 @@ class MexcWebExecutionAdapter:
     def _require_write(self) -> None:
         if not self.config.write_enabled:
             raise MexcWebError("web execution writes are disabled")
+        # Re-validate immediately before every write so a mutated config cannot
+        # accidentally cross from Demo into Live.
+        self.config.validate_environment()
 
     async def close(self) -> None:
         if self._session is not None and not self._session.closed:
@@ -245,10 +294,10 @@ class MexcWebExecutionAdapter:
             "side": 1 if side is OrderSide.LONG else 3,
             "type": 3,
             "openType": 1,
-            "externalOid": client_order_id,
+            "externalOid": client_order_id[:32],
         }
         submitted = await self._request("POST", "/private/order/submit", payload=payload)
-        order = await self._wait_for_order_result(symbol, client_order_id)
+        order = await self._wait_for_order_result(symbol, client_order_id[:32])
         filled_base_qty = await self._from_contract_vol(symbol, float(order.get("dealVol") or 0))
         return OrderFill(
             symbol=symbol,
@@ -286,12 +335,12 @@ class MexcWebExecutionAdapter:
             "side": close_side,
             "type": 5,
             "openType": 1,
-            "externalOid": client_order_id,
+            "externalOid": client_order_id[:32],
         }
         if position.position_id is not None:
             payload["positionId"] = position.position_id
         submitted = await self._request("POST", "/private/order/submit", payload=payload)
-        order = await self._wait_for_order_result(symbol, client_order_id)
+        order = await self._wait_for_order_result(symbol, client_order_id[:32])
         filled_base_qty = await self._from_contract_vol(symbol, float(order.get("dealVol") or 0))
         return OrderFill(
             symbol=symbol,
