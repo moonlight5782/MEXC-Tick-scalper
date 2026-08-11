@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 import uuid
 
@@ -99,6 +100,67 @@ class TradingController:
         )
         return True
 
+    async def _reconcile_exit_fill(
+        self,
+        symbol: str,
+        position: PositionSnapshot,
+        fill: OrderFill,
+    ) -> tuple[OrderFill, bool]:
+        """Confirm an exit from authoritative exchange position state.
+
+        Demo/web order history can briefly report dealVol=0 for a market close even
+        after the position has already changed. We therefore poll the actual open
+        position before deciding whether the exit succeeded.
+        """
+        original_qty = position.qty
+        remote: PositionSnapshot | None = None
+        for _ in range(8):
+            remote = await self.execution.get_position(symbol)
+            if remote is None or remote.qty < original_qty - 1e-12:
+                break
+            await asyncio.sleep(0.05)
+
+        if remote is None:
+            actual_closed = original_qty
+            confirmed_fill = OrderFill(
+                symbol=fill.symbol,
+                side=fill.side,
+                requested_qty=fill.requested_qty,
+                filled_qty=actual_closed,
+                avg_price=fill.avg_price,
+                fee_usdt=fill.fee_usdt,
+                order_id=fill.order_id,
+                client_order_id=fill.client_order_id,
+                position_id=fill.position_id,
+            )
+            self.positions.pop(symbol, None)
+            return confirmed_fill, True
+
+        actual_closed = max(0.0, original_qty - remote.qty)
+        if actual_closed > 0:
+            confirmed_fill = OrderFill(
+                symbol=fill.symbol,
+                side=fill.side,
+                requested_qty=fill.requested_qty,
+                filled_qty=actual_closed,
+                avg_price=fill.avg_price,
+                fee_usdt=fill.fee_usdt,
+                order_id=fill.order_id,
+                client_order_id=fill.client_order_id,
+                position_id=fill.position_id,
+            )
+            managed = self.positions.get(symbol)
+            if managed is not None:
+                managed.snapshot = remote
+            return confirmed_fill, False
+
+        # No execution is confirmed yet. Keep the position managed and do not count
+        # the cycle as closed; a later tick may trigger another close attempt.
+        managed = self.positions.get(symbol)
+        if managed is not None:
+            managed.snapshot = remote
+        return fill, False
+
     async def on_tick(self, tick: Tick) -> bool:
         managed = self.positions.get(tick.symbol)
         if managed is None:
@@ -114,9 +176,6 @@ class TradingController:
             side=close_side,
             client_order_id=f"exit-{uuid.uuid4().hex}",
         )
-        self.last_exit_fill = fill
-        if fill.filled_qty >= position.qty:
-            self.positions.pop(tick.symbol, None)
-        else:
-            position.qty -= fill.filled_qty
-        return True
+        confirmed_fill, fully_closed = await self._reconcile_exit_fill(tick.symbol, position, fill)
+        self.last_exit_fill = confirmed_fill
+        return fully_closed
