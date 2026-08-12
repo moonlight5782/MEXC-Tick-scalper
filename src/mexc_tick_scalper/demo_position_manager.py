@@ -29,7 +29,7 @@ async def list_open_demo_positions(adapter: MexcWebExecutionAdapter) -> list[Pos
             continue
         try:
             qty = await adapter._from_contract_vol(symbol, hold_vol)  # noqa: SLF001
-        except Exception as exc:  # keep cleanup explicit if one contract cannot be parsed
+        except Exception as exc:
             raise MexcWebError(f"cannot decode open Demo position {symbol}: {exc}") from exc
         if qty <= 0:
             continue
@@ -53,22 +53,24 @@ async def list_open_demo_positions(adapter: MexcWebExecutionAdapter) -> list[Pos
 async def wait_account_flat(
     adapter: MexcWebExecutionAdapter,
     *,
-    confirmations: int = 4,
-    delay_seconds: float = 0.35,
-    timeout_seconds: float = 8.0,
+    stable_seconds: float = 3.0,
+    poll_seconds: float = 0.35,
+    timeout_seconds: float = 10.0,
 ) -> bool:
-    """Require several consecutive empty snapshots because testnet state can lag."""
+    """Require a continuously-flat window because TESTNET position state can appear late."""
     deadline = time.monotonic() + timeout_seconds
-    empty_streak = 0
+    flat_since: float | None = None
     while time.monotonic() < deadline:
         positions = await list_open_demo_positions(adapter)
+        now = time.monotonic()
         if not positions:
-            empty_streak += 1
-            if empty_streak >= confirmations:
+            if flat_since is None:
+                flat_since = now
+            if now - flat_since >= stable_seconds:
                 return True
         else:
-            empty_streak = 0
-        await asyncio.sleep(delay_seconds)
+            flat_since = None
+        await asyncio.sleep(poll_seconds)
     return False
 
 
