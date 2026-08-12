@@ -14,6 +14,7 @@ LIVE_REST = "https://contract.mexc.com"
 LIVE_WS = "wss://contract.mexc.com/edge"
 DEFAULT_MAX_DIVERGENCE_BPS = 25.0
 AUTO_FLATTEN_FLAG = "--auto-flatten-start"
+AUTO_FLATTEN_ENV = "MEXC_DEMO_AUTO_FLATTEN_START"
 
 
 class _LiveSignalMarket:
@@ -24,10 +25,11 @@ class _LiveSignalMarket:
 
 
 class _GuardedDemoAdapter(MexcWebExecutionAdapter):
-    """Demo execution adapter with a LIVE-vs-Demo price sanity guard.
+    """Demo execution adapter with LIVE-vs-Demo price and startup-residual guards.
 
-    The inherited config validation still requires futures.testnet.mexc.com for all
-    private/write calls. Only public LIVE ticker data is consulted for the guard.
+    All private/write calls still use the inherited TESTNET configuration. When
+    --auto-flatten-start is enabled, a stale TESTNET position that appears late
+    before the first IOC is flattened instead of being stacked on top of.
     """
 
     def __init__(self, config):
@@ -37,6 +39,43 @@ class _GuardedDemoAdapter(MexcWebExecutionAdapter):
             os.getenv("MEXC_DEMO_LIVE_MAX_DIVERGENCE_BPS", str(DEFAULT_MAX_DIVERGENCE_BPS))
         )
         self.last_divergence_bps: float | None = None
+        self._auto_flatten_start = os.getenv(AUTO_FLATTEN_ENV, "NO").upper() == "YES"
+        self._entry_started = False
+        self._cleaning_start_residual = False
+
+    async def get_position(self, symbol: str):
+        position = await super().get_position(symbol)
+        if (
+            position is not None
+            and self._auto_flatten_start
+            and not self._entry_started
+            and not self._cleaning_start_residual
+        ):
+            self._cleaning_start_residual = True
+            try:
+                hybrid.console.print(
+                    f"[yellow]LATE START RESIDUAL[/yellow]: Demo {symbol} "
+                    f"{'LONG' if position.side is OrderSide.LONG else 'SHORT'} qty={position.qty:g}; flattening before entry"
+                )
+                await hybrid._flatten_position(self, position, "late_startup_auto_flatten")
+                residual = await super().get_position(symbol)
+                if residual is not None and residual.qty > 1e-12:
+                    raise MexcWebError(
+                        f"late startup auto-flatten failed; residual qty={residual.qty}"
+                    )
+                hybrid.console.print(
+                    f"[green]LATE START RESIDUAL CLEARED[/green]: {symbol} is flat; waiting for a fresh signal"
+                )
+                return None
+            finally:
+                self._cleaning_start_residual = False
+        return position
+
+    async def open_ioc(self, *args, **kwargs):
+        # From this point onward any position belongs to the current experiment and
+        # must never be auto-flattened by the startup-residual guard.
+        self._entry_started = True
+        return await super().open_ioc(*args, **kwargs)
 
     async def get_best_price(self, symbol: str, side: OrderSide) -> float:
         demo_price = await super().get_best_price(symbol, side)
@@ -79,24 +118,37 @@ async def _auto_flatten_demo_start(symbol: str) -> None:
         existing = await adapter.get_position(symbol)
         if existing is None:
             hybrid.console.print(f"[green]START FLATTEN[/green]: no existing Demo position for {symbol}")
-            return
-        hybrid.console.print(
-            f"[yellow]START FLATTEN[/yellow]: closing existing Demo {symbol} "
-            f"{'LONG' if existing.side is OrderSide.LONG else 'SHORT'} qty={existing.qty:g}"
-        )
-        fill = await hybrid._flatten_position(adapter, existing, "startup_auto_flatten")
-        residual = await adapter.get_position(symbol)
-        if residual is not None:
-            raise MexcWebError(f"startup auto-flatten failed; residual qty={residual.qty}")
-        hybrid.console.print(
-            f"[green]START FLATTEN COMPLETE[/green]: qty={fill.filled_qty:g} avg={fill.avg_price:g} fee={fill.fee_usdt:g}"
-        )
+            # Testnet can briefly report flat and reveal a stale position later.
+            # Recheck a few times so the common delayed-state case is caught here.
+            for _ in range(4):
+                await asyncio.sleep(0.35)
+                existing = await adapter.get_position(symbol)
+                if existing is not None:
+                    break
+            if existing is None:
+                hybrid.console.print(f"[green]START FLAT CONFIRMED[/green]: {symbol} remained flat")
+                return
+        # get_position() above auto-cleans when the flag/env is enabled. If we are
+        # here with a position, fall back to the explicit flatten path.
+        if existing is not None:
+            hybrid.console.print(
+                f"[yellow]START FLATTEN[/yellow]: closing existing Demo {symbol} "
+                f"{'LONG' if existing.side is OrderSide.LONG else 'SHORT'} qty={existing.qty:g}"
+            )
+            fill = await hybrid._flatten_position(adapter, existing, "startup_auto_flatten")
+            residual = await adapter.get_position(symbol)
+            if residual is not None:
+                raise MexcWebError(f"startup auto-flatten failed; residual qty={residual.qty}")
+            hybrid.console.print(
+                f"[green]START FLATTEN COMPLETE[/green]: qty={fill.filled_qty:g} avg={fill.avg_price:g} fee={fill.fee_usdt:g}"
+            )
 
 
 def main() -> None:
     auto_flatten = AUTO_FLATTEN_FLAG in sys.argv
     if auto_flatten:
         sys.argv.remove(AUTO_FLATTEN_FLAG)
+        os.environ[AUTO_FLATTEN_ENV] = "YES"
 
     symbol = (_arg_value("--symbol") or "").upper()
     if auto_flatten:
@@ -108,8 +160,6 @@ def main() -> None:
             hybrid.console.print(f"[red]LIVE-SIGNAL DEMO FAILED:[/red] {exc}")
             raise SystemExit(2) from exc
 
-    # Patch only this process. Hybrid still builds Demo WebExecutionConfig, whose
-    # hard environment guard rejects any non-testnet private/write host.
     hybrid.MexcPublicMarket = _LiveSignalMarket
     hybrid.MexcWebExecutionAdapter = _GuardedDemoAdapter
     hybrid.console.print(
