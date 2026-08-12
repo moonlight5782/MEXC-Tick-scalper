@@ -74,7 +74,7 @@ def test_winner_flip_confirmation_resets_when_signal_recovers():
     assert policy.on_tick(price=100.02, liquidation_price=None, signal=_snap(-1, 0.5), age_seconds=0.8) is None
     assert policy.on_tick(price=100.02, liquidation_price=None, signal=_snap(1, 0.4), age_seconds=0.9) is None
     assert policy.on_tick(price=100.02, liquidation_price=None, signal=_snap(-1, 0.5), age_seconds=1.0) is None
-    assert policy.flip_count == 1
+    assert policy.winner_opposite_count == 1
 
 
 def test_winner_pullback_requires_signal_fade():
