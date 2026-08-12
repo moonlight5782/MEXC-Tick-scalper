@@ -23,6 +23,7 @@ from .web_fee import provider_from_web_fee_payload
 console = Console()
 LIVE_REST = "https://contract.mexc.com"
 LIVE_WS = "wss://contract.mexc.com/edge"
+LATE_RESIDUAL_ENV = "MEXC_DEMO_AUTO_FLATTEN_START"
 
 
 @dataclass(slots=True)
@@ -141,7 +142,6 @@ def _ask_float(prompt: str, default: float) -> float:
 
 
 async def _prepare_session() -> tuple[str, int, int, int, float]:
-    # Product invariant: no scan/trade starts until the entire Demo account is flat.
     await flatten_all_demo_positions(reason="startup")
 
     rows = await _candidates()
@@ -203,9 +203,11 @@ def main() -> None:
             "--target-margin-usdt",
             str(margin),
         ]
-        # The launcher owns startup/shutdown cleanup globally, so the child does not
-        # perform a second symbol-only startup cleanup.
-        child = subprocess.Popen(cmd, env=os.environ.copy())
+        child_env = os.environ.copy()
+        # Global startup cleanup already ran, but keep the child's late-residual
+        # guard enabled in case TESTNET reveals stale state several seconds later.
+        child_env[LATE_RESIDUAL_ENV] = "YES"
+        child = subprocess.Popen(cmd, env=child_env)
         exit_code = child.wait()
     except KeyboardInterrupt:
         console.print("\n[yellow]STOP REQUESTED[/yellow]: stopping strategy and flattening Demo account...")
@@ -224,8 +226,6 @@ def main() -> None:
         console.print(f"[red]UNEXPECTED LIVE DEMO ERROR:[/red] {type(exc).__name__}: {exc}")
         exit_code = 3
     finally:
-        # Product invariant: whenever this launcher exits normally, errors, or Ctrl+C,
-        # make a best-effort account-wide flatten and verify stable flat state.
         cleanup_ok = _cleanup_sync("shutdown")
         if not cleanup_ok and exit_code == 0:
             exit_code = 4
