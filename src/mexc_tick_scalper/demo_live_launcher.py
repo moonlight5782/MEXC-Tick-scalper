@@ -24,7 +24,7 @@ from .web_fee import provider_from_web_fee_payload
 console = Console()
 LIVE_REST = "https://contract.mexc.com"
 LIVE_WS = "wss://contract.mexc.com/edge"
-SAMPLE_SECONDS = 25.0
+SAMPLE_SECONDS = 10.0
 MIN_CONFIDENCE = 0.35
 
 
@@ -37,10 +37,12 @@ class SignalProfile:
     rank: int
 
 
+# All profiles are evaluated in parallel during one ~10 second scan. The slower
+# profiles widen context without weakening confidence quality.
 PROFILES = (
     SignalProfile("STRICT", 5.0, 0.50, 3, 0),
-    SignalProfile("BALANCED", 10.0, 0.30, 2, 1),
-    SignalProfile("SLOW", 15.0, 0.15, 2, 2),
+    SignalProfile("BALANCED", 8.0, 0.30, 2, 1),
+    SignalProfile("SLOW", 10.0, 0.15, 2, 2),
 )
 
 
@@ -119,7 +121,7 @@ async def _sample_live(symbol: str, seconds: float = SAMPLE_SECONDS) -> LiveSamp
                 break
 
     try:
-        await asyncio.wait_for(collect(), timeout=seconds + 2.0)
+        await asyncio.wait_for(collect(), timeout=seconds + 1.5)
     except TimeoutError:
         pass
 
@@ -157,7 +159,7 @@ async def _candidates() -> list[dict[str, Any]]:
 
     console.print(
         f"Measuring LIVE MEXC readiness for {len(rows)} zero-fee Demo-compatible pairs "
-        f"({int(SAMPLE_SECONDS)}s, adaptive profiles)..."
+        f"(~{int(SAMPLE_SECONDS)}s, all profiles in parallel)..."
     )
     samples = await asyncio.gather(*(_sample_live(str(r.get("symbol", "")).upper()) for r in rows))
     sample_map = {s.symbol: s for s in samples}
@@ -215,7 +217,7 @@ def _show(rows: list[dict[str, Any]]) -> None:
     console.print(table)
     console.print(
         "Profiles: STRICT=5s/3 changes/rate>=0.50, "
-        "BALANCED=10s/2 changes/rate>=0.30, SLOW=15s/2 changes/rate>=0.15. "
+        "BALANCED=8s/2 changes/rate>=0.30, SLOW=10s/2 changes/rate>=0.15. "
         "Confidence remains >=0.35 in every profile."
     )
 
@@ -241,7 +243,7 @@ async def _prepare_session() -> tuple[str, int, int, int, float, float, float, i
     ready_rows = [r for r in rows if int(r.get("readySnapshots") or 0) > 0]
     if not ready_rows:
         raise MexcWebError(
-            "no zero-fee Demo-compatible pair produced a valid signal even with the safe SLOW profile; "
+            "no zero-fee Demo-compatible pair produced a valid signal in the adaptive scan; "
             "market is too inactive right now"
         )
 
