@@ -32,12 +32,7 @@ class MicrostructureSnapshot:
 
 
 class MicrostructureSignal:
-    """Lightweight MEXC trade-flow signal inspired by smallfish.
-
-    Uses data we receive directly from the MEXC trade WebSocket:
-    micro-momentum, CVD/trade-flow and activity. Full L2 OBI remains excluded
-    until a proper multi-level local order book is maintained.
-    """
+    """Lightweight MEXC trade-flow signal inspired by smallfish."""
 
     def __init__(self, window_seconds: float = 5.0, min_trade_rate: float = 0.5) -> None:
         self.window_ms = max(1000, int(window_seconds * 1000))
@@ -90,14 +85,7 @@ class MicrostructureSignal:
 
 @dataclass(slots=True)
 class AsymmetricExitPolicy:
-    """Exit model reconstructed from the old MEXC order history.
-
-    Before a position establishes a favorable excursion, losses are cut quickly.
-    After a winner is established, ordinary counter-ticks are tolerated and the
-    position is held until the microstructure signal meaningfully weakens/flips or
-    price pulls back from the best excursion. A liquidation guard always overrides
-    the strategy.
-    """
+    """Fast loss cutting with more tolerant management of established winners."""
 
     side: int
     entry_price: float
@@ -108,10 +96,12 @@ class AsymmetricExitPolicy:
     flip_confidence: float = 0.30
     fade_confidence: float = 0.12
     min_hold_seconds: float = 0.35
+    winner_flip_confirmations: int = 3
     last_price: float | None = None
     extreme_price: float | None = None
     adverse_count: int = 0
     winner_armed: bool = False
+    winner_opposite_count: int = 0
 
     def __post_init__(self) -> None:
         if self.side not in (1, -1):
@@ -120,6 +110,8 @@ class AsymmetricExitPolicy:
             raise ValueError("entry_price must be positive")
         if self.early_adverse_changes < 1:
             raise ValueError("early_adverse_changes must be >= 1")
+        if self.winner_flip_confirmations < 1:
+            raise ValueError("winner_flip_confirmations must be >= 1")
         if not 0 < self.liq_buffer_fraction < 1:
             raise ValueError("liq_buffer_fraction must be between 0 and 1")
         self.last_price = self.entry_price
@@ -180,7 +172,6 @@ class AsymmetricExitPolicy:
         opposite = signal.direction == -self.side and signal.confidence >= self.flip_confidence
         supportive = signal.direction == self.side and signal.confidence >= self.fade_confidence
 
-        # The old history shows losing trades typically lasting only a few seconds.
         if not self.winner_armed:
             if age_seconds >= self.min_hold_seconds and opposite:
                 return "early_signal_flip"
@@ -188,14 +179,26 @@ class AsymmetricExitPolicy:
                 return "early_adverse_cut"
             return None
 
-        # Winners are given room. Exit on a real signal reversal, or after a
-        # meaningful pullback when the original signal is no longer supportive.
-        if age_seconds >= self.min_hold_seconds and opposite:
-            return "winner_signal_flip"
+        # Once a trade has proven itself, one noisy opposite snapshot is not enough.
+        # Require several consecutive opposite microstructure snapshots before a
+        # signal-flip exit. Any non-opposite snapshot resets the confirmation chain.
+        if opposite:
+            self.winner_opposite_count += 1
+        else:
+            self.winner_opposite_count = 0
+
+        if (
+            age_seconds >= self.min_hold_seconds
+            and self.winner_opposite_count >= self.winner_flip_confirmations
+        ):
+            return "winner_signal_flip_confirmed"
+
+        # Price action remains an independent exit: a meaningful giveback from the
+        # best excursion plus loss of supportive flow can close the winner even
+        # without a fully confirmed opposite signal.
         if self._pullback_bps(price) >= self.winner_pullback_bps and not supportive:
             return "winner_pullback_fade"
         return None
 
 
-# Backwards compatibility for older tests/imports.
 HoldUntilAgainstExit = AsymmetricExitPolicy
