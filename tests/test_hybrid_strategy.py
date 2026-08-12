@@ -95,10 +95,8 @@ def test_winner_requires_confirmed_signal_flip_and_price_pullback():
     assert policy.on_tick(price=100.02, liquidation_price=None, signal=_snap(1, 0.5), age_seconds=0.5) is None
     assert policy.on_tick(price=100.02, liquidation_price=None, signal=_snap(-1, 0.5), age_seconds=0.8) is None
     assert policy.on_tick(price=100.02, liquidation_price=None, signal=_snap(-1, 0.5), age_seconds=0.9) is None
-    # Three opposite snapshots alone are not enough if price has not actually pulled back.
     assert policy.on_tick(price=100.02, liquidation_price=None, signal=_snap(-1, 0.5), age_seconds=1.0) is None
     assert policy.winner_opposite_count == 3
-    # Once price also gives back at least 0.5 bps, the confirmed reversal can exit.
     assert policy.on_tick(price=100.014, liquidation_price=None, signal=_snap(-1, 0.5), age_seconds=1.1) == "winner_signal_flip_price_confirmed"
 
 
@@ -115,6 +113,46 @@ def test_winner_flip_confirmation_resets_when_signal_recovers():
     assert policy.on_tick(price=100.02, liquidation_price=None, signal=_snap(1, 0.4), age_seconds=0.9) is None
     assert policy.on_tick(price=100.02, liquidation_price=None, signal=_snap(-1, 0.5), age_seconds=1.0) is None
     assert policy.winner_opposite_count == 1
+
+
+def test_stale_opposite_signal_is_not_counted_repeatedly_by_watchdog():
+    policy = AsymmetricExitPolicy(
+        side=1,
+        entry_price=100.0,
+        winner_arm_bps=1.0,
+        winner_pullback_bps=5.0,
+        winner_flip_confirmations=3,
+    )
+    assert policy.on_tick(price=100.02, liquidation_price=None, signal=_snap(1, 0.5), age_seconds=0.5) is None
+    assert policy.on_tick(price=100.02, liquidation_price=None, signal=_snap(-1, 0.6), age_seconds=0.8) is None
+    assert policy.winner_opposite_count == 1
+    for age in (0.9, 1.0, 1.1, 1.2):
+        assert policy.on_tick(
+            price=100.019,
+            liquidation_price=None,
+            signal=_snap(-1, 0.6),
+            age_seconds=age,
+            signal_fresh=False,
+        ) is None
+    assert policy.winner_opposite_count == 1
+
+
+def test_stale_tape_hard_trailing_stop_protects_established_winner():
+    policy = AsymmetricExitPolicy(
+        side=1,
+        entry_price=100.0,
+        winner_arm_bps=1.0,
+        winner_pullback_bps=2.0,
+        hard_trailing_multiplier=2.0,
+    )
+    assert policy.on_tick(price=100.05, liquidation_price=None, signal=_snap(1, 0.5), age_seconds=0.5) is None
+    assert policy.on_tick(
+        price=100.009,
+        liquidation_price=None,
+        signal=_snap(1, 0.5),
+        age_seconds=1.0,
+        signal_fresh=False,
+    ) == "winner_price_trailing_stop"
 
 
 def test_winner_pullback_requires_signal_fade():
