@@ -85,7 +85,13 @@ class MicrostructureSignal:
 
 @dataclass(slots=True)
 class AsymmetricExitPolicy:
-    """Fast loss cutting with more tolerant management of established winners."""
+    """Fast loss cutting with price-confirmed management of established winners.
+
+    A winner is not closed merely because trade-flow briefly flips. For LONG, a
+    fresh higher high confirms that the upward move is still alive; for SHORT, a
+    fresh lower low does the same. A signal-flip exit therefore needs both several
+    opposite snapshots and an actual pullback from the best price reached.
+    """
 
     side: int
     entry_price: float
@@ -93,6 +99,7 @@ class AsymmetricExitPolicy:
     liq_buffer_fraction: float = 0.25
     winner_arm_bps: float = 0.5
     winner_pullback_bps: float = 1.5
+    winner_flip_pullback_bps: float = 0.5
     flip_confidence: float = 0.30
     fade_confidence: float = 0.12
     min_hold_seconds: float = 0.35
@@ -112,6 +119,8 @@ class AsymmetricExitPolicy:
             raise ValueError("early_adverse_changes must be >= 1")
         if self.winner_flip_confirmations < 1:
             raise ValueError("winner_flip_confirmations must be >= 1")
+        if self.winner_flip_pullback_bps < 0:
+            raise ValueError("winner_flip_pullback_bps must be >= 0")
         if not 0 < self.liq_buffer_fraction < 1:
             raise ValueError("liq_buffer_fraction must be between 0 and 1")
         self.last_price = self.entry_price
@@ -157,8 +166,15 @@ class AsymmetricExitPolicy:
         if signed_bps >= self.winner_arm_bps:
             self.winner_armed = True
 
-        if (self.side == 1 and price > self.extreme_price) or (self.side == -1 and price < self.extreme_price):
+        made_new_favorable_extreme = (
+            (self.side == 1 and price > self.extreme_price)
+            or (self.side == -1 and price < self.extreme_price)
+        )
+        if made_new_favorable_extreme:
             self.extreme_price = price
+            # Price itself confirms continuation. Any accumulated opposite-flow
+            # confirmations are stale once LONG makes a higher high / SHORT a lower low.
+            self.winner_opposite_count = 0
 
         if price != self.last_price:
             delta = price - self.last_price
@@ -179,24 +195,24 @@ class AsymmetricExitPolicy:
                 return "early_adverse_cut"
             return None
 
-        # Once a trade has proven itself, one noisy opposite snapshot is not enough.
-        # Require several consecutive opposite microstructure snapshots before a
-        # signal-flip exit. Any non-opposite snapshot resets the confirmation chain.
-        if opposite:
+        # For an established winner, flow alone cannot close the position while
+        # price is still extending in our direction. We count opposite flow only
+        # after the latest favorable extreme and require an actual price pullback.
+        if opposite and not made_new_favorable_extreme:
             self.winner_opposite_count += 1
-        else:
+        elif not opposite:
             self.winner_opposite_count = 0
 
+        pullback_bps = self._pullback_bps(price)
         if (
             age_seconds >= self.min_hold_seconds
             and self.winner_opposite_count >= self.winner_flip_confirmations
+            and pullback_bps >= self.winner_flip_pullback_bps
         ):
-            return "winner_signal_flip_confirmed"
+            return "winner_signal_flip_price_confirmed"
 
-        # Price action remains an independent exit: a meaningful giveback from the
-        # best excursion plus loss of supportive flow can close the winner even
-        # without a fully confirmed opposite signal.
-        if self._pullback_bps(price) >= self.winner_pullback_bps and not supportive:
+        # Larger giveback + loss of supportive flow remains a separate trailing exit.
+        if pullback_bps >= self.winner_pullback_bps and not supportive:
             return "winner_pullback_fade"
         return None
 
