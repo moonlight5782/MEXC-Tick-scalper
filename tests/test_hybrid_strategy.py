@@ -48,18 +48,58 @@ def test_winner_ignores_small_counter_ticks_while_signal_supports():
     assert policy.on_tick(price=100.00, liquidation_price=None, signal=_snap(1, 0.4), age_seconds=1.0) is None
 
 
-def test_winner_requires_confirmed_signal_flip():
+def test_long_winner_does_not_exit_while_price_makes_new_highs():
     policy = AsymmetricExitPolicy(
         side=1,
         entry_price=100.0,
         winner_arm_bps=1.0,
         flip_confidence=0.3,
         winner_flip_confirmations=3,
+        winner_flip_pullback_bps=0.5,
+    )
+    assert policy.on_tick(price=100.02, liquidation_price=None, signal=_snap(1, 0.5), age_seconds=0.5) is None
+    assert policy.on_tick(price=100.02, liquidation_price=None, signal=_snap(-1, 0.5), age_seconds=0.8) is None
+    assert policy.on_tick(price=100.03, liquidation_price=None, signal=_snap(-1, 0.5), age_seconds=0.9) is None
+    assert policy.winner_opposite_count == 0
+    assert policy.on_tick(price=100.04, liquidation_price=None, signal=_snap(-1, 0.6), age_seconds=1.0) is None
+    assert policy.winner_opposite_count == 0
+
+
+def test_short_winner_does_not_exit_while_price_makes_new_lows():
+    policy = AsymmetricExitPolicy(
+        side=-1,
+        entry_price=100.0,
+        winner_arm_bps=1.0,
+        flip_confidence=0.3,
+        winner_flip_confirmations=3,
+        winner_flip_pullback_bps=0.5,
+    )
+    assert policy.on_tick(price=99.98, liquidation_price=None, signal=_snap(-1, 0.5), age_seconds=0.5) is None
+    assert policy.on_tick(price=99.98, liquidation_price=None, signal=_snap(1, 0.5), age_seconds=0.8) is None
+    assert policy.on_tick(price=99.97, liquidation_price=None, signal=_snap(1, 0.5), age_seconds=0.9) is None
+    assert policy.winner_opposite_count == 0
+    assert policy.on_tick(price=99.96, liquidation_price=None, signal=_snap(1, 0.6), age_seconds=1.0) is None
+    assert policy.winner_opposite_count == 0
+
+
+def test_winner_requires_confirmed_signal_flip_and_price_pullback():
+    policy = AsymmetricExitPolicy(
+        side=1,
+        entry_price=100.0,
+        winner_arm_bps=1.0,
+        flip_confidence=0.3,
+        winner_flip_confirmations=3,
+        winner_flip_pullback_bps=0.5,
+        winner_pullback_bps=5.0,
     )
     assert policy.on_tick(price=100.02, liquidation_price=None, signal=_snap(1, 0.5), age_seconds=0.5) is None
     assert policy.on_tick(price=100.02, liquidation_price=None, signal=_snap(-1, 0.5), age_seconds=0.8) is None
     assert policy.on_tick(price=100.02, liquidation_price=None, signal=_snap(-1, 0.5), age_seconds=0.9) is None
-    assert policy.on_tick(price=100.02, liquidation_price=None, signal=_snap(-1, 0.5), age_seconds=1.0) == "winner_signal_flip_confirmed"
+    # Three opposite snapshots alone are not enough if price has not actually pulled back.
+    assert policy.on_tick(price=100.02, liquidation_price=None, signal=_snap(-1, 0.5), age_seconds=1.0) is None
+    assert policy.winner_opposite_count == 3
+    # Once price also gives back at least 0.5 bps, the confirmed reversal can exit.
+    assert policy.on_tick(price=100.014, liquidation_price=None, signal=_snap(-1, 0.5), age_seconds=1.1) == "winner_signal_flip_price_confirmed"
 
 
 def test_winner_flip_confirmation_resets_when_signal_recovers():
