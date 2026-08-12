@@ -87,10 +87,9 @@ class MicrostructureSignal:
 class AsymmetricExitPolicy:
     """Fast loss cutting with price-confirmed management of established winners.
 
-    A winner is not closed merely because trade-flow briefly flips. For LONG, a
-    fresh higher high confirms that the upward move is still alive; for SHORT, a
-    fresh lower low does the same. A signal-flip exit therefore needs both several
-    opposite snapshots and an actual pullback from the best price reached.
+    LIVE flow is only evidence about direction. The caller may invoke this policy
+    from an independent executable-price watchdog with signal_fresh=False; stale
+    flow is never counted repeatedly as multiple flip confirmations.
     """
 
     side: int
@@ -104,6 +103,7 @@ class AsymmetricExitPolicy:
     fade_confidence: float = 0.12
     min_hold_seconds: float = 0.35
     winner_flip_confirmations: int = 3
+    hard_trailing_multiplier: float = 2.0
     last_price: float | None = None
     extreme_price: float | None = None
     adverse_count: int = 0
@@ -121,6 +121,8 @@ class AsymmetricExitPolicy:
             raise ValueError("winner_flip_confirmations must be >= 1")
         if self.winner_flip_pullback_bps < 0:
             raise ValueError("winner_flip_pullback_bps must be >= 0")
+        if self.hard_trailing_multiplier < 1:
+            raise ValueError("hard_trailing_multiplier must be >= 1")
         if not 0 < self.liq_buffer_fraction < 1:
             raise ValueError("liq_buffer_fraction must be between 0 and 1")
         self.last_price = self.entry_price
@@ -153,6 +155,7 @@ class AsymmetricExitPolicy:
         liquidation_price: float | None,
         signal: MicrostructureSnapshot,
         age_seconds: float,
+        signal_fresh: bool = True,
     ) -> str | None:
         if price <= 0:
             return None
@@ -172,8 +175,6 @@ class AsymmetricExitPolicy:
         )
         if made_new_favorable_extreme:
             self.extreme_price = price
-            # Price itself confirms continuation. Any accumulated opposite-flow
-            # confirmations are stale once LONG makes a higher high / SHORT a lower low.
             self.winner_opposite_count = 0
 
         if price != self.last_price:
@@ -189,31 +190,36 @@ class AsymmetricExitPolicy:
         supportive = signal.direction == self.side and signal.confidence >= self.fade_confidence
 
         if not self.winner_armed:
-            if age_seconds >= self.min_hold_seconds and opposite:
+            if signal_fresh and age_seconds >= self.min_hold_seconds and opposite:
                 return "early_signal_flip"
             if self.adverse_count >= self.early_adverse_changes:
                 return "early_adverse_cut"
             return None
 
-        # For an established winner, flow alone cannot close the position while
-        # price is still extending in our direction. We count opposite flow only
-        # after the latest favorable extreme and require an actual price pullback.
-        if opposite and not made_new_favorable_extreme:
-            self.winner_opposite_count += 1
-        elif not opposite:
-            self.winner_opposite_count = 0
+        if signal_fresh:
+            if opposite and not made_new_favorable_extreme:
+                self.winner_opposite_count += 1
+            elif not opposite:
+                self.winner_opposite_count = 0
 
         pullback_bps = self._pullback_bps(price)
         if (
-            age_seconds >= self.min_hold_seconds
+            signal_fresh
+            and age_seconds >= self.min_hold_seconds
             and self.winner_opposite_count >= self.winner_flip_confirmations
             and pullback_bps >= self.winner_flip_pullback_bps
         ):
             return "winner_signal_flip_price_confirmed"
 
-        # Larger giveback + loss of supportive flow remains a separate trailing exit.
-        if pullback_bps >= self.winner_pullback_bps and not supportive:
+        if signal_fresh and pullback_bps >= self.winner_pullback_bps and not supportive:
             return "winner_pullback_fade"
+
+        # If the public trade tape goes quiet, executable-price protection still
+        # works. A substantially larger real giveback can close the winner without
+        # pretending that an old flow snapshot is a fresh signal.
+        hard_trailing_bps = self.winner_pullback_bps * self.hard_trailing_multiplier
+        if pullback_bps >= hard_trailing_bps:
+            return "winner_price_trailing_stop"
         return None
 
 
