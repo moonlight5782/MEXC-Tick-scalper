@@ -14,6 +14,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .demo_discovery import _fetch_contracts
+from .demo_position_manager import flatten_all_demo_positions
 from .execution import OrderSide
 from .market import MexcPublicMarket
 from .web_execution import MexcWebError, MexcWebExecutionAdapter, WebExecutionConfig
@@ -99,7 +100,13 @@ async def _candidates() -> list[dict[str, Any]]:
         row["liveTicks"] = s.ticks
         row["liveTradeRate"] = s.trade_rate
         row["liveChangeRate"] = s.change_rate
-    rows.sort(key=lambda r: (-float(r.get("liveChangeRate") or 0), -float(r.get("liveTradeRate") or 0), float(r.get("spreadPct") or 999)))
+    rows.sort(
+        key=lambda r: (
+            -float(r.get("liveChangeRate") or 0),
+            -float(r.get("liveTradeRate") or 0),
+            float(r.get("spreadPct") or 999),
+        )
+    )
     return rows
 
 
@@ -112,7 +119,14 @@ def _show(rows: list[dict[str, Any]]) -> None:
     table.add_column("Demo spread %", justify="right")
     table.add_column("Max lev", justify="right")
     for i, row in enumerate(rows, 1):
-        table.add_row(str(i), str(row.get("symbol", "?")), f"{float(row.get('liveChangeRate') or 0):.2f}", f"{float(row.get('liveTradeRate') or 0):.2f}", f"{float(row.get('spreadPct') or 0):.4f}", str(row.get("maxLeverage", "?")))
+        table.add_row(
+            str(i),
+            str(row.get("symbol", "?")),
+            f"{float(row.get('liveChangeRate') or 0):.2f}",
+            f"{float(row.get('liveTradeRate') or 0):.2f}",
+            f"{float(row.get('spreadPct') or 0):.4f}",
+            str(row.get("maxLeverage", "?")),
+        )
     console.print(table)
 
 
@@ -126,8 +140,10 @@ def _ask_float(prompt: str, default: float) -> float:
     return default if not raw else float(raw)
 
 
-async def main_async() -> None:
-    _load_env()
+async def _prepare_session() -> tuple[str, int, int, int, float]:
+    # Product invariant: no scan/trade starts until the entire Demo account is flat.
+    await flatten_all_demo_positions(reason="startup")
+
     rows = await _candidates()
     if not rows:
         raise MexcWebError("no confirmed zero-fee Demo-compatible contracts")
@@ -148,18 +164,73 @@ async def main_async() -> None:
     seconds = _ask_int("Max session seconds", 1800)
     margin = _ask_float("Target margin per IOC cycle, USDT", 2.0)
 
-    console.print(f"Starting LIVE-SIGNAL/DEMO-EXEC {symbol}: live_changes={float(selected.get('liveChangeRate') or 0):.2f}/s live_trades={float(selected.get('liveTradeRate') or 0):.2f}/s")
-    cmd = [sys.executable, "-m", "mexc_tick_scalper.demo_live_signal_test", "--symbol", symbol, "--session-seconds", str(seconds), "--max-cycles", str(cycles), "--leverage", str(leverage), "--target-margin-usdt", str(margin), "--auto-flatten-start"]
-    completed = subprocess.run(cmd, env=os.environ.copy())
-    raise SystemExit(completed.returncode)
+    console.print(
+        f"Starting LIVE-SIGNAL/DEMO-EXEC {symbol}: "
+        f"live_changes={float(selected.get('liveChangeRate') or 0):.2f}/s "
+        f"live_trades={float(selected.get('liveTradeRate') or 0):.2f}/s"
+    )
+    return symbol, leverage, cycles, seconds, margin
+
+
+def _cleanup_sync(reason: str) -> bool:
+    try:
+        asyncio.run(flatten_all_demo_positions(reason=reason))
+        return True
+    except Exception as exc:
+        console.print(f"[red]DEMO CLEANUP FAILED[/red] ({reason}): {exc}")
+        return False
 
 
 def main() -> None:
+    _load_env()
+    child: subprocess.Popen | None = None
+    exit_code = 0
+
     try:
-        asyncio.run(main_async())
+        symbol, leverage, cycles, seconds, margin = asyncio.run(_prepare_session())
+        cmd = [
+            sys.executable,
+            "-m",
+            "mexc_tick_scalper.demo_live_signal_test",
+            "--symbol",
+            symbol,
+            "--session-seconds",
+            str(seconds),
+            "--max-cycles",
+            str(cycles),
+            "--leverage",
+            str(leverage),
+            "--target-margin-usdt",
+            str(margin),
+        ]
+        # The launcher owns startup/shutdown cleanup globally, so the child does not
+        # perform a second symbol-only startup cleanup.
+        child = subprocess.Popen(cmd, env=os.environ.copy())
+        exit_code = child.wait()
+    except KeyboardInterrupt:
+        console.print("\n[yellow]STOP REQUESTED[/yellow]: stopping strategy and flattening Demo account...")
+        exit_code = 130
+        if child is not None and child.poll() is None:
+            child.terminate()
+            try:
+                child.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait(timeout=2)
     except (MexcWebError, ValueError, IndexError) as exc:
         console.print(f"[red]LIVE DEMO LAUNCHER FAILED:[/red] {exc}")
-        raise SystemExit(2) from exc
+        exit_code = 2
+    except Exception as exc:
+        console.print(f"[red]UNEXPECTED LIVE DEMO ERROR:[/red] {type(exc).__name__}: {exc}")
+        exit_code = 3
+    finally:
+        # Product invariant: whenever this launcher exits normally, errors, or Ctrl+C,
+        # make a best-effort account-wide flatten and verify stable flat state.
+        cleanup_ok = _cleanup_sync("shutdown")
+        if not cleanup_ok and exit_code == 0:
+            exit_code = 4
+
+    raise SystemExit(exit_code)
 
 
 if __name__ == "__main__":
