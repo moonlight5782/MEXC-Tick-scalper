@@ -16,6 +16,7 @@ from rich.table import Table
 from .demo_discovery import _fetch_contracts
 from .demo_position_manager import flatten_all_demo_positions
 from .execution import OrderSide
+from .hybrid_strategy import MicrostructureSignal
 from .market import MexcPublicMarket
 from .web_execution import MexcWebError, MexcWebExecutionAdapter, WebExecutionConfig
 from .web_fee import provider_from_web_fee_payload
@@ -23,7 +24,11 @@ from .web_fee import provider_from_web_fee_payload
 console = Console()
 LIVE_REST = "https://contract.mexc.com"
 LIVE_WS = "wss://contract.mexc.com/edge"
-LATE_RESIDUAL_ENV = "MEXC_DEMO_AUTO_FLATTEN_START"
+SAMPLE_SECONDS = 20.0
+SIGNAL_WINDOW_SECONDS = 5.0
+MIN_TRADE_RATE = 0.5
+MIN_CONFIDENCE = 0.35
+MIN_PRICE_CHANGES = 3
 
 
 @dataclass(slots=True)
@@ -31,6 +36,8 @@ class LiveSample:
     symbol: str
     ticks: int
     price_changes: int
+    ready_snapshots: int
+    max_confidence: float
     duration: float
 
     @property
@@ -41,26 +48,44 @@ class LiveSample:
     def change_rate(self) -> float:
         return self.price_changes / self.duration if self.duration > 0 else 0.0
 
+    @property
+    def ready_rate(self) -> float:
+        return self.ready_snapshots / self.duration if self.duration > 0 else 0.0
+
 
 def _load_env() -> None:
     root = Path(__file__).resolve().parents[2]
     load_dotenv(root / ".env", override=False)
 
 
-async def _sample_live(symbol: str, seconds: float = 8.0) -> LiveSample:
+async def _sample_live(symbol: str, seconds: float = SAMPLE_SECONDS) -> LiveSample:
     market = MexcPublicMarket(LIVE_REST, LIVE_WS)
+    signal = MicrostructureSignal(window_seconds=SIGNAL_WINDOW_SECONDS, min_trade_rate=MIN_TRADE_RATE)
     start = time.monotonic()
     ticks = 0
     changes = 0
+    ready = 0
+    max_conf = 0.0
     last_price: float | None = None
 
     async def collect() -> None:
-        nonlocal ticks, changes, last_price
+        nonlocal ticks, changes, ready, max_conf, last_price
         async for tick in market.trades(symbol):
             ticks += 1
             if last_price is not None and tick.price != last_price:
                 changes += 1
             last_price = tick.price
+
+            snap = signal.update(tick)
+            max_conf = max(max_conf, snap.confidence)
+            if (
+                snap.trade_rate >= MIN_TRADE_RATE
+                and snap.price_changes >= MIN_PRICE_CHANGES
+                and snap.direction != 0
+                and snap.confidence >= MIN_CONFIDENCE
+            ):
+                ready += 1
+
             if time.monotonic() - start >= seconds:
                 break
 
@@ -68,7 +93,15 @@ async def _sample_live(symbol: str, seconds: float = 8.0) -> LiveSample:
         await asyncio.wait_for(collect(), timeout=seconds + 2.0)
     except TimeoutError:
         pass
-    return LiveSample(symbol, ticks, changes, max(0.001, time.monotonic() - start))
+
+    return LiveSample(
+        symbol=symbol,
+        ticks=ticks,
+        price_changes=changes,
+        ready_snapshots=ready,
+        max_confidence=max_conf,
+        duration=max(0.001, time.monotonic() - start),
+    )
 
 
 async def _candidates() -> list[dict[str, Any]]:
@@ -93,7 +126,10 @@ async def _candidates() -> list[dict[str, Any]]:
             item["spreadPct"] = ((ask - bid) / ((ask + bid) / 2.0)) * 100.0
             rows.append(item)
 
-    console.print(f"Measuring LIVE MEXC activity for {len(rows)} zero-fee Demo-compatible pairs...")
+    console.print(
+        f"Measuring LIVE MEXC signal readiness for {len(rows)} zero-fee Demo-compatible pairs "
+        f"({int(SAMPLE_SECONDS)}s sample)..."
+    )
     samples = await asyncio.gather(*(_sample_live(str(r.get("symbol", "")).upper()) for r in rows))
     sample_map = {s.symbol: s for s in samples}
     for row in rows:
@@ -101,8 +137,14 @@ async def _candidates() -> list[dict[str, Any]]:
         row["liveTicks"] = s.ticks
         row["liveTradeRate"] = s.trade_rate
         row["liveChangeRate"] = s.change_rate
+        row["readySnapshots"] = s.ready_snapshots
+        row["readyRate"] = s.ready_rate
+        row["maxConfidence"] = s.max_confidence
+
     rows.sort(
         key=lambda r: (
+            -int(r.get("readySnapshots") or 0),
+            -float(r.get("readyRate") or 0),
             -float(r.get("liveChangeRate") or 0),
             -float(r.get("liveTradeRate") or 0),
             float(r.get("spreadPct") or 999),
@@ -112,19 +154,25 @@ async def _candidates() -> list[dict[str, Any]]:
 
 
 def _show(rows: list[dict[str, Any]]) -> None:
-    table = Table(title="Zero-fee Demo pairs ranked by LIVE MEXC tape")
+    table = Table(title="Zero-fee Demo pairs ranked by actual Hybrid READY signals")
     table.add_column("#", justify="right")
     table.add_column("Symbol")
+    table.add_column("READY", justify="right")
+    table.add_column("READY/s", justify="right")
     table.add_column("LIVE chg/s", justify="right")
-    table.add_column("LIVE trades/s", justify="right")
+    table.add_column("Trades/s", justify="right")
+    table.add_column("Max conf", justify="right")
     table.add_column("Demo spread %", justify="right")
     table.add_column("Max lev", justify="right")
     for i, row in enumerate(rows, 1):
         table.add_row(
             str(i),
             str(row.get("symbol", "?")),
+            str(int(row.get("readySnapshots") or 0)),
+            f"{float(row.get('readyRate') or 0):.2f}",
             f"{float(row.get('liveChangeRate') or 0):.2f}",
             f"{float(row.get('liveTradeRate') or 0):.2f}",
+            f"{float(row.get('maxConfidence') or 0):.3f}",
             f"{float(row.get('spreadPct') or 0):.4f}",
             str(row.get("maxLeverage", "?")),
         )
@@ -148,14 +196,18 @@ async def _prepare_session() -> tuple[str, int, int, int, float]:
     if not rows:
         raise MexcWebError("no confirmed zero-fee Demo-compatible contracts")
     _show(rows)
-    active = [r for r in rows if float(r.get("liveChangeRate") or 0) > 0]
-    if not active:
-        raise MexcWebError("none of the zero-fee Demo-compatible pairs changed LIVE trade price during the sample")
 
-    choice = input("Select pair number (or A for automatic most-active LIVE pair): ").strip().lower()
-    selected = active[0] if choice in {"", "a", "auto"} else rows[int(choice) - 1]
-    if float(selected.get("liveChangeRate") or 0) <= 0:
-        raise MexcWebError(f"{selected.get('symbol')} had no LIVE trade-price changes; choose an active pair")
+    ready_rows = [r for r in rows if int(r.get("readySnapshots") or 0) > 0]
+    if not ready_rows:
+        raise MexcWebError(
+            "none of the zero-fee Demo-compatible pairs produced a valid Hybrid READY signal during the sample; "
+            "not starting a session that would only sit BLOCKED"
+        )
+
+    choice = input("Select pair number (or A for automatic best READY pair): ").strip().lower()
+    selected = ready_rows[0] if choice in {"", "a", "auto"} else rows[int(choice) - 1]
+    if int(selected.get("readySnapshots") or 0) <= 0:
+        raise MexcWebError(f"{selected.get('symbol')} produced no valid Hybrid READY signal during the sample")
 
     symbol = str(selected.get("symbol", "")).upper()
     max_lev = int(selected.get("maxLeverage") or 1)
@@ -166,8 +218,9 @@ async def _prepare_session() -> tuple[str, int, int, int, float]:
 
     console.print(
         f"Starting LIVE-SIGNAL/DEMO-EXEC {symbol}: "
-        f"live_changes={float(selected.get('liveChangeRate') or 0):.2f}/s "
-        f"live_trades={float(selected.get('liveTradeRate') or 0):.2f}/s"
+        f"READY={int(selected.get('readySnapshots') or 0)} "
+        f"ready_rate={float(selected.get('readyRate') or 0):.2f}/s "
+        f"max_conf={float(selected.get('maxConfidence') or 0):.3f}"
     )
     return symbol, leverage, cycles, seconds, margin
 
@@ -204,9 +257,7 @@ def main() -> None:
             str(margin),
         ]
         child_env = os.environ.copy()
-        # Global startup cleanup already ran, but keep the child's late-residual
-        # guard enabled in case TESTNET reveals stale state several seconds later.
-        child_env[LATE_RESIDUAL_ENV] = "YES"
+        child_env["MEXC_DEMO_AUTO_FLATTEN_START"] = "YES"
         child = subprocess.Popen(cmd, env=child_env)
         exit_code = child.wait()
     except KeyboardInterrupt:
