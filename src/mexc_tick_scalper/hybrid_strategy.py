@@ -214,12 +214,12 @@ class AsymmetricExitPolicy:
         if signal_fresh and pullback_bps >= self.winner_pullback_bps and not supportive:
             return "winner_pullback_fade"
 
-        # If the public trade tape goes quiet, executable-price protection still
-        # works. A substantially larger real giveback can close the winner without
-        # pretending that an old flow snapshot is a fresh signal.
-        hard_trailing_bps = self.winner_pullback_bps * self.hard_trailing_multiplier
-        if pullback_bps >= hard_trailing_bps:
-            return "winner_price_trailing_stop"
+        # Only the independent stale-tape watchdog uses this wider price-only stop.
+        # Fresh supportive flow is therefore never overridden by the hard fallback.
+        if not signal_fresh:
+            hard_trailing_bps = self.winner_pullback_bps * self.hard_trailing_multiplier
+            if pullback_bps >= hard_trailing_bps:
+                return "winner_price_trailing_stop"
         return None
 
 
