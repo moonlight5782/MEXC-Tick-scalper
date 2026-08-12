@@ -179,7 +179,7 @@ async def run(args: argparse.Namespace) -> None:
             f"leverage={leverage}x confidence>={args.min_confidence:.2f} early_adverse={args.early_adverse_changes} "
             f"liq_buffer={args.liq_buffer_fraction:.0%} signal_ttl={args.signal_ttl_ms:.0f}ms"
         )
-        console.print("SCANNING: waiting for MEXC TESTNET trade ticks...")
+        console.print("SCANNING: waiting for market signal ticks...")
 
         async for tick in market.trades(symbol):
             raw_ticks += 1
@@ -191,11 +191,6 @@ async def run(args: argparse.Namespace) -> None:
                 fee = await read_web_fee_status(adapter, symbol)
                 eligibility = apply_fee_status(eligibility, fee, now_ms)
                 next_fee_check = now + float(args.fee_check_seconds)
-
-            if position is not None and entry_side is not None:
-                move_bps = _signed_move_bps(entry_side, entry_price, tick.price)
-                mfe_bps = max(mfe_bps, move_bps)
-                mae_bps = min(mae_bps, move_bps)
 
             valid_signal = (
                 eligibility.can_open_new_position
@@ -250,8 +245,21 @@ async def run(args: argparse.Namespace) -> None:
 
             if position is not None:
                 assert exit_policy is not None
+                assert entry_side is not None
+
+                # IMPORTANT: LIVE trade ticks are signal data only. Position state,
+                # MFE/MAE, winner arming and exits must use the price at which the
+                # Demo position can actually be closed. This automatically includes
+                # the Demo spread and prevents a LIVE uptick from creating a fake
+                # "winner" while executable PnL is still negative.
+                close_side = OrderSide.SHORT if entry_side is OrderSide.LONG else OrderSide.LONG
+                executable_price = await adapter.get_best_price(symbol, close_side)
+                move_bps = _signed_move_bps(entry_side, entry_price, executable_price)
+                mfe_bps = max(mfe_bps, move_bps)
+                mae_bps = min(mae_bps, move_bps)
+
                 reason = exit_policy.on_tick(
-                    price=tick.price,
+                    price=executable_price,
                     liquidation_price=position.liquidation_price,
                     signal=snap,
                     age_seconds=now - entry_time,
@@ -260,7 +268,7 @@ async def run(args: argparse.Namespace) -> None:
                     fill = await _flatten_position(adapter, position, reason)
                     fees = entry_fee + fill.fee_usdt
                     pnl_usdt, price_pct, roe_pct = _trade_pnl(
-                        entry_side or position.side, entry_price, fill.avg_price, fill.filled_qty, leverage, fees
+                        entry_side, entry_price, fill.avg_price, fill.filled_qty, leverage, fees
                     )
                     session_pnl += pnl_usdt
                     duration = now - entry_time
@@ -273,7 +281,10 @@ async def run(args: argparse.Namespace) -> None:
                     peak_roe = mfe_bps / 100.0 * leverage
                     worst_roe = mae_bps / 100.0 * leverage
                     giveback_roe = peak_roe - roe_pct
-                    console.print(f"EXIT reason={reason} qty={fill.filled_qty:g} avg={fill.avg_price:g} fee={fill.fee_usdt:g}")
+                    console.print(
+                        f"EXIT reason={reason} mark={executable_price:g} qty={fill.filled_qty:g} "
+                        f"avg={fill.avg_price:g} fee={fill.fee_usdt:g}"
+                    )
                     console.print(
                         f"RESULT pnl={pnl_usdt:+.6f} USDT price={price_pct:+.4f}% ROE={roe_pct:+.2f}% "
                         f"MFE={mfe_bps:+.3f}bps MAE={mae_bps:+.3f}bps peak_ROE={peak_roe:+.2f}% "
