@@ -168,6 +168,8 @@ async def run(args: argparse.Namespace) -> None:
         mfe_bps = 0.0
         mae_bps = 0.0
         session_pnl = 0.0
+        peak_session_pnl = 0.0
+        max_drawdown_usdt = 0.0
         gross_profit = 0.0
         gross_loss = 0.0
         wins = losses = cycles = signals_seen = raw_ticks = 0
@@ -300,6 +302,8 @@ async def run(args: argparse.Namespace) -> None:
                             entry_side, entry_price, fill.avg_price, fill.filled_qty, leverage, fees
                         )
                         session_pnl += pnl_usdt
+                        peak_session_pnl = max(peak_session_pnl, session_pnl)
+                        max_drawdown_usdt = max(max_drawdown_usdt, peak_session_pnl - session_pnl)
                         duration = now - entry_time
                         if pnl_usdt > 0:
                             wins += 1
@@ -427,6 +431,15 @@ async def run(args: argparse.Namespace) -> None:
                 entry_side or position.side, entry_price, fill.avg_price, fill.filled_qty, leverage, fees
             )
             session_pnl += pnl_usdt
+            peak_session_pnl = max(peak_session_pnl, session_pnl)
+            max_drawdown_usdt = max(max_drawdown_usdt, peak_session_pnl - session_pnl)
+            if pnl_usdt > 0:
+                wins += 1
+                gross_profit += pnl_usdt
+            elif pnl_usdt < 0:
+                losses += 1
+                gross_loss += abs(pnl_usdt)
+            cycles += 1
             peak_roe = mfe_bps / 100.0 * leverage
             worst_roe = mae_bps / 100.0 * leverage
             giveback_roe = peak_roe - roe_pct
@@ -443,6 +456,11 @@ async def run(args: argparse.Namespace) -> None:
         console.print(
             f"HYBRID DEMO COMPLETE cycles={cycles} signals={signals_seen} ticks={raw_ticks} wins={wins} losses={losses} "
             f"win_rate={win_rate:.1f}% PF={pf:.2f} session_pnl={session_pnl:+.6f} USDT"
+        )
+        console.print(
+            f"SESSION SUMMARY total_trades={cycles} "
+            f"max_drawdown={max_drawdown_usdt:.6f} USDT "
+            f"total_pnl={session_pnl:+.6f} USDT"
         )
 
 
