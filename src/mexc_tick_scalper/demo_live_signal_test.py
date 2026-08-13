@@ -4,6 +4,8 @@ import asyncio
 import os
 import sys
 
+import aiohttp
+
 from . import demo_hybrid_test as hybrid
 from .demo_smoke import _assert_demo_safety
 from .execution import OrderFill, OrderSide
@@ -125,17 +127,12 @@ class _GuardedDemoAdapter(MexcWebExecutionAdapter):
                     position_id=None,
                 )
         except (aiohttp.ClientError, TimeoutError):
-            # L2 is a confirmation layer, not a single point of failure. If the
-            # public snapshot endpoint is temporarily unavailable, preserve the
-            # reconstructed trade-flow strategy rather than crashing the session.
             hybrid.console.print("[yellow]BOOK GATE DEGRADED[/yellow]: LIVE L2 unavailable; using trade-flow signal only")
         except MexcWebError:
             raise
         except Exception as exc:
             hybrid.console.print(f"[yellow]BOOK GATE DEGRADED[/yellow]: {type(exc).__name__}: {exc}")
 
-        # From this point onward any position belongs to the current experiment and
-        # must never be auto-flattened by the startup-residual guard.
         self._entry_started = True
         return await super().open_ioc(*args, **kwargs)
 
