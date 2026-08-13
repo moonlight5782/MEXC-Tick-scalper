@@ -6,13 +6,16 @@ import sys
 
 from . import demo_hybrid_test as hybrid
 from .demo_smoke import _assert_demo_safety
-from .execution import OrderSide
+from .execution import OrderFill, OrderSide
 from .market import MexcPublicMarket
+from .orderbook_signal import analyze_order_book, book_confirmation
 from .web_execution import MexcWebError, MexcWebExecutionAdapter, WebExecutionConfig
 
 LIVE_REST = "https://contract.mexc.com"
 LIVE_WS = "wss://contract.mexc.com/edge"
 DEFAULT_MAX_DIVERGENCE_BPS = 25.0
+DEFAULT_BOOK_VETO_CONFIDENCE = 0.45
+DEFAULT_BOOK_CONFIRM_CONFIDENCE = 0.20
 AUTO_FLATTEN_FLAG = "--auto-flatten-start"
 AUTO_FLATTEN_ENV = "MEXC_DEMO_AUTO_FLATTEN_START"
 
@@ -25,11 +28,12 @@ class _LiveSignalMarket:
 
 
 class _GuardedDemoAdapter(MexcWebExecutionAdapter):
-    """Demo execution adapter with LIVE-vs-Demo price and startup-residual guards.
+    """Demo execution adapter with LIVE price, L2 and startup-residual guards.
 
-    All private/write calls still use the inherited TESTNET configuration. When
-    --auto-flatten-start is enabled, a stale TESTNET position that appears late
-    before the first IOC is flattened instead of being stacked on top of.
+    PRIVATE writes remain TESTNET-only. Immediately before every IOC entry, the
+    adapter fetches a fresh LIVE L2 snapshot and uses it only as confirmation/veto
+    for the already-existing trade-flow direction. The order book never invents a
+    standalone trade direction.
     """
 
     def __init__(self, config):
@@ -37,6 +41,12 @@ class _GuardedDemoAdapter(MexcWebExecutionAdapter):
         self._live_market = MexcPublicMarket(LIVE_REST, LIVE_WS)
         self._max_divergence_bps = float(
             os.getenv("MEXC_DEMO_LIVE_MAX_DIVERGENCE_BPS", str(DEFAULT_MAX_DIVERGENCE_BPS))
+        )
+        self._book_veto_confidence = float(
+            os.getenv("MEXC_BOOK_VETO_CONFIDENCE", str(DEFAULT_BOOK_VETO_CONFIDENCE))
+        )
+        self._book_confirm_confidence = float(
+            os.getenv("MEXC_BOOK_CONFIRM_CONFIDENCE", str(DEFAULT_BOOK_CONFIRM_CONFIDENCE))
         )
         self.last_divergence_bps: float | None = None
         self._auto_flatten_start = os.getenv(AUTO_FLATTEN_ENV, "NO").upper() == "YES"
@@ -72,6 +82,58 @@ class _GuardedDemoAdapter(MexcWebExecutionAdapter):
         return position
 
     async def open_ioc(self, *args, **kwargs):
+        symbol = str(kwargs.get("symbol") or "").upper()
+        side = kwargs.get("side")
+        qty = float(kwargs.get("qty") or 0.0)
+        price = float(kwargs.get("price") or 0.0)
+        client_order_id = str(kwargs.get("client_order_id") or "")
+
+        if not symbol or side not in (OrderSide.LONG, OrderSide.SHORT):
+            raise MexcWebError("L2 entry gate requires symbol and LONG/SHORT side")
+
+        try:
+            depth = await self._live_market.depth(symbol, limit=10)
+            book = analyze_order_book(depth.bids, depth.asks, depth=5) if depth is not None else None
+            trade_direction = 1 if side is OrderSide.LONG else -1
+            decision = book_confirmation(
+                trade_direction=trade_direction,
+                book=book,
+                veto_confidence=self._book_veto_confidence,
+                confirm_confidence=self._book_confirm_confidence,
+            )
+            if book is not None and book.valid:
+                hybrid.console.print(
+                    f"BOOK GATE side={'LONG' if side is OrderSide.LONG else 'SHORT'} "
+                    f"decision={decision.reason} OBI={book.imbalance:+.3f} "
+                    f"micro={book.microprice_edge_bps:+.3f}bps pressure={book.pressure:+.3f} "
+                    f"book_conf={book.confidence:.3f} spread={book.spread_bps:.3f}bps"
+                )
+            if not decision.allowed:
+                hybrid.console.print(
+                    f"[yellow]IOC SKIPPED BY L2[/yellow]: {symbol} "
+                    f"{'LONG' if side is OrderSide.LONG else 'SHORT'} reason={decision.reason}"
+                )
+                return OrderFill(
+                    symbol=symbol,
+                    side=side,
+                    requested_qty=qty,
+                    filled_qty=0.0,
+                    avg_price=price,
+                    fee_usdt=0.0,
+                    order_id="",
+                    client_order_id=client_order_id,
+                    position_id=None,
+                )
+        except (aiohttp.ClientError, TimeoutError):
+            # L2 is a confirmation layer, not a single point of failure. If the
+            # public snapshot endpoint is temporarily unavailable, preserve the
+            # reconstructed trade-flow strategy rather than crashing the session.
+            hybrid.console.print("[yellow]BOOK GATE DEGRADED[/yellow]: LIVE L2 unavailable; using trade-flow signal only")
+        except MexcWebError:
+            raise
+        except Exception as exc:
+            hybrid.console.print(f"[yellow]BOOK GATE DEGRADED[/yellow]: {type(exc).__name__}: {exc}")
+
         # From this point onward any position belongs to the current experiment and
         # must never be auto-flattened by the startup-residual guard.
         self._entry_started = True
@@ -118,8 +180,6 @@ async def _auto_flatten_demo_start(symbol: str) -> None:
         existing = await adapter.get_position(symbol)
         if existing is None:
             hybrid.console.print(f"[green]START FLATTEN[/green]: no existing Demo position for {symbol}")
-            # Testnet can briefly report flat and reveal a stale position later.
-            # Recheck a few times so the common delayed-state case is caught here.
             for _ in range(4):
                 await asyncio.sleep(0.35)
                 existing = await adapter.get_position(symbol)
@@ -128,8 +188,6 @@ async def _auto_flatten_demo_start(symbol: str) -> None:
             if existing is None:
                 hybrid.console.print(f"[green]START FLAT CONFIRMED[/green]: {symbol} remained flat")
                 return
-        # get_position() above auto-cleans when the flag/env is enabled. If we are
-        # here with a position, fall back to the explicit flatten path.
         if existing is not None:
             hybrid.console.print(
                 f"[yellow]START FLATTEN[/yellow]: closing existing Demo {symbol} "
@@ -164,11 +222,7 @@ def main() -> None:
     hybrid.MexcWebExecutionAdapter = _GuardedDemoAdapter
     hybrid.console.print(
         "[cyan]LIVE SIGNAL / DEMO EXECUTION MODE[/cyan]: signal ticks=LIVE MEXC, "
-        "orders/positions=TESTNET only, divergence guard enabled"
-    )
-    hybrid.console.print(
-        "[dim]Note: the inherited scanner line may still say TESTNET trade ticks; "
-        "in this mode the signal tape is LIVE.[/dim]"
+        "L2 book confirmation=LIVE MEXC, orders/positions=TESTNET only"
     )
     hybrid.main()
 
