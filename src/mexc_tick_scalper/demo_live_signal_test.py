@@ -11,7 +11,7 @@ from . import demo_hybrid_test as hybrid
 from .demo_smoke import _assert_demo_safety
 from .execution import OrderFill, OrderSide
 from .market import MexcPublicMarket
-from .orderbook_signal import analyze_order_book, book_confirmation
+from .orderbook_signal import EntryBookDecision, analyze_order_book, book_confirmation
 from .web_execution import MexcWebError, MexcWebExecutionAdapter, WebExecutionConfig
 
 LIVE_REST = "https://contract.mexc.com"
@@ -19,20 +19,89 @@ LIVE_WS = "wss://contract.mexc.com/edge"
 DEFAULT_MAX_DIVERGENCE_BPS = 25.0
 DEFAULT_BOOK_VETO_CONFIDENCE = 0.30
 DEFAULT_BOOK_CONFIRM_CONFIDENCE = 0.20
+DEFAULT_MIN_MOMENTUM_BPS = 0.20
+DEFAULT_REQUIRE_BOOK_CONFIRMATION = True
 AUTO_FLATTEN_FLAG = "--auto-flatten-start"
 AUTO_FLATTEN_ENV = "MEXC_DEMO_AUTO_FLATTEN_START"
 CLOSE_POSITION_RETRIES = 5
 CLOSE_POSITION_RETRY_SECONDS = 0.12
 DEMO_SPREAD_CACHE_SECONDS = 1.0
 LIVE_TICKER_CACHE_SECONDS = 0.20
+IOC_POSITION_VISIBLE_SECONDS = 4.0
+IOC_POSITION_VISIBLE_POLL_SECONDS = 0.08
+FAST_POSITION_WATCHDOG_SECONDS = 0.10
 _LAST_DEMO_SPREAD_BPS: float | None = None
+
+
+def _env_yes(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().upper() in {"1", "TRUE", "YES", "ON"}
+
+
+def _strict_book_allows(decision: EntryBookDecision, require_confirmation: bool = True) -> bool:
+    if not decision.allowed:
+        return False
+    if require_confirmation:
+        return decision.reason == "book_confirmed"
+    return True
+
+
+def _as_pending_fill(fill: OrderFill) -> OrderFill:
+    """Preserve order metadata but force Hybrid into its non-fatal zero-fill path."""
+    return OrderFill(
+        symbol=fill.symbol,
+        side=fill.side,
+        requested_qty=fill.requested_qty,
+        filled_qty=0.0,
+        avg_price=fill.avg_price,
+        fee_usdt=fill.fee_usdt,
+        order_id=fill.order_id,
+        client_order_id=fill.client_order_id,
+        position_id=fill.position_id,
+    )
+
+
+class _MomentumAlignedSignal(hybrid.MicrostructureSignal):
+    """Reject trade-flow directions that disagree with actual price momentum.
+
+    CVD/flow are still useful, but they are not allowed to overpower a price move
+    in the opposite direction. This specifically removes the losing pattern seen
+    in Demo where SHORT was opened with positive momentum or LONG with negative
+    momentum.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._min_momentum_bps = max(
+            0.0,
+            float(os.getenv("MEXC_MIN_ALIGNED_MOMENTUM_BPS", str(DEFAULT_MIN_MOMENTUM_BPS))),
+        )
+
+    def update(self, tick):
+        snap = super().update(tick)
+        if snap.direction == 0:
+            return snap
+        aligned_momentum_bps = snap.direction * snap.momentum_bps
+        if aligned_momentum_bps + 1e-12 >= self._min_momentum_bps:
+            return snap
+        return hybrid.MicrostructureSnapshot(
+            direction=0,
+            confidence=snap.confidence,
+            trade_rate=snap.trade_rate,
+            buy_ratio=snap.buy_ratio,
+            cvd_norm=snap.cvd_norm,
+            momentum_bps=snap.momentum_bps,
+            price_changes=snap.price_changes,
+        )
 
 
 class _SpreadAwareExitPolicy(hybrid.AsymmetricExitPolicy):
     """Keep the winner trail at least as wide as the most recent Demo spread.
 
-    The underlying policy still ratchets monotonically, so a later spread spike
-    can never loosen an already-protected profit floor.
+    The underlying staged policy only ratchets its positive stop upward. Once
+    executable MFE arms a positive lock, a later spread spike cannot loosen it.
     """
 
     def on_tick(self, **kwargs):
@@ -52,13 +121,7 @@ class _LiveSignalMarket:
 
 
 class _GuardedDemoAdapter(MexcWebExecutionAdapter):
-    """Demo execution adapter with LIVE price, L2 and startup-residual guards.
-
-    PRIVATE writes remain TESTNET-only. Immediately before every IOC entry, the
-    adapter fetches a fresh LIVE L2 snapshot and uses it only as confirmation/veto
-    for the already-existing trade-flow direction. The order book never invents a
-    standalone trade direction.
-    """
+    """Demo execution adapter with strict LIVE L2 and TESTNET consistency guards."""
 
     def __init__(self, config):
         super().__init__(config)
@@ -71,6 +134,9 @@ class _GuardedDemoAdapter(MexcWebExecutionAdapter):
         )
         self._book_confirm_confidence = float(
             os.getenv("MEXC_BOOK_CONFIRM_CONFIDENCE", str(DEFAULT_BOOK_CONFIRM_CONFIDENCE))
+        )
+        self._require_book_confirmation = _env_yes(
+            "MEXC_REQUIRE_BOOK_CONFIRMATION", DEFAULT_REQUIRE_BOOK_CONFIRMATION
         )
         self.last_divergence_bps: float | None = None
         self.last_demo_spread_bps: float | None = None
@@ -108,6 +174,40 @@ class _GuardedDemoAdapter(MexcWebExecutionAdapter):
                 self._cleaning_start_residual = False
         return position
 
+    def _skipped_fill(
+        self,
+        *,
+        symbol: str,
+        side: OrderSide,
+        qty: float,
+        price: float,
+        client_order_id: str,
+    ) -> OrderFill:
+        return OrderFill(
+            symbol=symbol,
+            side=side,
+            requested_qty=qty,
+            filled_qty=0.0,
+            avg_price=price,
+            fee_usdt=0.0,
+            order_id="",
+            client_order_id=client_order_id,
+            position_id=None,
+        )
+
+    async def _wait_position_visible(self, symbol: str, side: OrderSide):
+        deadline = time.monotonic() + IOC_POSITION_VISIBLE_SECONDS
+        while time.monotonic() < deadline:
+            remote = await super().get_position(symbol)
+            if remote is not None:
+                if remote.side is not side:
+                    raise MexcWebError(
+                        f"IOC visible-position side mismatch for {symbol}: requested={side.value} remote={remote.side.value}"
+                    )
+                return remote
+            await asyncio.sleep(IOC_POSITION_VISIBLE_POLL_SECONDS)
+        return None
+
     async def open_ioc(self, *args, **kwargs):
         symbol = str(kwargs.get("symbol") or "").upper()
         side = kwargs.get("side")
@@ -135,39 +235,57 @@ class _GuardedDemoAdapter(MexcWebExecutionAdapter):
                     f"micro={book.microprice_edge_bps:+.3f}bps pressure={book.pressure:+.3f} "
                     f"book_conf={book.confidence:.3f} spread={book.spread_bps:.3f}bps"
                 )
-            if not decision.allowed:
+            if not _strict_book_allows(decision, self._require_book_confirmation):
                 hybrid.console.print(
                     f"[yellow]IOC SKIPPED BY L2[/yellow]: {symbol} "
                     f"{'LONG' if side is OrderSide.LONG else 'SHORT'} reason={decision.reason}"
                 )
-                return OrderFill(
+                return self._skipped_fill(
                     symbol=symbol,
                     side=side,
-                    requested_qty=qty,
-                    filled_qty=0.0,
-                    avg_price=price,
-                    fee_usdt=0.0,
-                    order_id="",
+                    qty=qty,
+                    price=price,
                     client_order_id=client_order_id,
-                    position_id=None,
                 )
-        except (aiohttp.ClientError, TimeoutError):
-            hybrid.console.print("[yellow]BOOK GATE DEGRADED[/yellow]: LIVE L2 unavailable; using trade-flow signal only")
+        except (aiohttp.ClientError, TimeoutError) as exc:
+            hybrid.console.print(
+                f"[yellow]IOC SKIPPED: L2 UNAVAILABLE[/yellow] {symbol}: {type(exc).__name__}"
+            )
+            return self._skipped_fill(
+                symbol=symbol,
+                side=side,
+                qty=qty,
+                price=price,
+                client_order_id=client_order_id,
+            )
         except MexcWebError:
             raise
         except Exception as exc:
-            hybrid.console.print(f"[yellow]BOOK GATE DEGRADED[/yellow]: {type(exc).__name__}: {exc}")
+            hybrid.console.print(
+                f"[yellow]IOC SKIPPED: L2 ERROR[/yellow] {symbol}: {type(exc).__name__}: {exc}"
+            )
+            return self._skipped_fill(
+                symbol=symbol,
+                side=side,
+                qty=qty,
+                price=price,
+                client_order_id=client_order_id,
+            )
 
         self._entry_started = True
-        return await super().open_ioc(*args, **kwargs)
+        fill = await super().open_ioc(*args, **kwargs)
+        if fill.filled_qty > 0:
+            visible = await self._wait_position_visible(symbol, side)
+            if visible is None:
+                hybrid.console.print(
+                    f"[yellow]IOC POSITION PENDING[/yellow] {symbol} "
+                    f"reported_fill={fill.filled_qty:g}; deferring to late-position recovery"
+                )
+                return _as_pending_fill(fill)
+        return fill
 
     async def close_market_reduce_only(self, *args, **kwargs):
-        """Retry only transient TESTNET position-visibility misses before closing.
-
-        No write occurs while the base adapter cannot see a position. Any error
-        other than the known temporary `no open position` response is propagated
-        immediately.
-        """
+        """Retry only transient TESTNET position-visibility misses before closing."""
         last_error: MexcWebError | None = None
         for attempt in range(CLOSE_POSITION_RETRIES):
             try:
@@ -287,10 +405,17 @@ def main() -> None:
 
     hybrid.MexcPublicMarket = _LiveSignalMarket
     hybrid.MexcWebExecutionAdapter = _GuardedDemoAdapter
+    hybrid.MicrostructureSignal = _MomentumAlignedSignal
     hybrid.AsymmetricExitPolicy = _SpreadAwareExitPolicy
+    hybrid.POSITION_WATCHDOG_SECONDS = FAST_POSITION_WATCHDOG_SECONDS
     hybrid.console.print(
         "[cyan]LIVE SIGNAL / DEMO EXECUTION MODE[/cyan]: signal ticks=LIVE MEXC, "
-        "L2 book confirmation=LIVE MEXC, orders/positions=TESTNET only"
+        "strict aligned L2 confirmation=LIVE MEXC, orders/positions=TESTNET only"
+    )
+    hybrid.console.print(
+        f"[cyan]PROFIT GUARDS[/cyan]: fee must remain 0/0; momentum aligned >= "
+        f"{DEFAULT_MIN_MOMENTUM_BPS:.2f}bps; book confirmation required; "
+        f"watchdog={FAST_POSITION_WATCHDOG_SECONDS:.2f}s; positive staged trailing enabled"
     )
     hybrid.main()
 
