@@ -4,6 +4,7 @@ import asyncio
 import json
 import time
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 
 import aiohttp
 import websockets
@@ -22,6 +23,14 @@ def _timestamp_ms(value: object) -> int:
     if ts < 10_000_000_000:  # seconds epoch
         return ts * 1000
     return ts
+
+
+@dataclass(frozen=True, slots=True)
+class OrderBookSnapshot:
+    symbol: str
+    bids: list[list[float]]
+    asks: list[list[float]]
+    ts_ms: int
 
 
 class MexcPublicMarket:
@@ -54,6 +63,51 @@ class MexcPublicMarket:
             ask=float(data.get("ask1") or 0),
             volume24=float(data.get("volume24") or 0),
             ts_ms=_timestamp_ms(data.get("timestamp")),
+        )
+
+    async def depth(self, symbol: str, *, limit: int = 20) -> OrderBookSnapshot | None:
+        """Fetch a public L2 snapshot for deterministic OBI/microprice features.
+
+        This deliberately starts with snapshot polling rather than maintaining a
+        second bespoke websocket book. Once the feature logic is validated on
+        clean Demo runs, the same consumer can be fed by a local websocket book
+        tracker without changing the strategy API.
+        """
+        limit = max(1, min(int(limit), 100))
+        url = f"{self.rest_base_url}/api/v1/contract/depth/{symbol}"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params={"limit": limit}, timeout=5) as resp:
+                resp.raise_for_status()
+                payload = await resp.json()
+        data = payload.get("data", payload) if isinstance(payload, dict) else payload
+        if not isinstance(data, dict):
+            return None
+
+        def normalize(rows: object) -> list[list[float]]:
+            out: list[list[float]] = []
+            if not isinstance(rows, list):
+                return out
+            for row in rows:
+                if not isinstance(row, (list, tuple)) or len(row) < 2:
+                    continue
+                try:
+                    price = float(row[0])
+                    qty = float(row[1])
+                except (TypeError, ValueError):
+                    continue
+                if price > 0 and qty > 0:
+                    out.append([price, qty])
+            return out
+
+        bids = normalize(data.get("bids"))
+        asks = normalize(data.get("asks"))
+        if not bids or not asks:
+            return None
+        return OrderBookSnapshot(
+            symbol=symbol,
+            bids=bids,
+            asks=asks,
+            ts_ms=_timestamp_ms(data.get("timestamp") or payload.get("ts") if isinstance(payload, dict) else 0),
         )
 
     async def trades(self, symbol: str) -> AsyncIterator[Tick]:
