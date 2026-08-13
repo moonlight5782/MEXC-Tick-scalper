@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import time
 
 import aiohttp
 
@@ -16,10 +17,30 @@ from .web_execution import MexcWebError, MexcWebExecutionAdapter, WebExecutionCo
 LIVE_REST = "https://contract.mexc.com"
 LIVE_WS = "wss://contract.mexc.com/edge"
 DEFAULT_MAX_DIVERGENCE_BPS = 25.0
-DEFAULT_BOOK_VETO_CONFIDENCE = 0.45
+DEFAULT_BOOK_VETO_CONFIDENCE = 0.30
 DEFAULT_BOOK_CONFIRM_CONFIDENCE = 0.20
 AUTO_FLATTEN_FLAG = "--auto-flatten-start"
 AUTO_FLATTEN_ENV = "MEXC_DEMO_AUTO_FLATTEN_START"
+CLOSE_POSITION_RETRIES = 5
+CLOSE_POSITION_RETRY_SECONDS = 0.12
+DEMO_SPREAD_CACHE_SECONDS = 1.0
+_LAST_DEMO_SPREAD_BPS: float | None = None
+
+
+class _SpreadAwareExitPolicy(hybrid.AsymmetricExitPolicy):
+    """Keep the winner trail at least as wide as the most recent Demo spread.
+
+    The underlying policy still ratchets monotonically, so a later spread spike
+    can never loosen an already-protected profit floor.
+    """
+
+    def on_tick(self, **kwargs):
+        if _LAST_DEMO_SPREAD_BPS is not None and _LAST_DEMO_SPREAD_BPS > 0:
+            self.trailing_distance_bps = max(
+                self.winner_pullback_bps,
+                _LAST_DEMO_SPREAD_BPS,
+            )
+        return super().on_tick(**kwargs)
 
 
 class _LiveSignalMarket:
@@ -51,6 +72,8 @@ class _GuardedDemoAdapter(MexcWebExecutionAdapter):
             os.getenv("MEXC_BOOK_CONFIRM_CONFIDENCE", str(DEFAULT_BOOK_CONFIRM_CONFIDENCE))
         )
         self.last_divergence_bps: float | None = None
+        self.last_demo_spread_bps: float | None = None
+        self._demo_best_cache: dict[OrderSide, tuple[float, float]] = {}
         self._auto_flatten_start = os.getenv(AUTO_FLATTEN_ENV, "NO").upper() == "YES"
         self._entry_started = False
         self._cleaning_start_residual = False
@@ -136,8 +159,43 @@ class _GuardedDemoAdapter(MexcWebExecutionAdapter):
         self._entry_started = True
         return await super().open_ioc(*args, **kwargs)
 
+    async def close_market_reduce_only(self, *args, **kwargs):
+        """Retry only transient TESTNET position-visibility misses before closing.
+
+        No write occurs while the base adapter cannot see a position. Any error
+        other than the known temporary `no open position` response is propagated
+        immediately.
+        """
+        last_error: MexcWebError | None = None
+        for attempt in range(CLOSE_POSITION_RETRIES):
+            try:
+                return await super().close_market_reduce_only(*args, **kwargs)
+            except MexcWebError as exc:
+                if "no open position for" not in str(exc):
+                    raise
+                last_error = exc
+                if attempt + 1 < CLOSE_POSITION_RETRIES:
+                    await asyncio.sleep(CLOSE_POSITION_RETRY_SECONDS)
+        assert last_error is not None
+        raise last_error
+
     async def get_best_price(self, symbol: str, side: OrderSide) -> float:
+        global _LAST_DEMO_SPREAD_BPS
+
         demo_price = await super().get_best_price(symbol, side)
+        now = time.monotonic()
+        self._demo_best_cache[side] = (demo_price, now)
+        ask_row = self._demo_best_cache.get(OrderSide.LONG)
+        bid_row = self._demo_best_cache.get(OrderSide.SHORT)
+        if ask_row is not None and bid_row is not None:
+            ask, ask_ts = ask_row
+            bid, bid_ts = bid_row
+            if abs(ask_ts - bid_ts) <= DEMO_SPREAD_CACHE_SECONDS and ask > bid > 0:
+                mid = (ask + bid) / 2.0
+                spread_bps = (ask - bid) / mid * 10_000.0
+                self.last_demo_spread_bps = spread_bps
+                _LAST_DEMO_SPREAD_BPS = spread_bps
+
         live = await self._live_market.ticker(symbol)
         if live is None:
             raise MexcWebError(f"LIVE ticker unavailable for {symbol}")
@@ -217,6 +275,7 @@ def main() -> None:
 
     hybrid.MexcPublicMarket = _LiveSignalMarket
     hybrid.MexcWebExecutionAdapter = _GuardedDemoAdapter
+    hybrid.AsymmetricExitPolicy = _SpreadAwareExitPolicy
     hybrid.console.print(
         "[cyan]LIVE SIGNAL / DEMO EXECUTION MODE[/cyan]: signal ticks=LIVE MEXC, "
         "L2 book confirmation=LIVE MEXC, orders/positions=TESTNET only"
