@@ -152,7 +152,52 @@ def test_stale_tape_hard_trailing_stop_protects_established_winner():
         signal=_snap(1, 0.5),
         age_seconds=1.0,
         signal_fresh=False,
-    ) == "winner_price_trailing_stop"
+    ) == "winner_staged_trailing_stop"
+
+
+def test_staged_stop_locks_microprofit_from_three_bps():
+    policy = AsymmetricExitPolicy(side=1, entry_price=100.0, winner_arm_bps=1.0, winner_pullback_bps=1.5)
+    assert policy.on_tick(price=100.030, liquidation_price=None, signal=_snap(1, 0.7), age_seconds=1.0) is None
+    assert policy.trailing_stop_bps == 0.5
+    assert policy.on_tick(price=100.004, liquidation_price=None, signal=_snap(1, 0.8), age_seconds=1.2) == "winner_staged_trailing_stop"
+
+
+def test_staged_stop_raises_floor_at_five_bps():
+    policy = AsymmetricExitPolicy(side=1, entry_price=100.0, winner_arm_bps=1.0, winner_pullback_bps=1.5)
+    assert policy.on_tick(price=100.050, liquidation_price=None, signal=_snap(1, 0.7), age_seconds=1.0) is None
+    assert policy.trailing_stop_bps == 2.0
+    assert policy.on_tick(price=100.019, liquidation_price=None, signal=_snap(1, 0.8), age_seconds=1.2) == "winner_staged_trailing_stop"
+
+
+def test_mature_long_switches_to_ratcheting_trailing():
+    policy = AsymmetricExitPolicy(side=1, entry_price=100.0, winner_arm_bps=1.0, winner_pullback_bps=1.5)
+    assert policy.on_tick(price=100.060, liquidation_price=None, signal=_snap(1, 0.7), age_seconds=1.0) is None
+    assert policy.trailing_stop_bps is not None and 4.49 <= policy.trailing_stop_bps <= 4.51
+    assert policy.on_tick(price=100.080, liquidation_price=None, signal=_snap(1, 0.8), age_seconds=1.2) is None
+    assert policy.trailing_stop_bps is not None and 6.49 <= policy.trailing_stop_bps <= 6.51
+    assert policy.on_tick(price=100.064, liquidation_price=None, signal=_snap(1, 0.8), age_seconds=1.3) == "winner_staged_trailing_stop"
+
+
+def test_mature_short_uses_symmetric_staged_trailing():
+    policy = AsymmetricExitPolicy(side=-1, entry_price=100.0, winner_arm_bps=1.0, winner_pullback_bps=1.5)
+    assert policy.on_tick(price=99.940, liquidation_price=None, signal=_snap(-1, 0.7), age_seconds=1.0) is None
+    assert policy.trailing_stop_bps is not None and 4.49 <= policy.trailing_stop_bps <= 4.51
+    assert policy.on_tick(price=99.920, liquidation_price=None, signal=_snap(-1, 0.8), age_seconds=1.2) is None
+    assert policy.trailing_stop_bps is not None and 6.49 <= policy.trailing_stop_bps <= 6.51
+    assert policy.on_tick(price=99.936, liquidation_price=None, signal=_snap(-1, 0.8), age_seconds=1.3) == "winner_staged_trailing_stop"
+
+
+def test_stop_never_moves_backwards():
+    policy = AsymmetricExitPolicy(side=1, entry_price=100.0, winner_arm_bps=1.0, winner_pullback_bps=1.5)
+    assert policy.on_tick(price=100.060, liquidation_price=None, signal=_snap(1, 0.7), age_seconds=1.0) is None
+    first = policy.trailing_stop_bps
+    assert first is not None
+    assert policy.on_tick(price=100.080, liquidation_price=None, signal=_snap(1, 0.7), age_seconds=1.1) is None
+    second = policy.trailing_stop_bps
+    assert second is not None and second > first
+    assert policy.on_tick(price=100.075, liquidation_price=None, signal=_snap(1, 0.7), age_seconds=1.2) is None
+    assert policy.trailing_stop_bps == second
+
 
 
 def test_winner_pullback_requires_signal_fade():
