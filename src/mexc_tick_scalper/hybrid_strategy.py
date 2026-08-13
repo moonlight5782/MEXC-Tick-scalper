@@ -85,11 +85,13 @@ class MicrostructureSignal:
 
 @dataclass(slots=True)
 class AsymmetricExitPolicy:
-    """Fast loss cutting with price-confirmed management of established winners.
+    """Fast loss cutting with executable-price protection for established winners.
 
-    LIVE flow is only evidence about direction. The caller may invoke this policy
-    from an independent executable-price watchdog with signal_fresh=False; stale
-    flow is never counted repeatedly as multiple flip confirmations.
+    LIVE flow is evidence about direction, but it is never allowed to give back an
+    already substantial executable-price profit. Once peak executable return reaches
+    ``profit_lock_trigger_bps``, a rising floor locks a fraction of the best excursion.
+    This keeps winners alive while they extend, yet prevents a +several-bps trade from
+    drifting all the way back through breakeven merely because flow still looks supportive.
     """
 
     side: int
@@ -104,11 +106,15 @@ class AsymmetricExitPolicy:
     min_hold_seconds: float = 0.35
     winner_flip_confirmations: int = 3
     hard_trailing_multiplier: float = 2.0
+    profit_lock_trigger_bps: float = 4.0
+    profit_lock_fraction: float = 0.35
+    profit_lock_min_bps: float = 0.5
     last_price: float | None = None
     extreme_price: float | None = None
     adverse_count: int = 0
     winner_armed: bool = False
     winner_opposite_count: int = 0
+    peak_signed_bps: float = 0.0
 
     def __post_init__(self) -> None:
         if self.side not in (1, -1):
@@ -123,6 +129,12 @@ class AsymmetricExitPolicy:
             raise ValueError("winner_flip_pullback_bps must be >= 0")
         if self.hard_trailing_multiplier < 1:
             raise ValueError("hard_trailing_multiplier must be >= 1")
+        if self.profit_lock_trigger_bps <= 0:
+            raise ValueError("profit_lock_trigger_bps must be positive")
+        if not 0 < self.profit_lock_fraction < 1:
+            raise ValueError("profit_lock_fraction must be between 0 and 1")
+        if self.profit_lock_min_bps < 0:
+            raise ValueError("profit_lock_min_bps must be >= 0")
         if not 0 < self.liq_buffer_fraction < 1:
             raise ValueError("liq_buffer_fraction must be between 0 and 1")
         self.last_price = self.entry_price
@@ -148,6 +160,11 @@ class AsymmetricExitPolicy:
             return max(0.0, (self.extreme_price - price) / self.extreme_price * 10_000.0)
         return max(0.0, (price - self.extreme_price) / self.extreme_price * 10_000.0)
 
+    def _profit_lock_floor_bps(self) -> float | None:
+        if self.peak_signed_bps < self.profit_lock_trigger_bps:
+            return None
+        return max(self.profit_lock_min_bps, self.peak_signed_bps * self.profit_lock_fraction)
+
     def on_tick(
         self,
         *,
@@ -166,6 +183,7 @@ class AsymmetricExitPolicy:
         assert self.extreme_price is not None
 
         signed_bps = self._signed_return_bps(price)
+        self.peak_signed_bps = max(self.peak_signed_bps, signed_bps)
         if signed_bps >= self.winner_arm_bps:
             self.winner_armed = True
 
@@ -196,6 +214,13 @@ class AsymmetricExitPolicy:
                 return "early_adverse_cut"
             return None
 
+        # Independent of flow freshness: once a meaningful executable-price winner
+        # exists, preserve part of the best excursion. A supportive but lagging LIVE
+        # flow signal is no longer allowed to turn a mature winner into a loser.
+        lock_floor = self._profit_lock_floor_bps()
+        if lock_floor is not None and signed_bps <= lock_floor:
+            return "winner_profit_lock"
+
         if signal_fresh:
             if opposite and not made_new_favorable_extreme:
                 self.winner_opposite_count += 1
@@ -214,8 +239,6 @@ class AsymmetricExitPolicy:
         if signal_fresh and pullback_bps >= self.winner_pullback_bps and not supportive:
             return "winner_pullback_fade"
 
-        # Only the independent stale-tape watchdog uses this wider price-only stop.
-        # Fresh supportive flow is therefore never overridden by the hard fallback.
         if not signal_fresh:
             hard_trailing_bps = self.winner_pullback_bps * self.hard_trailing_multiplier
             if pullback_bps >= hard_trailing_bps:
