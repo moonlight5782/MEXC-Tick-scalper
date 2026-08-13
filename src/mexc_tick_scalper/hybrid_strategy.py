@@ -106,7 +106,7 @@ class AsymmetricExitPolicy:
     min_hold_seconds: float = 0.35
     winner_flip_confirmations: int = 3
     hard_trailing_multiplier: float = 2.0
-    profit_lock_trigger_bps: float = 4.0
+    profit_lock_trigger_bps: float = 6.0
     profit_lock_fraction: float = 0.35
     profit_lock_min_bps: float = 0.5
     last_price: float | None = None
@@ -214,9 +214,6 @@ class AsymmetricExitPolicy:
                 return "early_adverse_cut"
             return None
 
-        # Independent of flow freshness: once a meaningful executable-price winner
-        # exists, preserve part of the best excursion. A supportive but lagging LIVE
-        # flow signal is no longer allowed to turn a mature winner into a loser.
         lock_floor = self._profit_lock_floor_bps()
         if lock_floor is not None and signed_bps <= lock_floor:
             return "winner_profit_lock"
