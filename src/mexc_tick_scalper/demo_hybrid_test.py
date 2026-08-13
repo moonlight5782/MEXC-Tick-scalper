@@ -19,7 +19,11 @@ from .web_execution import MexcWebError, MexcWebExecutionAdapter, WebExecutionCo
 from .web_fee import read_web_fee_status
 
 console = Console()
-POSITION_WATCHDOG_SECONDS = 0.25
+POSITION_WATCHDOG_SECONDS = 0.15
+IOC_RECONCILE_FILLED_SECONDS = 1.5
+IOC_RECONCILE_ZERO_FILL_SECONDS = 3.0
+IOC_RECONCILE_FILLED_POLL_SECONDS = 0.04
+IOC_RECONCILE_ZERO_FILL_POLL_SECONDS = 0.12
 
 
 def _load_project_env() -> None:
@@ -32,6 +36,59 @@ def _signed_move_bps(side: OrderSide, entry: float, price: float) -> float:
         return 0.0
     raw = (price - entry) / entry * 10_000.0
     return raw if side is OrderSide.LONG else -raw
+
+
+async def _reconcile_ioc_position(
+    adapter: MexcWebExecutionAdapter,
+    symbol: str,
+    side: OrderSide,
+    fill: OrderFill,
+) -> PositionSnapshot | None:
+    """Use the remote TESTNET position as truth after every IOC attempt.
+
+    Demo can expose terminal order state/dealVol before open_positions becomes
+    consistent. Even dealVol=0 therefore gets a bounded reconciliation window.
+    """
+    if fill.filled_qty > 0:
+        timeout = IOC_RECONCILE_FILLED_SECONDS
+        poll_seconds = IOC_RECONCILE_FILLED_POLL_SECONDS
+    else:
+        timeout = IOC_RECONCILE_ZERO_FILL_SECONDS
+        poll_seconds = IOC_RECONCILE_ZERO_FILL_POLL_SECONDS
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        remote = await adapter.get_position(symbol)
+        if remote is not None:
+            if remote.side is not side:
+                raise MexcWebError(
+                    f"IOC reconciliation side mismatch: requested={side.value} remote={remote.side.value}"
+                )
+            return remote
+        await asyncio.sleep(poll_seconds)
+    return None
+
+
+def _build_exit_policy(
+    side: OrderSide,
+    entry_price: float,
+    args: argparse.Namespace,
+    spread_bps: float,
+) -> AsymmetricExitPolicy:
+    effective_pullback_bps = max(float(args.winner_pullback_bps), spread_bps)
+    effective_flip_pullback_bps = max(0.5, spread_bps * 0.5)
+    return AsymmetricExitPolicy(
+        side=1 if side is OrderSide.LONG else -1,
+        entry_price=entry_price,
+        early_adverse_changes=int(args.early_adverse_changes),
+        liq_buffer_fraction=float(args.liq_buffer_fraction),
+        winner_arm_bps=float(args.winner_arm_bps),
+        winner_pullback_bps=effective_pullback_bps,
+        winner_flip_pullback_bps=effective_flip_pullback_bps,
+        flip_confidence=float(args.exit_flip_confidence),
+        fade_confidence=float(args.exit_fade_confidence),
+        min_hold_seconds=float(args.min_hold_seconds),
+    )
 
 
 async def _flatten_position(
@@ -336,14 +393,39 @@ async def run(args: argparse.Namespace) -> None:
                             raise MexcWebError(f"non-zero execution fee observed on exit: {fill.fee_usdt}")
                     continue
 
+                # Reconcile remote state even when there is no current signal.
+                # This catches a Demo IOC that was reported as zero-fill but
+                # appeared in open_positions later.
+                residual = await adapter.get_position(symbol)
+                if residual is not None:
+                    ask = await adapter.get_best_price(symbol, OrderSide.LONG)
+                    bid = await adapter.get_best_price(symbol, OrderSide.SHORT)
+                    mid = (ask + bid) / 2.0
+                    spread_bps = ((ask - bid) / mid) * 10_000 if mid > 0 else float(args.max_spread_bps)
+                    recovered_side = residual.side
+                    recovered_entry = residual.entry_price or mid
+                    position = residual
+                    entry_side = recovered_side
+                    entry_price = recovered_entry
+                    entry_fee = 0.0
+                    entry_time = now - float(args.min_hold_seconds)
+                    mfe_bps = mae_bps = 0.0
+                    exit_policy = _build_exit_policy(
+                        recovered_side, recovered_entry, args, spread_bps
+                    )
+                    latched_snap = None
+                    latched_until = 0.0
+                    console.print(
+                        f"[yellow]LATE POSITION RECOVERED[/yellow] {symbol} "
+                        f"{'LONG' if recovered_side is OrderSide.LONG else 'SHORT'} "
+                        f"qty={residual.qty:g} entry={recovered_entry:g}; managing instead of stacking"
+                    )
+                    continue
+
                 active_snap = latched_snap if (latched_snap is not None and now <= latched_until) else None
                 if active_snap is None:
                     latched_snap = None
                     continue
-
-                residual = await adapter.get_position(symbol)
-                if residual is not None:
-                    raise MexcWebError(f"residual position detected before entry qty={residual.qty}; refusing to stack")
 
                 side = OrderSide.LONG if active_snap.direction == 1 else OrderSide.SHORT
                 ask = await adapter.get_best_price(symbol, OrderSide.LONG)
@@ -368,8 +450,6 @@ async def run(args: argparse.Namespace) -> None:
                 )
                 latched_snap = None
                 latched_until = 0.0
-                if fill.filled_qty <= 0:
-                    continue
                 if fill.filled_qty > requested_qty * 1.000001:
                     raise MexcWebError(
                         f"impossible IOC fill: requested={requested_qty} filled={fill.filled_qty}; refusing inconsistent state"
@@ -377,9 +457,18 @@ async def run(args: argparse.Namespace) -> None:
                 if fill.fee_usdt != 0:
                     raise MexcWebError(f"non-zero execution fee observed on entry: {fill.fee_usdt}")
 
-                remote = await _wait_for_remote_position(adapter, symbol)
+                remote = await _reconcile_ioc_position(adapter, symbol, side, fill)
                 if remote is None:
-                    raise MexcWebError("IOC fill reported but position did not appear in open_positions within 1s")
+                    if fill.filled_qty > 0:
+                        raise MexcWebError(
+                            "IOC fill reported but position did not appear after reconciliation"
+                        )
+                    continue
+                if fill.filled_qty <= 0:
+                    console.print(
+                        f"[yellow]LATE IOC FILL RECOVERED[/yellow] {symbol} "
+                        f"{'LONG' if side is OrderSide.LONG else 'SHORT'} qty={remote.qty:g}"
+                    )
                 if remote.qty > requested_qty * 1.000001:
                     raise MexcWebError(
                         f"remote position exceeds IOC request: requested={requested_qty} remote={remote.qty}; refusing to continue"
@@ -391,20 +480,9 @@ async def run(args: argparse.Namespace) -> None:
                 entry_fee = fill.fee_usdt
                 entry_time = now
                 mfe_bps = mae_bps = 0.0
-                effective_pullback_bps = max(float(args.winner_pullback_bps), spread_bps)
+                exit_policy = _build_exit_policy(side, entry_price, args, spread_bps)
+                effective_pullback_bps = exit_policy.winner_pullback_bps
                 effective_flip_pullback_bps = max(0.5, spread_bps * 0.5)
-                exit_policy = AsymmetricExitPolicy(
-                    side=1 if side is OrderSide.LONG else -1,
-                    entry_price=entry_price,
-                    early_adverse_changes=int(args.early_adverse_changes),
-                    liq_buffer_fraction=float(args.liq_buffer_fraction),
-                    winner_arm_bps=float(args.winner_arm_bps),
-                    winner_pullback_bps=effective_pullback_bps,
-                    winner_flip_pullback_bps=effective_flip_pullback_bps,
-                    flip_confidence=float(args.exit_flip_confidence),
-                    fade_confidence=float(args.exit_fade_confidence),
-                    min_hold_seconds=float(args.min_hold_seconds),
-                )
                 fill_ratio = remote.qty / requested_qty if requested_qty > 0 else 0.0
                 console.print(
                     f"ENTRY {'LONG' if side is OrderSide.LONG else 'SHORT'} requested={requested_qty:g} "

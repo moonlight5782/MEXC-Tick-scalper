@@ -13,6 +13,25 @@ from .web_execution import MexcWebError, MexcWebExecutionAdapter, WebExecutionCo
 
 console = Console()
 
+def _position_already_closed_error(exc: MexcWebError) -> bool:
+    text = str(exc)
+    return "code=2009" in text and "Position is nonexistent or closed" in text
+
+
+async def _confirm_symbol_absent(
+    adapter: MexcWebExecutionAdapter,
+    symbol: str,
+    *,
+    checks: int = 5,
+    poll_seconds: float = 0.10,
+) -> bool:
+    for index in range(max(1, checks)):
+        if await adapter.get_position(symbol) is not None:
+            return False
+        if index + 1 < checks:
+            await asyncio.sleep(poll_seconds)
+    return True
+
 
 async def list_open_demo_positions(adapter: MexcWebExecutionAdapter) -> list[PositionSnapshot]:
     """Return all currently open TESTNET positions, not just one selected symbol."""
@@ -103,7 +122,21 @@ async def flatten_all_demo_positions(
                     f"  closing {position.symbol} "
                     f"{'LONG' if position.side is OrderSide.LONG else 'SHORT'} qty={position.qty:g}"
                 )
-                await _flatten_position(adapter, position, f"{reason}:{position.symbol}:{uuid.uuid4().hex[:8]}")
+                try:
+                    await _flatten_position(
+                        adapter,
+                        position,
+                        f"{reason}:{position.symbol}:{uuid.uuid4().hex[:8]}",
+                    )
+                except MexcWebError as exc:
+                    if _position_already_closed_error(exc) and await _confirm_symbol_absent(
+                        adapter, position.symbol
+                    ):
+                        console.print(
+                            f"  {position.symbol} already closed; stale TESTNET position snapshot ignored"
+                        )
+                        continue
+                    raise
 
             if await wait_account_flat(adapter):
                 console.print(f"[green]DEMO FLAT CONFIRMED[/green] ({reason})")

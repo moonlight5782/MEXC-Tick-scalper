@@ -2,8 +2,10 @@ import asyncio
 
 import pytest
 
+import mexc_tick_scalper.demo_hybrid_test as hybrid
 import mexc_tick_scalper.demo_live_signal_test as live_demo
-from mexc_tick_scalper.execution import OrderFill, OrderSide
+import mexc_tick_scalper.demo_position_manager as position_manager
+from mexc_tick_scalper.execution import OrderFill, OrderSide, PositionSnapshot
 from mexc_tick_scalper.hybrid_strategy import MicrostructureSnapshot
 from mexc_tick_scalper.orderbook_signal import OrderBookFeatures, book_confirmation
 from mexc_tick_scalper.web_execution import MexcWebError, MexcWebExecutionAdapter, WebExecutionConfig
@@ -130,3 +132,50 @@ def test_default_live_l2_veto_blocks_moderate_opposite_pressure():
     assert live_demo.DEFAULT_BOOK_VETO_CONFIDENCE == 0.30
     assert not decision.allowed
     assert decision.reason == "strong_book_disagreement"
+
+
+def test_zero_fill_ioc_reconciliation_recovers_late_remote_position(monkeypatch):
+    remote = PositionSnapshot(
+        symbol="TEST_USDT",
+        side=OrderSide.LONG,
+        qty=1.0,
+        entry_price=100.0,
+        leverage=50,
+        isolated=True,
+    )
+
+    class FakeAdapter:
+        def __init__(self):
+            self.calls = 0
+
+        async def get_position(self, symbol):
+            self.calls += 1
+            return remote if self.calls >= 3 else None
+
+    fill = OrderFill(
+        symbol="TEST_USDT",
+        side=OrderSide.LONG,
+        requested_qty=1.0,
+        filled_qty=0.0,
+        avg_price=100.0,
+        fee_usdt=0.0,
+        order_id="entry-1",
+        client_order_id="client-1",
+    )
+    monkeypatch.setattr(hybrid, "IOC_RECONCILE_ZERO_FILL_POLL_SECONDS", 0.0)
+    monkeypatch.setattr(hybrid, "IOC_RECONCILE_ZERO_FILL_SECONDS", 0.1)
+
+    adapter = FakeAdapter()
+    recovered = asyncio.run(
+        hybrid._reconcile_ioc_position(adapter, "TEST_USDT", OrderSide.LONG, fill)
+    )
+
+    assert recovered is remote
+    assert adapter.calls == 3
+
+
+def test_cleanup_recognizes_testnet_already_closed_error():
+    exc = MexcWebError(
+        "MEXC error from /private/order/submit: code=2009 message=Position is nonexistent or closed"
+    )
+    assert position_manager._position_already_closed_error(exc)

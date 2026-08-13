@@ -24,6 +24,7 @@ AUTO_FLATTEN_ENV = "MEXC_DEMO_AUTO_FLATTEN_START"
 CLOSE_POSITION_RETRIES = 5
 CLOSE_POSITION_RETRY_SECONDS = 0.12
 DEMO_SPREAD_CACHE_SECONDS = 1.0
+LIVE_TICKER_CACHE_SECONDS = 0.20
 _LAST_DEMO_SPREAD_BPS: float | None = None
 
 
@@ -74,6 +75,7 @@ class _GuardedDemoAdapter(MexcWebExecutionAdapter):
         self.last_divergence_bps: float | None = None
         self.last_demo_spread_bps: float | None = None
         self._demo_best_cache: dict[OrderSide, tuple[float, float]] = {}
+        self._live_mid_cache: tuple[float, float] | None = None
         self._auto_flatten_start = os.getenv(AUTO_FLATTEN_ENV, "NO").upper() == "YES"
         self._entry_started = False
         self._cleaning_start_residual = False
@@ -179,6 +181,25 @@ class _GuardedDemoAdapter(MexcWebExecutionAdapter):
         assert last_error is not None
         raise last_error
 
+    async def _get_live_mid(self, symbol: str) -> float:
+        now = time.monotonic()
+        if self._live_mid_cache is not None:
+            cached_mid, cached_at = self._live_mid_cache
+            if now - cached_at <= LIVE_TICKER_CACHE_SECONDS:
+                return cached_mid
+
+        live = await self._live_market.ticker(symbol)
+        if live is None:
+            raise MexcWebError(f"LIVE ticker unavailable for {symbol}")
+        live_bid = float(live.bid or 0)
+        live_ask = float(live.ask or 0)
+        if live_bid <= 0 or live_ask <= 0:
+            raise MexcWebError(f"LIVE bid/ask unavailable for {symbol}")
+
+        live_mid = (live_bid + live_ask) / 2.0
+        self._live_mid_cache = (live_mid, now)
+        return live_mid
+
     async def get_best_price(self, symbol: str, side: OrderSide) -> float:
         global _LAST_DEMO_SPREAD_BPS
 
@@ -196,16 +217,7 @@ class _GuardedDemoAdapter(MexcWebExecutionAdapter):
                 self.last_demo_spread_bps = spread_bps
                 _LAST_DEMO_SPREAD_BPS = spread_bps
 
-        live = await self._live_market.ticker(symbol)
-        if live is None:
-            raise MexcWebError(f"LIVE ticker unavailable for {symbol}")
-
-        live_bid = float(live.bid or 0)
-        live_ask = float(live.ask or 0)
-        if live_bid <= 0 or live_ask <= 0:
-            raise MexcWebError(f"LIVE bid/ask unavailable for {symbol}")
-
-        live_mid = (live_bid + live_ask) / 2.0
+        live_mid = await self._get_live_mid(symbol)
         divergence_bps = abs(demo_price - live_mid) / live_mid * 10_000.0
         self.last_divergence_bps = divergence_bps
         if divergence_bps > self._max_divergence_bps:
