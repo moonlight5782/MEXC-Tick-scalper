@@ -104,11 +104,20 @@ class EventBinanceBookTickerFeed:
 class EventMexcDepthFeed:
     """MEXC full-depth feed using local arrival timestamps for latency comparison."""
 
-    def __init__(self, symbols: list[str], models: dict[str, object], wake: asyncio.Event, *, shard_size: int = 20) -> None:
+    def __init__(
+        self,
+        symbols: list[str],
+        models: dict[str, object] | None,
+        wake: asyncio.Event,
+        *,
+        shard_size: int = 20,
+        ws_url: str = MEXC_FUTURES_WS,
+    ) -> None:
         self.symbols = list(symbols)
-        self.models = models
+        self.models = models or {}
         self.wake = wake
         self.shard_size = max(1, int(shard_size))
+        self.ws_url = str(ws_url)
         self.books: dict[str, LiveBook] = {}
         self._tasks: list[asyncio.Task] = []
         self._stop = asyncio.Event()
@@ -175,7 +184,7 @@ class EventMexcDepthFeed:
         while not self._stop.is_set():
             try:
                 async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.ws_connect(MEXC_FUTURES_WS, heartbeat=None) as ws:
+                    async with session.ws_connect(self.ws_url, heartbeat=None) as ws:
                         for symbol in symbols:
                             await ws.send_json({
                                 "method": "sub.depth.full",
@@ -210,10 +219,12 @@ class EventMexcDepthFeed:
                             if parsed is None:
                                 continue
                             symbol, book = parsed
-                            if symbol not in self.models:
+                            if symbol not in self.symbols:
                                 continue
                             self.books[symbol] = book
-                            self.models[symbol].update_mexc(bid=book.bid, ask=book.ask, ts_ms=recv_ms)
+                            model = self.models.get(symbol)
+                            if model is not None:
+                                model.update_mexc(bid=book.bid, ask=book.ask, ts_ms=recv_ms)
                             self.updates += 1
                             self.last_update_ms = recv_ms
                             self.wake.set()

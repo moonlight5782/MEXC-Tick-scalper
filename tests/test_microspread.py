@@ -1,14 +1,20 @@
 import math
 import csv
+import asyncio
 from types import SimpleNamespace
 
 from mexc_tick_scalper.demo_microspread_test import (
     MicroCandidate,
     _append_excursion,
+    _flatten_exact_demo_position,
+    _find_demo_position,
+    _open_demo_ioc_with_leverage_fallback,
     _required_edge,
 )
 from mexc_tick_scalper.microspread import MicroSpreadModel
 from mexc_tick_scalper.microspread_feed import EventMexcDepthFeed, LiveBook
+from mexc_tick_scalper.execution import OrderSide, PositionSnapshot
+from mexc_tick_scalper.web_execution import MexcWebError
 
 
 def px(base: float, bps: float) -> float:
@@ -148,10 +154,109 @@ def test_excursion_csv_preserves_sub_one_bps_residual(tmp_path):
     )
     path = tmp_path / "excursions.csv"
 
-    _append_excursion(path, candidate, timestamp_ms=3100)
+    _append_excursion(
+        path, candidate, timestamp_ms=3100, excursion_id="exc-1", event="demo_exit",
+        live_pnl_usdt=0.001, move_bps=0.5, mfe_bps=0.8, mae_bps=-0.2,
+        exit_reason="microspread_converged", hold_ms=125.0,
+    )
 
     with path.open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     assert len(rows) == 1
     assert rows[0]["symbol"] == "BCH_USDT"
+    assert rows[0]["event"] == "demo_exit"
+    assert rows[0]["excursion_id"] == "exc-1"
+    assert rows[0]["exit_reason"] == "microspread_converged"
+    assert float(rows[0]["live_pnl_usdt"]) == 0.001
     assert 0.0 < abs(float(rows[0]["residual_bps"])) < 1.0
+
+
+def test_depth_feed_can_cache_books_without_mutating_a_strategy_model():
+    feed = EventMexcDepthFeed(["XPL_USDT"], None, __import__("asyncio").Event())
+    assert feed.models == {}
+
+
+def test_demo_ioc_retries_explicit_risk_tier_rejection_at_lower_leverage():
+    class TieredAdapter:
+        def __init__(self):
+            self.leverages = []
+
+        async def open_ioc(self, **kwargs):
+            self.leverages.append(kwargs["leverage"])
+            if kwargs["leverage"] > 12:
+                raise MexcWebError("code=8819 message=Exceeded maximum contracts")
+            return kwargs["qty"]
+
+    adapter = TieredAdapter()
+    fill, leverage = asyncio.run(_open_demo_ioc_with_leverage_fallback(
+        adapter,
+        symbol="RAVE_USDT",
+        side=OrderSide.LONG,
+        price=1.0,
+        min_base_qty=1.0,
+        target_margin_usdt=0.1,
+        leverage_cap=50,
+    ))
+
+    assert adapter.leverages == [50, 25, 12]
+    assert leverage == 12
+    assert math.isclose(fill, 1.2)
+
+
+def test_demo_ioc_skips_symbol_when_every_leverage_tier_is_rejected():
+    class RejectedAdapter:
+        async def open_ioc(self, **kwargs):
+            raise MexcWebError("code=8819 message=Exceeded maximum contracts")
+
+    fill, leverage = asyncio.run(_open_demo_ioc_with_leverage_fallback(
+        RejectedAdapter(), symbol="RAVE_USDT", side=OrderSide.SHORT,
+        price=1.0, min_base_qty=1.0, target_margin_usdt=0.1, leverage_cap=4,
+    ))
+
+    assert fill is None
+    assert leverage == 0
+
+
+def test_exact_position_exit_reconciles_by_position_id(monkeypatch):
+    target = PositionSnapshot(
+        symbol="ARB_USDT", side=OrderSide.SHORT, qty=1.0, entry_price=100.0,
+        leverage=10, isolated=True, position_id="short-1",
+    )
+    opposite = PositionSnapshot(
+        symbol="ARB_USDT", side=OrderSide.LONG, qty=2.0, entry_price=100.0,
+        leverage=10, isolated=True, position_id="long-2",
+    )
+
+    class HedgeAdapter:
+        def __init__(self):
+            self.closed = []
+
+        async def close_position_snapshot_reduce_only(self, position, *, client_order_id):
+            self.closed.append(position.position_id)
+            return "closed"
+
+        async def get_positions(self, symbol):
+            return [opposite]
+
+    adapter = HedgeAdapter()
+    result = asyncio.run(_flatten_exact_demo_position(adapter, target, "test"))
+
+    assert result == "closed"
+    assert adapter.closed == ["short-1"]
+
+
+def test_position_lookup_selects_requested_hedge_leg():
+    short = PositionSnapshot(
+        symbol="ARB_USDT", side=OrderSide.SHORT, qty=1.0, entry_price=100.0,
+        leverage=10, isolated=True, position_id="short-1",
+    )
+    long = PositionSnapshot(
+        symbol="ARB_USDT", side=OrderSide.LONG, qty=1.0, entry_price=100.0,
+        leverage=10, isolated=True, position_id="long-1",
+    )
+
+    class Adapter:
+        async def get_positions(self, symbol):
+            return [short, long]
+
+    assert asyncio.run(_find_demo_position(Adapter(), "ARB_USDT", OrderSide.LONG)) is long

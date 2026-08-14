@@ -9,6 +9,7 @@ from mexc_tick_scalper.web_execution import (
     _json_body,
     _signature,
 )
+from mexc_tick_scalper.execution import OrderSide, PositionSnapshot
 
 
 def test_signature_is_deterministic_for_same_payload_and_timestamp():
@@ -49,3 +50,36 @@ def test_base_qty_is_converted_to_contract_volume():
         assert await adapter._from_contract_vol("TEST_USDT", 123) == pytest.approx(1.23)
 
     asyncio.run(scenario())
+
+
+def test_exact_hedge_leg_close_includes_position_id(monkeypatch):
+    payloads = []
+
+    async def fake_request(self, method, path, *, params=None, payload=None):
+        payloads.append(payload)
+        return {"data": "submitted"}
+
+    async def fake_result(self, symbol, external_id, timeout_seconds=1.2):
+        return {"dealVol": 1, "dealAvgPrice": 100.0, "orderId": "close-1"}
+
+    monkeypatch.setattr(MexcWebExecutionAdapter, "_request", fake_request)
+    monkeypatch.setattr(MexcWebExecutionAdapter, "_wait_for_order_result", fake_result)
+    cfg = WebExecutionConfig(
+        auth_token="WEB_test", base_url="https://futures.testnet.mexc.com/api/v1",
+        origin="https://futures.testnet.mexc.com",
+        referer="https://futures.testnet.mexc.com/futures/TEST_USDT",
+        write_enabled=True, environment="demo",
+    )
+    adapter = MexcWebExecutionAdapter(cfg)
+    adapter._contract_cache["TEST_USDT"] = {
+        "symbol": "TEST_USDT", "contractSize": 1, "volUnit": 1, "minVol": 1,
+    }
+    position = PositionSnapshot(
+        symbol="TEST_USDT", side=OrderSide.SHORT, qty=1.0, entry_price=100.0,
+        leverage=10, isolated=True, position_id="short-leg-42",
+    )
+
+    asyncio.run(adapter.close_position_snapshot_reduce_only(position, client_order_id="cleanup-1"))
+
+    assert payloads[0]["positionId"] == "short-leg-42"
+    assert payloads[0]["side"] == 2

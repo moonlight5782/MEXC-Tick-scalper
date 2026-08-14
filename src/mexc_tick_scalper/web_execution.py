@@ -258,30 +258,38 @@ class MexcWebExecutionAdapter:
     async def _from_contract_vol(self, symbol: str, vol: float) -> float:
         return float(vol) * await self._contract_size(symbol)
 
-    async def get_position(self, symbol: str) -> PositionSnapshot | None:
-        response = await self._request("GET", "/private/position/open_positions", params={"symbol": symbol})
+    async def get_positions(self, symbol: str | None = None) -> list[PositionSnapshot]:
+        """Return every open hedge leg, optionally restricted to one symbol."""
+        params = {"symbol": symbol} if symbol else None
+        response = await self._request("GET", "/private/position/open_positions", params=params)
         data = response.get("data", []) if isinstance(response, dict) else []
         if isinstance(data, dict):
             data = [data]
+        out: list[PositionSnapshot] = []
         for item in data or []:
-            if str(item.get("symbol", "")).upper() != symbol.upper():
+            item_symbol = str(item.get("symbol", "")).upper()
+            if not item_symbol or (symbol and item_symbol != symbol.upper()):
                 continue
             hold_vol = float(item.get("holdVol") or 0)
             if hold_vol <= 0:
                 continue
             side = OrderSide.LONG if int(item.get("positionType") or 0) == 1 else OrderSide.SHORT
-            return PositionSnapshot(
-                symbol=symbol,
+            out.append(PositionSnapshot(
+                symbol=item_symbol,
                 side=side,
-                qty=await self._from_contract_vol(symbol, hold_vol),
+                qty=await self._from_contract_vol(item_symbol, hold_vol),
                 entry_price=float(item.get("holdAvgPrice") or item.get("openAvgPrice") or 0),
                 leverage=int(item.get("leverage") or 1),
                 isolated=int(item.get("openType") or 0) == 1,
                 position_id=str(item.get("positionId")) if item.get("positionId") is not None else None,
                 liquidation_price=float(item.get("liquidatePrice") or 0) or None,
                 unrealized_pnl=None,
-            )
-        return None
+            ))
+        return out
+
+    async def get_position(self, symbol: str) -> PositionSnapshot | None:
+        positions = await self.get_positions(symbol)
+        return positions[0] if positions else None
 
     async def _get_order_by_external_id(self, symbol: str, client_order_id: str) -> dict[str, Any] | None:
         response = await self._request("GET", f"/private/order/external/{symbol}/{client_order_id}")
@@ -381,6 +389,46 @@ class MexcWebExecutionAdapter:
             symbol=symbol,
             side=side,
             requested_qty=qty,
+            filled_qty=filled_base_qty,
+            avg_price=float(order.get("dealAvgPrice") or position.entry_price),
+            fee_usdt=float(order.get("takerFee") or 0) + float(order.get("makerFee") or 0),
+            order_id=str(order.get("orderId") or (submitted.get("data") if isinstance(submitted, dict) else "")),
+            client_order_id=client_order_id,
+            position_id=position.position_id,
+        )
+
+    async def close_position_snapshot_reduce_only(
+        self,
+        position: PositionSnapshot,
+        *,
+        client_order_id: str,
+    ) -> OrderFill:
+        """Close the exact hedge-mode position represented by ``position_id``."""
+        self._require_write()
+        if position.position_id is None:
+            raise MexcWebError(f"positionId is required to close exact Demo hedge leg {position.symbol}")
+        vol = await self._to_contract_vol(position.symbol, position.qty)
+        if vol <= 0:
+            raise MexcWebError(f"close quantity below minimum contract volume for {position.symbol}")
+        close_side = 4 if position.side is OrderSide.LONG else 2
+        external_id = client_order_id[:32]
+        payload = {
+            "symbol": position.symbol,
+            "price": position.entry_price,
+            "vol": vol,
+            "side": close_side,
+            "type": 5,
+            "openType": 1,
+            "externalOid": external_id,
+            "positionId": position.position_id,
+        }
+        submitted = await self._request("POST", "/private/order/submit", payload=payload)
+        order = await self._wait_for_order_result(position.symbol, external_id)
+        filled_base_qty = await self._from_contract_vol(position.symbol, float(order.get("dealVol") or 0))
+        return OrderFill(
+            symbol=position.symbol,
+            side=OrderSide.SHORT if position.side is OrderSide.LONG else OrderSide.LONG,
+            requested_qty=position.qty,
             filled_qty=filled_base_qty,
             avg_price=float(order.get("dealAvgPrice") or position.entry_price),
             fee_usdt=float(order.get("takerFee") or 0) + float(order.get("makerFee") or 0),

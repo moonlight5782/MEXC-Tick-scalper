@@ -11,7 +11,8 @@ from pathlib import Path
 
 from . import demo_hybrid_test as hybrid
 from .demo_discovery import _fetch_contracts
-from .demo_lead_lag_test import _FastLeadLagDemoAdapter, _wait_remote_position
+from .demo_lead_lag_test import _FastLeadLagDemoAdapter
+from .demo_position_manager import flatten_all_demo_positions, wait_account_flat
 from .demo_smoke import _assert_demo_safety
 from .execution import OrderSide, PositionSnapshot
 from .live_lead_lag_shadow import PositiveTrailing
@@ -23,6 +24,9 @@ from .web_fee import read_web_fee_provider
 
 FEE_REFRESH_SECONDS = 5.0
 FEE_MAX_AGE_MS = 7_000
+DEMO_WS = "wss://futures.testnet.mexc.com/edge"
+AMBIGUOUS_IOC_FLAT_TIMEOUT_SECONDS = 12.0
+EXACT_CLOSE_VISIBILITY_SECONDS = 5.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,13 +116,29 @@ def _best_candidate(rows: list[MicroCandidate]) -> MicroCandidate | None:
 
 
 EXCURSION_FIELDS = (
-    "timestamp_ms", "symbol", "direction", "residual_bps", "threshold_bps",
+    "timestamp_ms", "excursion_id", "event", "symbol", "direction", "residual_bps", "threshold_bps",
     "net_margin_bps", "spread_bps", "binance_move_bps", "mexc_move_bps",
-    "binance_age_ms", "mexc_age_ms",
+    "binance_age_ms", "mexc_age_ms", "reject_reason", "signal_to_order_latency_ms",
+    "live_pnl_usdt", "move_bps", "mfe_bps", "mae_bps", "exit_reason", "hold_ms",
 )
 
 
-def _append_excursion(path: Path, candidate: MicroCandidate, *, timestamp_ms: int) -> None:
+def _append_excursion(
+    path: Path,
+    candidate: MicroCandidate,
+    *,
+    timestamp_ms: int,
+    excursion_id: str = "",
+    event: str = "crossing",
+    reject_reason: str = "",
+    signal_to_order_latency_ms: float | None = None,
+    live_pnl_usdt: float | None = None,
+    move_bps: float | None = None,
+    mfe_bps: float | None = None,
+    mae_bps: float | None = None,
+    exit_reason: str = "",
+    hold_ms: float | None = None,
+) -> None:
     """Append one structured row for each hysteresis-consumed LIVE excursion."""
     path.parent.mkdir(parents=True, exist_ok=True)
     needs_header = not path.exists() or path.stat().st_size == 0
@@ -128,6 +148,8 @@ def _append_excursion(path: Path, candidate: MicroCandidate, *, timestamp_ms: in
             writer.writeheader()
         writer.writerow({
             "timestamp_ms": int(timestamp_ms),
+            "excursion_id": excursion_id,
+            "event": event,
             "symbol": candidate.symbol,
             "direction": candidate.direction,
             "residual_bps": f"{candidate.edge_bps:.9f}",
@@ -138,6 +160,14 @@ def _append_excursion(path: Path, candidate: MicroCandidate, *, timestamp_ms: in
             "mexc_move_bps": f"{candidate.mexc_move_bps:.9f}",
             "binance_age_ms": f"{candidate.snapshot.binance_age_ms:.3f}",
             "mexc_age_ms": f"{candidate.snapshot.mexc_age_ms:.3f}",
+            "reject_reason": reject_reason,
+            "signal_to_order_latency_ms": "" if signal_to_order_latency_ms is None else f"{signal_to_order_latency_ms:.3f}",
+            "live_pnl_usdt": "" if live_pnl_usdt is None else f"{live_pnl_usdt:.9f}",
+            "move_bps": "" if move_bps is None else f"{move_bps:.9f}",
+            "mfe_bps": "" if mfe_bps is None else f"{mfe_bps:.9f}",
+            "mae_bps": "" if mae_bps is None else f"{mae_bps:.9f}",
+            "exit_reason": exit_reason,
+            "hold_ms": "" if hold_ms is None else f"{hold_ms:.3f}",
         })
 
 
@@ -157,6 +187,94 @@ async def _discover_intersection() -> list[DemoLiveContract]:
             out.append(DemoLiveContract(live=live, demo=dict(row)))
     out.sort(key=lambda row: row.live.mexc_symbol)
     return out
+
+
+async def _open_demo_ioc_with_leverage_fallback(
+    adapter,
+    *,
+    symbol: str,
+    side: OrderSide,
+    price: float,
+    min_base_qty: float,
+    target_margin_usdt: float,
+    leverage_cap: int,
+):
+    """Retry only an explicit Testnet risk-tier rejection at lower leverage."""
+    leverage = max(1, int(leverage_cap))
+    attempted: set[int] = set()
+    while leverage not in attempted:
+        attempted.add(leverage)
+        requested_qty = max(
+            float(min_base_qty),
+            max(0.01, float(target_margin_usdt)) * leverage / float(price),
+        )
+        try:
+            fill = await adapter.open_ioc(
+                symbol=symbol,
+                side=side,
+                price=price,
+                qty=requested_qty,
+                leverage=leverage,
+                client_order_id=f"micro-{leverage}-{uuid.uuid4().hex}",
+            )
+            return fill, leverage
+        except MexcWebError as exc:
+            if "code=8819" not in str(exc):
+                raise
+            if leverage == 1:
+                return None, 0
+            leverage = max(1, leverage // 2)
+    return None, 0
+
+
+async def _flatten_exact_demo_position(adapter, position: PositionSnapshot, reason: str):
+    """Close and reconcile one exact Testnet hedge leg by positionId."""
+    if position.position_id is None:
+        return await hybrid._flatten_position(adapter, position, reason)
+    current = position
+    last_fill = None
+    for _ in range(4):
+        last_fill = await adapter.close_position_snapshot_reduce_only(
+            current,
+            client_order_id=f"micro-exit-{uuid.uuid4().hex}",
+        )
+        deadline = time.monotonic() + EXACT_CLOSE_VISIBILITY_SECONDS
+        while time.monotonic() < deadline:
+            rows = await adapter.get_positions(current.symbol)
+            residual = next((row for row in rows if row.position_id == current.position_id), None)
+            if residual is None:
+                return last_fill
+            current = residual
+            await asyncio.sleep(0.08)
+    raise MexcWebError(
+        f"{reason}: exact Demo position remains after close positionId={position.position_id} qty={current.qty:g}"
+    )
+
+
+async def _find_demo_position(adapter, symbol: str, side: OrderSide) -> PositionSnapshot | None:
+    """Select the requested hedge leg and refuse an unexpected opposite leg."""
+    rows = await adapter.get_positions(symbol)
+    matching = next((row for row in rows if row.side is side), None)
+    if matching is not None:
+        return matching
+    if rows:
+        raise MexcWebError(
+            f"Demo microspread position side mismatch: requested={side.value} "
+            f"visible={','.join(row.side.value for row in rows)}"
+        )
+    return None
+
+
+async def _wait_for_demo_position(
+    adapter, symbol: str, side: OrderSide, *, timeout_seconds: float = 5.0,
+) -> PositionSnapshot | None:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        position = await _find_demo_position(adapter, symbol, side)
+        if position is not None:
+            return position
+        await asyncio.sleep(0.08)
+    return None
 
 
 async def run(args: argparse.Namespace) -> None:
@@ -190,8 +308,11 @@ async def run(args: argparse.Namespace) -> None:
 
     binance = EventBinanceBookTickerFeed(contracts, models, wake)
     mexc = EventMexcDepthFeed(symbols, models, wake)
+    demo_wake = asyncio.Event()
+    demo_books = EventMexcDepthFeed(symbols, None, demo_wake, ws_url=DEMO_WS)
     await binance.start()
     await mexc.start()
+    await demo_books.start()
 
     demo_cfg = WebExecutionConfig.demo_from_env(write_enabled=True)
     _assert_demo_safety(demo_cfg)
@@ -224,10 +345,13 @@ async def run(args: argparse.Namespace) -> None:
     live_entry_price = 0.0
     live_entry_edge_bps = 0.0
     live_entry_spread_bps = 0.0
+    live_entry_leverage = 1
     entry_time = 0.0
     live_mfe_bps = 0.0
     live_mae_bps = 0.0
     trailing: PositiveTrailing | None = None
+    position_candidate: MicroCandidate | None = None
+    position_excursion_id = ""
 
     cycles = signals = wins = losses = 0
     total_live_pnl = 0.0
@@ -284,6 +408,11 @@ async def run(args: argparse.Namespace) -> None:
                             max_residual = max(max_residual, abs(raw.edge_bps))
                             above_floor += int(abs(raw.edge_bps) >= args.min_edge_bps)
 
+                            demo_book = demo_books.books.get(symbol)
+                            demo_book_age = now_ms - demo_book.recv_ms if demo_book is not None else math.inf
+                            if demo_book is None or demo_book_age < 0 or demo_book_age > float(args.max_book_age_ms):
+                                continue
+
                             candidate = _candidate_from_model(symbol, models[symbol], book, args, now_ms=now_ms)
                             if candidate is not None:
                                 candidates.append(candidate)
@@ -295,7 +424,12 @@ async def run(args: argparse.Namespace) -> None:
                             best.symbol, models[best.symbol], best.book, args, now_ms=now_ms, consume=True
                         )
                         if consumed is not None:
-                            _append_excursion(excursion_csv, consumed, timestamp_ms=now_ms)
+                            excursion_id = uuid.uuid4().hex
+                            signal_timestamp_ms = int(time.time() * 1000)
+                            _append_excursion(
+                                excursion_csv, consumed, timestamp_ms=signal_timestamp_ms,
+                                excursion_id=excursion_id,
+                            )
                             excursion_key = (consumed.symbol, consumed.direction)
                             if excursion_key != last_excursion_key:
                                 excursions_seen += 1
@@ -307,12 +441,21 @@ async def run(args: argparse.Namespace) -> None:
                                 # Capture the LIVE executable entry before any Demo REST call.
                                 live_entry = consumed.book.ask if consumed.direction > 0 else consumed.book.bid
 
-                                demo_ask, demo_bid = await asyncio.gather(
-                                    demo_adapter.get_best_price(consumed.symbol, OrderSide.LONG),
-                                    demo_adapter.get_best_price(consumed.symbol, OrderSide.SHORT),
-                                )
+                                demo_book = demo_books.books.get(consumed.symbol)
+                                if (
+                                    demo_book is None
+                                    or signal_timestamp_ms - demo_book.recv_ms < 0
+                                    or signal_timestamp_ms - demo_book.recv_ms > float(args.max_book_age_ms)
+                                ):
+                                    _append_excursion(
+                                        excursion_csv, consumed, timestamp_ms=int(time.time() * 1000),
+                                        excursion_id=excursion_id, event="rejected",
+                                        reject_reason="demo_book_unavailable",
+                                    )
+                                    continue
+                                demo_ask, demo_bid = demo_book.ask, demo_book.bid
                                 if demo_ask > demo_bid > 0:
-                                    # Never chase an excursion that vanished while Testnet price was fetched.
+                                    # Never chase an excursion that vanished between crossing and IOC preparation.
                                     fresh_now_ms = int(time.time() * 1000)
                                     fresh_book = mexc.books.get(consumed.symbol)
                                     fresh = None
@@ -329,9 +472,14 @@ async def run(args: argparse.Namespace) -> None:
                                         demo_best = demo_ask if side is OrderSide.LONG else demo_bid
                                         min_base_qty, max_lev = demo_meta[consumed.symbol]
                                         leverage = min(max(1, int(args.leverage)), max_lev)
-                                        notional = max(0.01, float(args.target_margin_usdt)) * leverage
-                                        requested_qty = max(min_base_qty, notional / demo_best)
                                         signals += 1
+                                        order_request_monotonic = time.monotonic()
+                                        order_request_ms = int(time.time() * 1000)
+                                        _append_excursion(
+                                            excursion_csv, fresh, timestamp_ms=order_request_ms,
+                                            excursion_id=excursion_id, event="demo_ioc_request",
+                                            signal_to_order_latency_ms=order_request_ms - signal_timestamp_ms,
+                                        )
                                         hybrid.console.print(
                                             f"MICRO SIGNAL {consumed.symbol} {'LONG' if consumed.direction > 0 else 'SHORT'} "
                                             f"residual={fresh.edge_bps:+.3f}bps threshold={fresh.threshold_bps:.3f} "
@@ -339,17 +487,49 @@ async def run(args: argparse.Namespace) -> None:
                                             f"B100={fresh.binance_move_bps:+.3f} M100={fresh.mexc_move_bps:+.3f} "
                                             f"Bage={fresh.snapshot.binance_age_ms:.0f}ms Mage={fresh.snapshot.mexc_age_ms:.0f}ms"
                                         )
-                                        fill = await demo_adapter.open_ioc(
+                                        fill, leverage = await _open_demo_ioc_with_leverage_fallback(
+                                            demo_adapter,
                                             symbol=consumed.symbol,
                                             side=side,
                                             price=demo_best,
-                                            qty=requested_qty,
-                                            leverage=leverage,
-                                            client_order_id=f"microspread-demo-{uuid.uuid4().hex}",
+                                            min_base_qty=min_base_qty,
+                                            target_margin_usdt=args.target_margin_usdt,
+                                            leverage_cap=leverage,
                                         )
-                                        remote = await demo_adapter.get_position(consumed.symbol)
+                                        if fill is None:
+                                            _append_excursion(
+                                                excursion_csv, fresh, timestamp_ms=int(time.time() * 1000),
+                                                excursion_id=excursion_id, event="rejected",
+                                                reject_reason="demo_leverage_unavailable",
+                                                signal_to_order_latency_ms=order_request_ms - signal_timestamp_ms,
+                                            )
+                                            continue
+                                        response_ms = int(time.time() * 1000)
+                                        _append_excursion(
+                                            excursion_csv, fresh, timestamp_ms=response_ms,
+                                            excursion_id=excursion_id, event="demo_ioc_response",
+                                            signal_to_order_latency_ms=order_request_ms - signal_timestamp_ms,
+                                        )
+                                        remote = await _find_demo_position(demo_adapter, consumed.symbol, side)
                                         if remote is None and (fill.order_id or fill.position_id or fill.filled_qty > 0):
-                                            remote = await _wait_remote_position(demo_adapter, consumed.symbol, side)
+                                            remote = await _wait_for_demo_position(demo_adapter, consumed.symbol, side)
+                                        if remote is None:
+                                            _append_excursion(
+                                                excursion_csv, fresh, timestamp_ms=int(time.time() * 1000),
+                                                excursion_id=excursion_id, event="rejected",
+                                                reject_reason="demo_ioc_unfilled_or_pending",
+                                                signal_to_order_latency_ms=order_request_ms - signal_timestamp_ms,
+                                            )
+                                            stable_flat = await wait_account_flat(
+                                                demo_adapter,
+                                                stable_seconds=3.0,
+                                                timeout_seconds=AMBIGUOUS_IOC_FLAT_TIMEOUT_SECONDS,
+                                            )
+                                            if not stable_flat:
+                                                raise MexcWebError(
+                                                    "ambiguous Demo IOC state: account did not remain flat; "
+                                                    "blocking all new entries"
+                                                )
                                         if remote is not None:
                                             if remote.side is not side:
                                                 raise MexcWebError("Demo microspread position side mismatch")
@@ -359,11 +539,14 @@ async def run(args: argparse.Namespace) -> None:
                                             live_entry_price = live_entry
                                             live_entry_edge_bps = fresh.edge_bps
                                             live_entry_spread_bps = fresh.spread_bps
-                                            entry_time = time.monotonic()
+                                            live_entry_leverage = leverage
+                                            entry_time = order_request_monotonic
                                             live_mfe_bps = live_mae_bps = 0.0
                                             trailing = PositiveTrailing(
                                                 distance_bps=max(args.trailing_distance_bps, live_entry_spread_bps)
                                             )
+                                            position_candidate = fresh
+                                            position_excursion_id = excursion_id
                                             last_entry_ms[position_symbol] = int(time.time() * 1000)
                                             hybrid.console.print(
                                                 f"DEMO ENTRY {position_symbol} {'LONG' if position_direction > 0 else 'SHORT'} "
@@ -375,7 +558,8 @@ async def run(args: argparse.Namespace) -> None:
                         phase = "warming" if now < warmup_until else "watching"
                         hybrid.console.print(
                             f"MICRO HEARTBEAT state={phase} symbols={len(symbols)} books={len(mexc.books)} "
-                            f"Bquotes={binance.quotes} Mdepth={mexc.updates} above_floor={above_floor} "
+                            f"demo_books={len(demo_books.books)} Bquotes={binance.quotes} Mdepth={mexc.updates} "
+                            f"Ddepth={demo_books.updates} above_floor={above_floor} "
                             f"max_residual={max_residual:.3f}bps candidates={len(candidates)} "
                             f"fee_age={max(0, now_ms-fee_checked_ms)}ms"
                         )
@@ -427,9 +611,8 @@ async def run(args: argparse.Namespace) -> None:
                             next_heartbeat = now + float(args.heartbeat_seconds)
 
                         if reason is not None:
-                            demo_fill = await hybrid._flatten_position(demo_adapter, position, reason)
-                            leverage = min(int(args.leverage), demo_meta[position_symbol][1])
-                            live_pnl = float(args.target_margin_usdt) * leverage * move_bps / 10_000.0
+                            demo_fill = await _flatten_exact_demo_position(demo_adapter, position, reason)
+                            live_pnl = float(args.target_margin_usdt) * live_entry_leverage * move_bps / 10_000.0
                             total_live_pnl += live_pnl
                             peak_pnl = max(peak_pnl, total_live_pnl)
                             max_drawdown = max(max_drawdown, peak_pnl - total_live_pnl)
@@ -440,6 +623,14 @@ async def run(args: argparse.Namespace) -> None:
                                 losses += 1
                                 gross_loss += abs(live_pnl)
                             cycles += 1
+                            assert position_candidate is not None
+                            _append_excursion(
+                                excursion_csv, position_candidate, timestamp_ms=int(time.time() * 1000),
+                                excursion_id=position_excursion_id, event="demo_exit",
+                                live_pnl_usdt=live_pnl, move_bps=move_bps,
+                                mfe_bps=live_mfe_bps, mae_bps=live_mae_bps,
+                                exit_reason=reason, hold_ms=age_s * 1000.0,
+                            )
                             hybrid.console.print(
                                 f"MICRO EXIT {position_symbol} reason={reason} LIVEpnl={live_pnl:+.6f}USDT "
                                 f"move={move_bps:+.3f}bps MFE={live_mfe_bps:+.3f} MAE={live_mae_bps:+.3f} "
@@ -449,8 +640,11 @@ async def run(args: argparse.Namespace) -> None:
                             position_symbol = ""
                             position_direction = 0
                             live_entry_price = live_entry_edge_bps = live_entry_spread_bps = 0.0
+                            live_entry_leverage = 1
                             entry_time = live_mfe_bps = live_mae_bps = 0.0
                             trailing = None
+                            position_candidate = None
+                            position_excursion_id = ""
 
                 if total_live_pnl <= -abs(float(args.max_session_loss_usdt)):
                     hybrid.console.print(
@@ -472,17 +666,25 @@ async def run(args: argparse.Namespace) -> None:
                 book = mexc.books.get(position_symbol)
                 live_exit = (book.bid if position_direction > 0 else book.ask) if book else live_entry_price
                 move_bps = _signed_move_bps(position_direction, live_entry_price, live_exit)
-                demo_fill = await hybrid._flatten_position(demo_adapter, position, "session_end")
-                leverage = min(int(args.leverage), demo_meta[position_symbol][1])
-                live_pnl = float(args.target_margin_usdt) * leverage * move_bps / 10_000.0
+                demo_fill = await _flatten_exact_demo_position(demo_adapter, position, "session_end")
+                live_pnl = float(args.target_margin_usdt) * live_entry_leverage * move_bps / 10_000.0
                 total_live_pnl += live_pnl
                 cycles += 1
+                assert position_candidate is not None
+                _append_excursion(
+                    excursion_csv, position_candidate, timestamp_ms=int(time.time() * 1000),
+                    excursion_id=position_excursion_id, event="demo_exit",
+                    live_pnl_usdt=live_pnl, move_bps=move_bps,
+                    mfe_bps=live_mfe_bps, mae_bps=live_mae_bps,
+                    exit_reason="session_end", hold_ms=(time.monotonic() - entry_time) * 1000.0,
+                )
                 hybrid.console.print(
                     f"SESSION FLATTEN {position_symbol} LIVEpnl={live_pnl:+.6f}USDT DemoExit={demo_fill.avg_price:g}"
                 )
     finally:
         await binance.close()
         await mexc.close()
+        await demo_books.close()
 
     pf = gross_profit / gross_loss if gross_loss > 0 else (float("inf") if gross_profit > 0 else 0.0)
     win_rate = wins / max(1, wins + losses) * 100.0
@@ -532,6 +734,10 @@ def main() -> None:
     try:
         asyncio.run(run(args))
     except MexcWebError as exc:
+        try:
+            asyncio.run(flatten_all_demo_positions(reason="microspread-failure", quiet_if_flat=True))
+        except Exception as cleanup_exc:
+            hybrid.console.print(f"[red]MICROSPREAD EMERGENCY CLEANUP FAILED:[/red] {cleanup_exc}")
         hybrid.console.print(f"[red]MICROSPREAD DEMO FAILED:[/red] {exc}")
         raise SystemExit(2) from exc
 

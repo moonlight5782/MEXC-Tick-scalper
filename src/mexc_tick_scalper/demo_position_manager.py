@@ -6,7 +6,6 @@ import uuid
 
 from rich.console import Console
 
-from .demo_hybrid_test import _flatten_position
 from .demo_smoke import _assert_demo_safety
 from .execution import OrderSide, PositionSnapshot
 from .web_execution import MexcWebError, MexcWebExecutionAdapter, WebExecutionConfig
@@ -35,6 +34,8 @@ async def _confirm_symbol_absent(
 
 async def list_open_demo_positions(adapter: MexcWebExecutionAdapter) -> list[PositionSnapshot]:
     """Return all currently open TESTNET positions, not just one selected symbol."""
+    if hasattr(adapter, "get_positions"):
+        return await adapter.get_positions()
     response = await adapter._request("GET", "/private/position/open_positions")  # noqa: SLF001
     data = response.get("data", []) if isinstance(response, dict) else []
     if isinstance(data, dict):
@@ -123,17 +124,14 @@ async def flatten_all_demo_positions(
                     f"{'LONG' if position.side is OrderSide.LONG else 'SHORT'} qty={position.qty:g}"
                 )
                 try:
-                    await _flatten_position(
-                        adapter,
+                    await adapter.close_position_snapshot_reduce_only(
                         position,
-                        f"{reason}:{position.symbol}:{uuid.uuid4().hex[:8]}",
+                        client_order_id=f"cleanup-{uuid.uuid4().hex}",
                     )
                 except MexcWebError as exc:
-                    if _position_already_closed_error(exc) and await _confirm_symbol_absent(
-                        adapter, position.symbol
-                    ):
+                    if _position_already_closed_error(exc):
                         console.print(
-                            f"  {position.symbol} already closed; stale TESTNET position snapshot ignored"
+                            f"  {position.symbol} positionId={position.position_id} already closed; stale snapshot ignored"
                         )
                         continue
                     raise
