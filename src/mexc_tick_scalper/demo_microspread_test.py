@@ -228,7 +228,9 @@ async def _discover_live_crosslisted_without_fee_gate() -> list[LiveZeroFeeContr
     return rows
 
 
-async def _discover_intersection(*, require_live_zero_fee: bool = True) -> list[DemoLiveContract]:
+async def _discover_intersection(
+    *, require_live_zero_fee: bool = True, require_demo_zero_fee: bool = True,
+) -> list[DemoLiveContract]:
     live_rows = (
         await discover_live_zero_fee_crosslisted()
         if require_live_zero_fee else await _discover_live_crosslisted_without_fee_gate()
@@ -244,7 +246,9 @@ async def _discover_intersection(*, require_live_zero_fee: bool = True) -> list[
     for row in demo_rows:
         symbol = str(row.get("symbol") or "").upper()
         live = live_by_symbol.get(symbol)
-        if live is not None and _zero_fee_status(demo_fees.status(symbol)):
+        if live is not None and (
+            not require_demo_zero_fee or _zero_fee_status(demo_fees.status(symbol))
+        ):
             out.append(DemoLiveContract(live=live, demo=dict(row)))
     out.sort(key=lambda row: row.live.mexc_symbol)
     return out
@@ -339,8 +343,16 @@ async def _flatten_exact_demo_position(adapter, position: PositionSnapshot, reas
     )
 
 
-def _fee_gate_allows_entry(live_status, demo_status, *, require_live_zero_fee: bool) -> bool:
-    return _zero_fee_status(demo_status) and (
+def _fee_gate_allows_entry(
+    live_status,
+    demo_status,
+    *,
+    require_live_zero_fee: bool,
+    require_demo_zero_fee: bool = True,
+) -> bool:
+    return (
+        not require_demo_zero_fee or _zero_fee_status(demo_status)
+    ) and (
         not require_live_zero_fee or _zero_fee_status(live_status)
     )
 
@@ -373,10 +385,16 @@ async def _wait_for_demo_position(
 
 async def run(args: argparse.Namespace) -> None:
     hybrid._load_project_env()
+    if args.demo_zero_fee_only and args.allow_demo_fee_accounting:
+        raise MexcWebError("--demo-zero-fee-only and --allow-demo-fee-accounting are mutually exclusive")
     require_live_zero_fee = not args.demo_zero_fee_only
-    if args.demo_zero_fee_only and not args.include_symbols.strip():
-        raise MexcWebError("--demo-zero-fee-only requires an explicit --include-symbols allowlist")
-    intersection = await _discover_intersection(require_live_zero_fee=require_live_zero_fee)
+    require_demo_zero_fee = not args.allow_demo_fee_accounting
+    if (args.demo_zero_fee_only or args.allow_demo_fee_accounting) and not args.include_symbols.strip():
+        raise MexcWebError("explicit fee experiment modes require an --include-symbols allowlist")
+    intersection = await _discover_intersection(
+        require_live_zero_fee=require_live_zero_fee,
+        require_demo_zero_fee=require_demo_zero_fee,
+    )
     if not intersection:
         raise MexcWebError(
             "no exact symbol exists in LIVE MEXC fee=0/0, Demo MEXC fee=0/0 and Binance USD-M simultaneously"
@@ -441,7 +459,8 @@ async def run(args: argparse.Namespace) -> None:
         "MEXC depth; all order writes TESTNET only."
     )
     hybrid.console.print(
-        "Fee gate: Demo exact 0/0 + "
+        "Fee gate: "
+        + ("Demo exact 0/0 + " if require_demo_zero_fee else "Demo fees measured/subtracted + ")
         + ("LIVE exact 0/0" if require_live_zero_fee else "explicit Demo-only experiment")
     )
     hybrid.console.print(f"Excursion telemetry CSV: {excursion_csv.resolve()}")
@@ -541,6 +560,7 @@ async def run(args: argparse.Namespace) -> None:
                                 not _fee_gate_allows_entry(
                                     live_status, demo_status,
                                     require_live_zero_fee=require_live_zero_fee,
+                                    require_demo_zero_fee=require_demo_zero_fee,
                                 )
                                 or now_ms - fee_checked_ms > FEE_MAX_AGE_MS
                             ):
@@ -586,6 +606,7 @@ async def run(args: argparse.Namespace) -> None:
                                 _fee_gate_allows_entry(
                                     live_status, demo_status,
                                     require_live_zero_fee=require_live_zero_fee,
+                                    require_demo_zero_fee=require_demo_zero_fee,
                                 )
                                 and now_ms - fee_checked_ms <= FEE_MAX_AGE_MS
                             ):
@@ -695,7 +716,7 @@ async def run(args: argparse.Namespace) -> None:
                                         if remote is not None:
                                             if remote.side is not side:
                                                 raise MexcWebError("Demo microspread position side mismatch")
-                                            if fill.fee_usdt != 0.0:
+                                            if require_demo_zero_fee and fill.fee_usdt != 0.0:
                                                 emergency_fill = await _flatten_exact_demo_position(
                                                     demo_adapter, remote, "demo_entry_fee_violation"
                                                 )
@@ -825,7 +846,7 @@ async def run(args: argparse.Namespace) -> None:
                                 f"hold={age_s * 1000.0:.0f}ms DemoExit={demo_fill.avg_price:g} "
                                 f"DemoFee={demo_fill.fee_usdt:g}"
                             )
-                            if demo_fill.fee_usdt != 0.0:
+                            if require_demo_zero_fee and demo_fill.fee_usdt != 0.0:
                                 raise MexcWebError(
                                     f"strict Demo zero-fee gate violated on exit: fee={demo_fill.fee_usdt:g}"
                                 )
@@ -911,6 +932,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--exclude-symbols", default="")
     parser.add_argument("--include-symbols", default="")
     parser.add_argument("--demo-zero-fee-only", action="store_true")
+    parser.add_argument("--allow-demo-fee-accounting", action="store_true")
     parser.add_argument("--warmup-seconds", type=float, default=3.0)
     parser.add_argument("--micro-horizon-ms", type=int, default=100)
     parser.add_argument("--baseline-seconds", type=float, default=8.0)

@@ -133,6 +133,7 @@ def test_microspread_runner_imports():
     assert args.exclude_symbols == ""
     assert args.include_symbols == ""
     assert args.demo_zero_fee_only is False
+    assert args.allow_demo_fee_accounting is False
 
 
 def test_demo_only_fee_gate_still_requires_demo_zero_fee():
@@ -142,6 +143,18 @@ def test_demo_only_fee_gate_still_requires_demo_zero_fee():
     assert runner._fee_gate_allows_entry(nonzero, zero, require_live_zero_fee=False)
     assert not runner._fee_gate_allows_entry(zero, nonzero, require_live_zero_fee=False)
     assert not runner._fee_gate_allows_entry(nonzero, zero, require_live_zero_fee=True)
+
+
+def test_demo_fee_accounting_mode_requires_live_zero_fee_but_accepts_measured_demo_fee():
+    zero = SimpleNamespace(maker=0.0, taker=0.0)
+    nonzero = SimpleNamespace(maker=0.0, taker=0.0002)
+
+    assert runner._fee_gate_allows_entry(
+        zero, nonzero, require_live_zero_fee=True, require_demo_zero_fee=False,
+    )
+    assert not runner._fee_gate_allows_entry(
+        nonzero, nonzero, require_live_zero_fee=True, require_demo_zero_fee=False,
+    )
 
 
 def test_discovery_requires_demo_and_live_zero_fee(monkeypatch):
