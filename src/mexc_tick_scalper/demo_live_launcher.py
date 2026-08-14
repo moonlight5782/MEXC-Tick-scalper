@@ -22,7 +22,7 @@ def _load_env() -> None:
 
 
 def _candidate_score(events: int, avg_edge_bps: float, live_spread_bps: float) -> float:
-    """Compatibility helper retained for scanner/tests; launcher no longer preselects."""
+    """Compatibility helper retained for scanner/tests."""
     net = float(avg_edge_bps) - float(live_spread_bps)
     return net * math.sqrt(max(1, int(events)))
 
@@ -54,9 +54,9 @@ def main() -> None:
     try:
         asyncio.run(flatten_all_demo_positions(reason="startup"))
         console.print(
-            "[cyan]CONTINUOUS LIVE Binance -> LIVE MEXC lag / DEMO execution[/cyan]\n"
-            "No 15-second preselection is used. The runner continuously watches every exact symbol that exists in "
-            "LIVE account fee=0/0, Binance USD-M, and MEXC Demo, then opens TESTNET only when a fresh LIVE lag appears."
+            "[cyan]LIVE MICROSPREAD / DEMO EXECUTION[/cyan]\n"
+            "Binance and MEXC order books are monitored continuously. The bot trades short-lived deviations from the "
+            "normal Binance/MEXC basis, while every order/position write remains on MEXC TESTNET only."
         )
 
         leverage = _ask_int("Leverage cap", 50)
@@ -67,7 +67,7 @@ def main() -> None:
         cmd = [
             sys.executable,
             "-m",
-            "mexc_tick_scalper.demo_multi_lead_lag_test",
+            "mexc_tick_scalper.demo_microspread_test",
             "--session-seconds",
             str(seconds),
             "--max-cycles",
