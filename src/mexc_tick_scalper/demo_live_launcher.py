@@ -16,7 +16,12 @@ from rich.table import Table
 from .demo_discovery import _fetch_contracts
 from .demo_position_manager import flatten_all_demo_positions
 from .execution import OrderSide
-from .hybrid_strategy import MicrostructureSignal
+from .lead_lag import (
+    BinanceBookTickerFeed,
+    LeadLagModel,
+    fetch_binance_usdm_symbols,
+    mexc_to_binance_symbol,
+)
 from .market import MexcPublicMarket
 from .web_execution import MexcWebError, MexcWebExecutionAdapter, WebExecutionConfig
 from .web_fee import provider_from_web_fee_payload
@@ -25,56 +30,25 @@ console = Console()
 LIVE_REST = "https://contract.mexc.com"
 LIVE_WS = "wss://contract.mexc.com/edge"
 SAMPLE_SECONDS = 10.0
-MIN_CONFIDENCE = 0.35
-
-
-@dataclass(frozen=True, slots=True)
-class SignalProfile:
-    name: str
-    window_seconds: float
-    min_trade_rate: float
-    min_price_changes: int
-    rank: int
-
-
-# All profiles are evaluated in parallel during one ~10 second scan. The slower
-# profiles widen context without weakening confidence quality.
-PROFILES = (
-    SignalProfile("STRICT", 5.0, 0.50, 3, 0),
-    SignalProfile("BALANCED", 8.0, 0.30, 2, 1),
-    SignalProfile("SLOW", 10.0, 0.15, 2, 2),
-)
 
 
 @dataclass(slots=True)
-class LiveSample:
+class LeadLagSample:
     symbol: str
     ticks: int
-    price_changes: int
-    ready_by_profile: dict[str, int]
-    max_confidence: float
+    ready: int
+    max_edge_bps: float
+    max_binance_move_bps: float
     duration: float
+    feed_error: str | None
 
     @property
-    def trade_rate(self) -> float:
+    def tick_rate(self) -> float:
         return self.ticks / self.duration if self.duration > 0 else 0.0
 
     @property
-    def change_rate(self) -> float:
-        return self.price_changes / self.duration if self.duration > 0 else 0.0
-
-    def best_profile(self) -> SignalProfile | None:
-        for profile in PROFILES:
-            if self.ready_by_profile.get(profile.name, 0) > 0:
-                return profile
-        return None
-
-    def ready_count(self) -> int:
-        profile = self.best_profile()
-        return self.ready_by_profile.get(profile.name, 0) if profile else 0
-
     def ready_rate(self) -> float:
-        return self.ready_count() / self.duration if self.duration > 0 else 0.0
+        return self.ready / self.duration if self.duration > 0 else 0.0
 
 
 def _load_env() -> None:
@@ -82,60 +56,60 @@ def _load_env() -> None:
     load_dotenv(root / ".env", override=False)
 
 
-async def _sample_live(symbol: str, seconds: float = SAMPLE_SECONDS) -> LiveSample:
+async def _sample_lead_lag(symbol: str, seconds: float = SAMPLE_SECONDS) -> LeadLagSample:
     market = MexcPublicMarket(LIVE_REST, LIVE_WS)
-    signals = {
-        profile.name: MicrostructureSignal(
-            window_seconds=profile.window_seconds,
-            min_trade_rate=profile.min_trade_rate,
-        )
-        for profile in PROFILES
-    }
+    model = LeadLagModel(
+        horizon_ms=250,
+        baseline_seconds=max(5.0, seconds * 0.75),
+        min_edge_bps=4.0,
+        min_binance_move_bps=1.0,
+        max_age_ms=500.0,
+    )
+    feed = BinanceBookTickerFeed(symbol, model)
     start = time.monotonic()
-    ticks = 0
-    changes = 0
-    ready = {profile.name: 0 for profile in PROFILES}
-    max_conf = 0.0
-    last_price: float | None = None
+    ticks = ready = 0
+    max_edge = max_bmove = 0.0
+    await feed.start()
 
     async def collect() -> None:
-        nonlocal ticks, changes, max_conf, last_price
+        nonlocal ticks, ready, max_edge, max_bmove
         async for tick in market.trades(symbol):
             ticks += 1
-            if last_price is not None and tick.price != last_price:
-                changes += 1
-            last_price = tick.price
-
-            for profile in PROFILES:
-                snap = signals[profile.name].update(tick)
-                max_conf = max(max_conf, snap.confidence)
-                if (
-                    snap.trade_rate >= profile.min_trade_rate
-                    and snap.price_changes >= profile.min_price_changes
-                    and snap.direction != 0
-                    and snap.confidence >= MIN_CONFIDENCE
-                ):
-                    ready[profile.name] += 1
-
+            now_ms = int(time.time() * 1000)
+            model.update_mexc_price(price=tick.price, ts_ms=now_ms)
+            snap = model.snapshot(now_ms=now_ms)
+            max_edge = max(max_edge, abs(snap.edge_bps))
+            max_bmove = max(max_bmove, abs(snap.binance_move_bps))
+            if snap.ready:
+                ready += 1
             if time.monotonic() - start >= seconds:
                 break
 
     try:
-        await asyncio.wait_for(collect(), timeout=seconds + 1.5)
-    except TimeoutError:
-        pass
+        try:
+            await asyncio.wait_for(collect(), timeout=seconds + 1.5)
+        except TimeoutError:
+            pass
+    finally:
+        await feed.close()
 
-    return LiveSample(
+    return LeadLagSample(
         symbol=symbol,
         ticks=ticks,
-        price_changes=changes,
-        ready_by_profile=ready,
-        max_confidence=max_conf,
+        ready=ready,
+        max_edge_bps=max_edge,
+        max_binance_move_bps=max_bmove,
         duration=max(0.001, time.monotonic() - start),
+        feed_error=feed.last_error,
     )
 
 
 async def _candidates() -> list[dict[str, Any]]:
+    try:
+        binance_symbols = await fetch_binance_usdm_symbols()
+    except Exception as exc:
+        raise MexcWebError(f"cannot load Binance USD-M symbol universe: {type(exc).__name__}: {exc}") from exc
+
     cfg = WebExecutionConfig.demo_from_env(write_enabled=False)
     async with MexcWebExecutionAdapter(cfg) as adapter:
         contracts = await _fetch_contracts(adapter)
@@ -143,6 +117,8 @@ async def _candidates() -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for row in contracts:
             symbol = str(row.get("symbol", "")).upper()
+            if mexc_to_binance_symbol(symbol) not in binance_symbols:
+                continue
             status = fees.status(symbol)
             if status.maker != 0 or status.taker != 0:
                 continue
@@ -154,71 +130,68 @@ async def _candidates() -> list[dict[str, Any]]:
             if ask <= 0 or bid <= 0 or ask < bid:
                 continue
             item = dict(row)
-            item["spreadPct"] = ((ask - bid) / ((ask + bid) / 2.0)) * 100.0
+            mid = (ask + bid) / 2.0
+            item["spreadPct"] = ((ask - bid) / mid) * 100.0 if mid > 0 else 999.0
             rows.append(item)
 
+    if not rows:
+        return []
+
     console.print(
-        f"Measuring LIVE MEXC readiness for {len(rows)} zero-fee Demo-compatible pairs "
-        f"(~{int(SAMPLE_SECONDS)}s, all profiles in parallel)..."
+        f"Measuring Binance->MEXC lead-lag readiness for {len(rows)} cross-listed zero-fee Demo pair(s) "
+        f"(~{int(SAMPLE_SECONDS)}s)..."
     )
-    samples = await asyncio.gather(*(_sample_live(str(r.get("symbol", "")).upper()) for r in rows))
-    sample_map = {s.symbol: s for s in samples}
+    samples = await asyncio.gather(*(_sample_lead_lag(str(r.get("symbol", "")).upper()) for r in rows))
+    sample_map = {sample.symbol: sample for sample in samples}
 
     for row in rows:
-        s = sample_map[str(row.get("symbol", "")).upper()]
-        profile = s.best_profile()
-        row["liveTicks"] = s.ticks
-        row["liveTradeRate"] = s.trade_rate
-        row["liveChangeRate"] = s.change_rate
-        row["readySnapshots"] = s.ready_count()
-        row["readyRate"] = s.ready_rate()
-        row["maxConfidence"] = s.max_confidence
-        row["signalProfile"] = profile.name if profile else "NONE"
-        row["profileRank"] = profile.rank if profile else 99
-        row["signalWindow"] = profile.window_seconds if profile else 0.0
-        row["signalMinRate"] = profile.min_trade_rate if profile else 0.0
-        row["signalMinChanges"] = profile.min_price_changes if profile else 0
+        sample = sample_map[str(row.get("symbol", "")).upper()]
+        row["leadReady"] = sample.ready
+        row["leadReadyRate"] = sample.ready_rate
+        row["maxEdgeBps"] = sample.max_edge_bps
+        row["maxBinanceMoveBps"] = sample.max_binance_move_bps
+        row["liveTradeRate"] = sample.tick_rate
+        row["binanceFeedError"] = sample.feed_error or ""
 
     rows.sort(
         key=lambda r: (
-            int(r.get("profileRank") or 99),
-            -int(r.get("readySnapshots") or 0),
-            -float(r.get("readyRate") or 0),
-            -float(r.get("maxConfidence") or 0),
+            -int(r.get("leadReady") or 0),
+            -float(r.get("maxEdgeBps") or 0),
             float(r.get("spreadPct") or 999),
+            -float(r.get("liveTradeRate") or 0),
         )
     )
     return rows
 
 
 def _show(rows: list[dict[str, Any]]) -> None:
-    table = Table(title="Zero-fee Demo pairs ranked by adaptive Hybrid readiness")
+    table = Table(title="Zero-fee Binance/MEXC pairs ranked by live lead-lag readiness")
     table.add_column("#", justify="right")
-    table.add_column("Symbol")
-    table.add_column("Profile")
-    table.add_column("READY", justify="right")
-    table.add_column("READY/s", justify="right")
-    table.add_column("LIVE chg/s", justify="right")
-    table.add_column("Trades/s", justify="right")
-    table.add_column("Max conf", justify="right")
+    table.add_column("MEXC")
+    table.add_column("Binance")
+    table.add_column("LEADS", justify="right")
+    table.add_column("LEADS/s", justify="right")
+    table.add_column("Max edge bps", justify="right")
+    table.add_column("Max B move", justify="right")
+    table.add_column("MEXC trades/s", justify="right")
     table.add_column("Demo spread %", justify="right")
     for i, row in enumerate(rows, 1):
+        symbol = str(row.get("symbol", "?"))
         table.add_row(
             str(i),
-            str(row.get("symbol", "?")),
-            str(row.get("signalProfile", "NONE")),
-            str(int(row.get("readySnapshots") or 0)),
-            f"{float(row.get('readyRate') or 0):.2f}",
-            f"{float(row.get('liveChangeRate') or 0):.2f}",
+            symbol,
+            mexc_to_binance_symbol(symbol),
+            str(int(row.get("leadReady") or 0)),
+            f"{float(row.get('leadReadyRate') or 0):.2f}",
+            f"{float(row.get('maxEdgeBps') or 0):.2f}",
+            f"{float(row.get('maxBinanceMoveBps') or 0):.2f}",
             f"{float(row.get('liveTradeRate') or 0):.2f}",
-            f"{float(row.get('maxConfidence') or 0):.3f}",
             f"{float(row.get('spreadPct') or 0):.4f}",
         )
     console.print(table)
     console.print(
-        "Profiles: STRICT=5s/3 changes/rate>=0.50, "
-        "BALANCED=8s/2 changes/rate>=0.30, SLOW=10s/2 changes/rate>=0.15. "
-        "Confidence remains >=0.35 in every profile."
+        "Lead-lag scan: Binance USD-M bookTicker is the leader; MEXC LIVE trades are the lagger. "
+        "Demo execution remains allowed only where maker/taker fee is exactly 0/0."
     )
 
 
@@ -232,25 +205,19 @@ def _ask_float(prompt: str, default: float) -> float:
     return default if not raw else float(raw)
 
 
-async def _prepare_session() -> tuple[str, int, int, int, float, float, float, int]:
+async def _prepare_session() -> tuple[str, int, int, int, float]:
     await flatten_all_demo_positions(reason="startup")
 
     rows = await _candidates()
     if not rows:
-        raise MexcWebError("no confirmed zero-fee Demo-compatible contracts")
+        raise MexcWebError(
+            "no MEXC Demo contract currently satisfies BOTH conditions: exact fee=0/0 and a matching "
+            "TRADING Binance USD-M perpetual. Cross-exchange mode will not fake a leader symbol."
+        )
     _show(rows)
 
-    ready_rows = [r for r in rows if int(r.get("readySnapshots") or 0) > 0]
-    if not ready_rows:
-        raise MexcWebError(
-            "no zero-fee Demo-compatible pair produced a valid signal in the adaptive scan; "
-            "market is too inactive right now"
-        )
-
-    choice = input("Select pair number (or A for automatic best profile/pair): ").strip().lower()
-    selected = ready_rows[0] if choice in {"", "a", "auto"} else rows[int(choice) - 1]
-    if int(selected.get("readySnapshots") or 0) <= 0:
-        raise MexcWebError(f"{selected.get('symbol')} produced no valid Hybrid signal during the sample")
+    choice = input("Select pair number (or A for automatic best Binance->MEXC pair): ").strip().lower()
+    selected = rows[0] if choice in {"", "a", "auto"} else rows[int(choice) - 1]
 
     symbol = str(selected.get("symbol", "")).upper()
     max_lev = int(selected.get("maxLeverage") or 1)
@@ -258,18 +225,14 @@ async def _prepare_session() -> tuple[str, int, int, int, float, float, float, i
     cycles = _ask_int("Max cycles", 50)
     seconds = _ask_int("Max session seconds", 1800)
     margin = _ask_float("Target margin per IOC cycle, USDT", 2.0)
-    signal_window = float(selected.get("signalWindow") or 5.0)
-    min_rate = float(selected.get("signalMinRate") or 0.5)
-    min_changes = int(selected.get("signalMinChanges") or 3)
 
     console.print(
-        f"Starting LIVE-SIGNAL/DEMO-EXEC {symbol}: profile={selected.get('signalProfile')} "
-        f"READY={int(selected.get('readySnapshots') or 0)} "
-        f"ready_rate={float(selected.get('readyRate') or 0):.2f}/s "
-        f"max_conf={float(selected.get('maxConfidence') or 0):.3f} "
-        f"window={signal_window:g}s min_rate={min_rate:g}/s min_changes={min_changes}"
+        f"Starting BINANCE-LEAD/MEXC-DEMO {symbol}: Binance={mexc_to_binance_symbol(symbol)} "
+        f"scan_leads={int(selected.get('leadReady') or 0)} "
+        f"max_edge={float(selected.get('maxEdgeBps') or 0):.2f}bps "
+        f"Demo_spread={float(selected.get('spreadPct') or 0):.4f}%"
     )
-    return symbol, leverage, cycles, seconds, margin, signal_window, min_rate, min_changes
+    return symbol, leverage, cycles, seconds, margin
 
 
 def _cleanup_sync(reason: str) -> bool:
@@ -287,11 +250,11 @@ def main() -> None:
     exit_code = 0
 
     try:
-        symbol, leverage, cycles, seconds, margin, signal_window, min_rate, min_changes = asyncio.run(_prepare_session())
+        symbol, leverage, cycles, seconds, margin = asyncio.run(_prepare_session())
         cmd = [
             sys.executable,
             "-m",
-            "mexc_tick_scalper.demo_live_signal_test",
+            "mexc_tick_scalper.demo_lead_lag_test",
             "--symbol",
             symbol,
             "--session-seconds",
@@ -302,17 +265,9 @@ def main() -> None:
             str(leverage),
             "--target-margin-usdt",
             str(margin),
-            "--signal-window-seconds",
-            str(signal_window),
-            "--min-trade-rate",
-            str(min_rate),
-            "--min-price-changes",
-            str(min_changes),
-            "--min-confidence",
-            str(MIN_CONFIDENCE),
         ]
         child_env = os.environ.copy()
-        child_env["MEXC_DEMO_AUTO_FLATTEN_START"] = "YES"
+        child_env["MEXC_DEMO_AUTO_FLATTEN_START"] = "NO"
         child = subprocess.Popen(cmd, env=child_env)
         exit_code = child.wait()
     except KeyboardInterrupt:
