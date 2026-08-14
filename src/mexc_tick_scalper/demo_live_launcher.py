@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import subprocess
 import sys
@@ -18,6 +19,12 @@ console = Console()
 def _load_env() -> None:
     root = Path(__file__).resolve().parents[2]
     load_dotenv(root / ".env", override=False)
+
+
+def _candidate_score(events: int, avg_edge_bps: float, live_spread_bps: float) -> float:
+    """Compatibility helper retained for scanner/tests; launcher no longer preselects."""
+    net = float(avg_edge_bps) - float(live_spread_bps)
+    return net * math.sqrt(max(1, int(events)))
 
 
 def _ask_int(prompt: str, default: int) -> int:
