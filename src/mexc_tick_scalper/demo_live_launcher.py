@@ -24,6 +24,7 @@ XAUT_ZERO_FEE_ARGS = (
     "--entry-confirm-ms", "0",
     "--demo-ioc-cross-bps", "1",
     "--strategy-bankroll-usdt", "60",
+    "--target-notional-usdt", "10000",
     "--target-exposure-equity-multiple", "10.6",
     "--sizing-activation-trades", "20",
     "--sizing-min-profit-factor", "1.2",

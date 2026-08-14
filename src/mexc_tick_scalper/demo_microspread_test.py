@@ -112,8 +112,10 @@ def _confirmed_candidate(
 
 def _cycle_margin_usdt(
     *, fixed_margin_usdt: float, strategy_equity_usdt: float,
-    target_exposure_multiple: float, leverage: int,
+    target_exposure_multiple: float, leverage: int, target_notional_usdt: float = 0.0,
 ) -> float:
+    if target_notional_usdt > 0:
+        return max(0.01, target_notional_usdt / max(1, leverage))
     if target_exposure_multiple <= 0:
         return max(0.01, fixed_margin_usdt)
     return max(0.01, strategy_equity_usdt * target_exposure_multiple / max(1, leverage))
@@ -940,6 +942,7 @@ async def run(args: argparse.Namespace) -> None:
                                                 args.target_exposure_equity_multiple if dynamic_sizing else 0.0
                                             ),
                                             leverage=leverage,
+                                            target_notional_usdt=args.target_notional_usdt,
                                         )
                                         signals += 1
                                         order_request_monotonic = time.monotonic()
@@ -1048,7 +1051,7 @@ async def run(args: argparse.Namespace) -> None:
                                                 f"qty={remote.qty:g} LIVEEntry={live_entry_price:g} residual={live_entry_edge_bps:+.3f} "
                                                 f"notional={live_entry_notional_usdt:g}USDT leverage={leverage}x "
                                                 f"requested_margin={cycle_margin_usdt:.4f}USDT strategy_equity={strategy_equity_usdt:.4f}USDT "
-                                                f"sizing={'DYNAMIC' if dynamic_sizing else 'PROBATION'} "
+                                                f"sizing={('TARGET_NOTIONAL' if args.target_notional_usdt > 0 else ('DYNAMIC' if dynamic_sizing else 'PROBATION'))} "
                                                 f"spread={live_entry_spread_bps:.3f} DemoFeeReported={fill.fee_usdt:g}"
                                             )
 
@@ -1284,6 +1287,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-cycles", type=int, default=50)
     parser.add_argument("--leverage", type=int, default=50)
     parser.add_argument("--target-margin-usdt", type=float, default=2.0)
+    parser.add_argument(
+        "--target-notional-usdt", type=float, default=0.0,
+        help="request this IOC notional regardless of leverage; 0 keeps margin/equity sizing",
+    )
     parser.add_argument("--strategy-bankroll-usdt", type=float, default=60.0)
     parser.add_argument(
         "--target-exposure-equity-multiple", type=float, default=0.0,

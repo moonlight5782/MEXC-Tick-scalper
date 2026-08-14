@@ -151,6 +151,7 @@ def test_microspread_runner_imports():
     assert args.signal_mexc_source == "live"
     assert args.entry_confirm_ms == 0
     assert args.strategy_bankroll_usdt == 60.0
+    assert args.target_notional_usdt == 0.0
     assert args.target_exposure_equity_multiple == 0.0
     assert args.sizing_activation_trades == 0
     assert args.sizing_min_profit_factor == 1.2
@@ -214,6 +215,17 @@ def test_old_bot_exposure_profile_scales_margin_by_contract_leverage():
         fixed_margin_usdt=0.1, strategy_equity_usdt=60.0,
         target_exposure_multiple=10.6, leverage=200,
     ) == pytest.approx(3.18)
+
+
+def test_explicit_target_notional_overrides_probation_and_equity_sizing():
+    assert _cycle_margin_usdt(
+        fixed_margin_usdt=0.1, strategy_equity_usdt=60.0,
+        target_exposure_multiple=10.6, leverage=1000, target_notional_usdt=10_000.0,
+    ) == pytest.approx(10.0)
+    assert _cycle_margin_usdt(
+        fixed_margin_usdt=0.1, strategy_equity_usdt=60.0,
+        target_exposure_multiple=10.6, leverage=200, target_notional_usdt=10_000.0,
+    ) == pytest.approx(50.0)
 
 
 def test_adverse_cut_is_normalized_to_margin_roe_but_covers_spread():
