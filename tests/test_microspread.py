@@ -7,9 +7,13 @@ import pytest
 
 from mexc_tick_scalper.demo_microspread_test import (
     MicroCandidate,
+    _adverse_cut_for_leverage,
+    _append_residual_sample,
     _append_excursion,
     _confirmed_candidate,
     _convergence_exit_allowed,
+    _cycle_margin_usdt,
+    _dynamic_sizing_ready,
     _flatten_exact_demo_position,
     _find_demo_position,
     _history_reconciled_fill,
@@ -19,7 +23,7 @@ from mexc_tick_scalper.demo_microspread_test import (
     _profitable_reversal_exit_allowed,
     _required_edge,
 )
-from mexc_tick_scalper.microspread import MicroSpreadModel
+from mexc_tick_scalper.microspread import MicroSpreadModel, MicroSpreadSnapshot
 from mexc_tick_scalper.microspread_feed import EventMexcDepthFeed, LiveBook
 from mexc_tick_scalper.execution import OrderSide, PositionSnapshot
 from mexc_tick_scalper.web_execution import MexcWebError
@@ -146,6 +150,30 @@ def test_microspread_runner_imports():
     assert args.allow_demo_fee_accounting is False
     assert args.signal_mexc_source == "live"
     assert args.entry_confirm_ms == 0
+    assert args.strategy_bankroll_usdt == 60.0
+    assert args.target_exposure_equity_multiple == 0.0
+    assert args.sizing_activation_trades == 0
+    assert args.sizing_min_profit_factor == 1.2
+    assert args.adverse_cut_roe_pct == 0.0
+    assert args.residual_sample_ms == 100
+
+
+def test_residual_csv_records_sub_threshold_observation(tmp_path):
+    path = tmp_path / "residuals.csv"
+    snap = MicroSpreadSnapshot(
+        ready=False, direction=1, edge_bps=0.42, raw_gap_bps=3.2,
+        baseline_gap_bps=2.78, binance_move_bps=0.11, mexc_move_bps=0.01,
+        binance_mid=100.0, mexc_mid=99.97, age_ms=12.0, binance_age_ms=5.0,
+        mexc_age_ms=12.0, threshold_bps=1.0, reason="microspread_below_threshold",
+    )
+    _append_residual_sample(
+        path, timestamp_ms=123, symbol="XAUT_USDT", signal_source="demo",
+        snapshot=snap, threshold_bps=1.2, spread_bps=0.6, demo_book_age_ms=12.0,
+    )
+    rows = list(csv.DictReader(path.open(encoding="utf-8")))
+    assert rows[0]["residual_bps"] == "0.420000000"
+    assert rows[0]["reason"] == "microspread_below_threshold"
+    assert rows[0]["ready"] == "0"
 
 
 def test_demo_signal_source_is_explicit_parser_mode():
@@ -175,6 +203,43 @@ def test_entry_confirmation_rejects_one_tick_flash_and_accepts_persistent_edge()
     assert ready is False
     ready, _ = _confirmed_candidate(pending, candidate, now_ms=2_100, confirm_ms=100)
     assert ready is True
+
+
+def test_old_bot_exposure_profile_scales_margin_by_contract_leverage():
+    assert _cycle_margin_usdt(
+        fixed_margin_usdt=0.1, strategy_equity_usdt=60.0,
+        target_exposure_multiple=10.6, leverage=1000,
+    ) == pytest.approx(0.636)
+    assert _cycle_margin_usdt(
+        fixed_margin_usdt=0.1, strategy_equity_usdt=60.0,
+        target_exposure_multiple=10.6, leverage=200,
+    ) == pytest.approx(3.18)
+
+
+def test_adverse_cut_is_normalized_to_margin_roe_but_covers_spread():
+    assert _adverse_cut_for_leverage(
+        leverage=1000, spread_bps=0.23, fixed_cut_bps=1.5,
+        spread_multiple=1.25, adverse_roe_pct=6.0,
+    ) == pytest.approx(0.6)
+    assert _adverse_cut_for_leverage(
+        leverage=1000, spread_bps=0.60, fixed_cut_bps=1.5,
+        spread_multiple=1.25, adverse_roe_pct=6.0,
+    ) == pytest.approx(0.75)
+
+
+def test_old_bot_sizing_activates_only_after_positive_probation_pf():
+    assert not _dynamic_sizing_ready(
+        completed_trades=19, profit_usdt=1.0, loss_usdt=0.1,
+        activation_trades=20, min_profit_factor=1.2,
+    )
+    assert not _dynamic_sizing_ready(
+        completed_trades=20, profit_usdt=1.0, loss_usdt=0.9,
+        activation_trades=20, min_profit_factor=1.2,
+    )
+    assert _dynamic_sizing_ready(
+        completed_trades=20, profit_usdt=1.2, loss_usdt=0.9,
+        activation_trades=20, min_profit_factor=1.2,
+    )
 
 
 def test_demo_net_mark_subtracts_both_fees_before_trailing():

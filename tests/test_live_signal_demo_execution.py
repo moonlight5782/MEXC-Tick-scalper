@@ -76,5 +76,10 @@ def test_launcher_uses_xaut_demo_aligned_zero_fee_profile():
     assert cmd[cmd.index("--min-edge-bps") + 1] == "1.00"
     assert cmd[cmd.index("--min-net-edge-bps") + 1] == "0.60"
     assert cmd[cmd.index("--demo-ioc-cross-bps") + 1] == "1"
+    assert cmd[cmd.index("--strategy-bankroll-usdt") + 1] == "60"
+    assert cmd[cmd.index("--target-exposure-equity-multiple") + 1] == "10.6"
+    assert cmd[cmd.index("--sizing-activation-trades") + 1] == "20"
+    assert cmd[cmd.index("--sizing-min-profit-factor") + 1] == "1.2"
+    assert cmd[cmd.index("--adverse-cut-roe-pct") + 1] == "6"
     assert "--allow-demo-fee-accounting" not in cmd
     assert "--max-demo-volume" not in cmd

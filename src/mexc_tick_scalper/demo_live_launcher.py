@@ -23,6 +23,11 @@ XAUT_ZERO_FEE_ARGS = (
     "--min-net-edge-bps", "0.60",
     "--entry-confirm-ms", "0",
     "--demo-ioc-cross-bps", "1",
+    "--strategy-bankroll-usdt", "60",
+    "--target-exposure-equity-multiple", "10.6",
+    "--sizing-activation-trades", "20",
+    "--sizing-min-profit-factor", "1.2",
+    "--adverse-cut-roe-pct", "6",
 )
 
 

@@ -110,6 +110,41 @@ def _confirmed_candidate(
     return now_ms - pending[2] >= required_ms, pending
 
 
+def _cycle_margin_usdt(
+    *, fixed_margin_usdt: float, strategy_equity_usdt: float,
+    target_exposure_multiple: float, leverage: int,
+) -> float:
+    if target_exposure_multiple <= 0:
+        return max(0.01, fixed_margin_usdt)
+    return max(0.01, strategy_equity_usdt * target_exposure_multiple / max(1, leverage))
+
+
+def _dynamic_sizing_ready(
+    *, completed_trades: int, profit_usdt: float, loss_usdt: float,
+    activation_trades: int, min_profit_factor: float,
+) -> bool:
+    if completed_trades < max(0, activation_trades) or profit_usdt <= loss_usdt:
+        return False
+    profit_factor = profit_usdt / loss_usdt if loss_usdt > 0 else math.inf
+    return profit_factor >= max(0.0, min_profit_factor)
+
+
+def _adverse_cut_for_leverage(
+    *, leverage: int, spread_bps: float, fixed_cut_bps: float,
+    spread_multiple: float, adverse_roe_pct: float,
+) -> float:
+    leverage_cut = adverse_roe_pct * 100.0 / max(1, leverage) if adverse_roe_pct > 0 else fixed_cut_bps
+    return max(leverage_cut, spread_bps * spread_multiple)
+
+
+def _update_leverage_normalized_trailing(
+    trailing: PositiveTrailing, move_bps: float, *, leverage: int, reference_leverage: int = 200,
+) -> float | None:
+    scale = max(1, leverage) / max(1, reference_leverage)
+    normalized_stop = trailing.update(move_bps * scale)
+    return None if normalized_stop is None else normalized_stop / scale
+
+
 @dataclass(frozen=True, slots=True)
 class DemoLiveContract:
     live: LiveZeroFeeContract
@@ -216,6 +251,50 @@ EXCURSION_FIELDS = (
     "demo_entry_fee_usdt", "demo_exit_fee_usdt", "demo_gross_pnl_usdt", "demo_net_pnl_usdt",
     "exit_residual_bps", "decision_demo_net_bps",
 )
+
+RESIDUAL_FIELDS = (
+    "timestamp_ms", "symbol", "signal_source", "ready", "reason", "direction",
+    "residual_bps", "threshold_bps", "raw_gap_bps", "baseline_gap_bps", "spread_bps",
+    "binance_move_bps", "mexc_move_bps", "binance_age_ms", "mexc_age_ms", "demo_book_age_ms",
+)
+
+
+def _append_residual_sample(
+    path: Path,
+    *,
+    timestamp_ms: int,
+    symbol: str,
+    signal_source: str,
+    snapshot: MicroSpreadSnapshot,
+    threshold_bps: float,
+    spread_bps: float,
+    demo_book_age_ms: float,
+) -> None:
+    """Persist throttled residual observations, including rejected sub-threshold states."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    needs_header = not path.exists() or path.stat().st_size == 0
+    with path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=RESIDUAL_FIELDS)
+        if needs_header:
+            writer.writeheader()
+        writer.writerow({
+            "timestamp_ms": int(timestamp_ms),
+            "symbol": symbol,
+            "signal_source": signal_source,
+            "ready": int(snapshot.ready),
+            "reason": snapshot.reason,
+            "direction": snapshot.direction,
+            "residual_bps": f"{snapshot.edge_bps:.9f}",
+            "threshold_bps": f"{threshold_bps:.9f}",
+            "raw_gap_bps": f"{snapshot.raw_gap_bps:.9f}",
+            "baseline_gap_bps": f"{snapshot.baseline_gap_bps:.9f}",
+            "spread_bps": f"{spread_bps:.9f}",
+            "binance_move_bps": f"{snapshot.binance_move_bps:.9f}",
+            "mexc_move_bps": f"{snapshot.mexc_move_bps:.9f}",
+            "binance_age_ms": f"{snapshot.binance_age_ms:.3f}",
+            "mexc_age_ms": f"{snapshot.mexc_age_ms:.3f}",
+            "demo_book_age_ms": f"{demo_book_age_ms:.3f}",
+        })
 
 
 def _append_excursion(
@@ -552,6 +631,14 @@ async def run(args: argparse.Namespace) -> None:
     excursion_csv = Path(args.excursion_csv) if args.excursion_csv else Path(
         f"microspread_excursions_{int(time.time())}.csv"
     )
+    if args.residual_csv:
+        residual_csv = Path(args.residual_csv)
+    elif args.excursion_csv:
+        residual_csv = excursion_csv.with_name(f"{excursion_csv.stem}_residuals{excursion_csv.suffix}")
+    else:
+        residual_csv = excursion_csv.with_name(
+            excursion_csv.name.replace("microspread_excursions_", "microspread_residuals_", 1)
+        )
 
     contracts = [row.live for row in intersection]
     symbols = [row.live.mexc_symbol for row in intersection]
@@ -621,6 +708,7 @@ async def run(args: argparse.Namespace) -> None:
         + ("LIVE exact 0/0" if require_live_zero_fee else "explicit Demo-only experiment")
     )
     hybrid.console.print(f"Excursion telemetry CSV: {excursion_csv.resolve()}")
+    hybrid.console.print(f"Residual telemetry CSV: {residual_csv.resolve()}")
     hybrid.console.print("Symbols: " + ", ".join(symbols))
     hybrid.console.print(
         f"Micro gate: residual >= max({args.min_edge_bps:.2f}bps, LIVE spread+{args.min_net_edge_bps:.2f}bps, "
@@ -638,6 +726,7 @@ async def run(args: argparse.Namespace) -> None:
     warmup_until = time.monotonic() + float(args.warmup_seconds)
     deadline = time.monotonic() + float(args.session_seconds)
     last_entry_ms = {symbol: -10**18 for symbol in symbols}
+    last_residual_sample_ms = {symbol: -10**18 for symbol in symbols}
 
     position: PositionSnapshot | None = None
     position_symbol = ""
@@ -664,6 +753,8 @@ async def run(args: argparse.Namespace) -> None:
     excursions_seen = 0
     last_excursion_key: tuple[str, int] | None = None
     pending_confirmation: tuple[str, int, int] | None = None
+    strategy_equity_usdt = max(0.01, float(args.strategy_bankroll_usdt))
+    sizing_profit_usdt = sizing_loss_usdt = 0.0
 
     try:
         async with _FastLeadLagDemoAdapter(demo_cfg) as demo_adapter, MexcWebExecutionAdapter(live_fee_cfg) as live_fee_adapter:
@@ -734,6 +825,24 @@ async def run(args: argparse.Namespace) -> None:
 
                             demo_book = demo_books.books.get(symbol)
                             demo_book_age = now_ms - demo_book.recv_ms if demo_book is not None else math.inf
+                            if now_ms - last_residual_sample_ms[symbol] >= int(args.residual_sample_ms):
+                                threshold = _required_edge(
+                                    spread_bps=book.spread_bps,
+                                    min_edge_bps=args.min_edge_bps,
+                                    min_net_edge_bps=args.min_net_edge_bps,
+                                    spread_ratio=args.edge_to_spread_ratio,
+                                )
+                                _append_residual_sample(
+                                    residual_csv,
+                                    timestamp_ms=now_ms,
+                                    symbol=symbol,
+                                    signal_source=args.signal_mexc_source,
+                                    snapshot=raw,
+                                    threshold_bps=threshold,
+                                    spread_bps=book.spread_bps,
+                                    demo_book_age_ms=demo_book_age,
+                                )
+                                last_residual_sample_ms[symbol] = now_ms
                             if demo_book is None or demo_book_age < 0 or demo_book_age > float(args.max_book_age_ms):
                                 continue
 
@@ -817,6 +926,21 @@ async def run(args: argparse.Namespace) -> None:
                                             price_unit,
                                         )
                                         leverage = min(max(1, int(args.leverage)), max_lev)
+                                        dynamic_sizing = _dynamic_sizing_ready(
+                                            completed_trades=cycles,
+                                            profit_usdt=sizing_profit_usdt,
+                                            loss_usdt=sizing_loss_usdt,
+                                            activation_trades=args.sizing_activation_trades,
+                                            min_profit_factor=args.sizing_min_profit_factor,
+                                        )
+                                        cycle_margin_usdt = _cycle_margin_usdt(
+                                            fixed_margin_usdt=args.target_margin_usdt,
+                                            strategy_equity_usdt=strategy_equity_usdt,
+                                            target_exposure_multiple=(
+                                                args.target_exposure_equity_multiple if dynamic_sizing else 0.0
+                                            ),
+                                            leverage=leverage,
+                                        )
                                         signals += 1
                                         order_request_monotonic = time.monotonic()
                                         order_request_ms = int(time.time() * 1000)
@@ -839,7 +963,7 @@ async def run(args: argparse.Namespace) -> None:
                                             side=side,
                                             price=demo_best,
                                             min_base_qty=min_base_qty,
-                                            target_margin_usdt=args.target_margin_usdt,
+                                            target_margin_usdt=cycle_margin_usdt,
                                             leverage_cap=leverage,
                                             available_margin_usdt=(demo_available_usdt if args.max_demo_volume else None),
                                             max_base_qty=max_base_qty,
@@ -909,8 +1033,12 @@ async def run(args: argparse.Namespace) -> None:
                                             entry_time = order_request_monotonic
                                             live_mfe_bps = live_mae_bps = 0.0
                                             demo_net_mfe_bps = demo_net_mae_bps = 0.0
+                                            trailing_scale = leverage / 200.0
                                             trailing = PositiveTrailing(
-                                                distance_bps=max(args.trailing_distance_bps, live_entry_spread_bps)
+                                                distance_bps=max(
+                                                    args.trailing_distance_bps,
+                                                    live_entry_spread_bps * trailing_scale,
+                                                )
                                             )
                                             position_candidate = fresh
                                             position_excursion_id = excursion_id
@@ -919,6 +1047,8 @@ async def run(args: argparse.Namespace) -> None:
                                                 f"DEMO ENTRY {position_symbol} {'LONG' if position_direction > 0 else 'SHORT'} "
                                                 f"qty={remote.qty:g} LIVEEntry={live_entry_price:g} residual={live_entry_edge_bps:+.3f} "
                                                 f"notional={live_entry_notional_usdt:g}USDT leverage={leverage}x "
+                                                f"requested_margin={cycle_margin_usdt:.4f}USDT strategy_equity={strategy_equity_usdt:.4f}USDT "
+                                                f"sizing={'DYNAMIC' if dynamic_sizing else 'PROBATION'} "
                                                 f"spread={live_entry_spread_bps:.3f} DemoFeeReported={fill.fee_usdt:g}"
                                             )
 
@@ -961,14 +1091,22 @@ async def run(args: argparse.Namespace) -> None:
                         )
                         demo_net_mfe_bps = max(demo_net_mfe_bps, demo_mark_net_bps)
                         demo_net_mae_bps = min(demo_net_mae_bps, demo_mark_net_bps)
-                        trail = trailing.update(demo_mark_net_bps)
+                        trail = _update_leverage_normalized_trailing(
+                            trailing, demo_mark_net_bps, leverage=live_entry_leverage,
+                        )
                         age_s = now - entry_time
                         snap = models[position_symbol].snapshot(now_ms=now_ms, threshold_bps=0.0)
 
                         reason: str | None = None
                         if trail is not None and demo_mark_net_bps <= trail and age_s >= args.min_hold_seconds:
                             reason = "positive_trailing_stop"
-                        adverse = max(args.adverse_cut_bps, live_entry_spread_bps * args.adverse_spread_mult)
+                        adverse = _adverse_cut_for_leverage(
+                            leverage=live_entry_leverage,
+                            spread_bps=live_entry_spread_bps,
+                            fixed_cut_bps=args.adverse_cut_bps,
+                            spread_multiple=args.adverse_spread_mult,
+                            adverse_roe_pct=args.adverse_cut_roe_pct,
+                        )
                         if reason is None and demo_mark_gross_bps <= -adverse and age_s >= args.min_hold_seconds:
                             reason = "demo_adverse_cut"
                         if (
@@ -1024,6 +1162,11 @@ async def run(args: argparse.Namespace) -> None:
                                 position_direction * (demo_fill.avg_price - position.entry_price) * position.qty
                             )
                             demo_net_pnl = demo_gross_pnl - demo_entry_fee_usdt - demo_fill.fee_usdt
+                            strategy_equity_usdt = max(0.01, strategy_equity_usdt + demo_net_pnl)
+                            if demo_net_pnl > 0:
+                                sizing_profit_usdt += demo_net_pnl
+                            elif demo_net_pnl < 0:
+                                sizing_loss_usdt += abs(demo_net_pnl)
                             total_live_pnl += live_pnl
                             peak_pnl = max(peak_pnl, total_live_pnl)
                             max_drawdown = max(max_drawdown, peak_pnl - total_live_pnl)
@@ -1141,6 +1284,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-cycles", type=int, default=50)
     parser.add_argument("--leverage", type=int, default=50)
     parser.add_argument("--target-margin-usdt", type=float, default=2.0)
+    parser.add_argument("--strategy-bankroll-usdt", type=float, default=60.0)
+    parser.add_argument(
+        "--target-exposure-equity-multiple", type=float, default=0.0,
+        help="size requested notional as this multiple of strategy equity; 0 uses fixed target margin",
+    )
+    parser.add_argument("--sizing-activation-trades", type=int, default=0)
+    parser.add_argument("--sizing-min-profit-factor", type=float, default=1.2)
     parser.add_argument("--max-demo-volume", action="store_true")
     parser.add_argument("--demo-ioc-cross-bps", type=float, default=5.0)
     parser.add_argument("--exclude-symbols", default="")
@@ -1177,6 +1327,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--adverse-cut-bps", type=float, default=1.5)
     parser.add_argument("--adverse-spread-mult", type=float, default=1.25)
+    parser.add_argument(
+        "--adverse-cut-roe-pct", type=float, default=0.0,
+        help="leverage-normalized adverse cut in margin ROE percent; 0 uses fixed bps",
+    )
     parser.add_argument("--convergence-bps", type=float, default=0.10)
     parser.add_argument("--convergence-fraction", type=float, default=0.0)
     parser.add_argument(
@@ -1191,6 +1345,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--trailing-distance-bps", type=float, default=1.0)
     parser.add_argument("--max-session-loss-usdt", type=float, default=0.50)
     parser.add_argument("--excursion-csv", default="")
+    parser.add_argument("--residual-csv", default="")
+    parser.add_argument("--residual-sample-ms", type=int, default=100)
     return parser
 
 
