@@ -209,12 +209,13 @@ async def _discover_intersection() -> list[DemoLiveContract]:
     demo_cfg = WebExecutionConfig.demo_from_env(write_enabled=False)
     async with MexcWebExecutionAdapter(demo_cfg) as adapter:
         demo_rows = await _fetch_contracts(adapter)
+        demo_fees = await read_web_fee_provider(adapter)
 
     out: list[DemoLiveContract] = []
     for row in demo_rows:
         symbol = str(row.get("symbol") or "").upper()
         live = live_by_symbol.get(symbol)
-        if live is not None:
+        if live is not None and _zero_fee_status(demo_fees.status(symbol)):
             out.append(DemoLiveContract(live=live, demo=dict(row)))
     out.sort(key=lambda row: row.live.mexc_symbol)
     return out
@@ -340,7 +341,7 @@ async def run(args: argparse.Namespace) -> None:
     intersection = await _discover_intersection()
     if not intersection:
         raise MexcWebError(
-            "no exact symbol exists in LIVE MEXC fee=0/0, Binance USD-M and MEXC Demo simultaneously"
+            "no exact symbol exists in LIVE MEXC fee=0/0, Demo MEXC fee=0/0 and Binance USD-M simultaneously"
         )
 
     excursion_csv = Path(args.excursion_csv) if args.excursion_csv else Path(
@@ -391,7 +392,7 @@ async def run(args: argparse.Namespace) -> None:
 
     hybrid.console.print(
         f"[cyan]LIVE MICROSPREAD -> DEMO[/cyan]: {len(symbols)} symbol(s); event-driven Binance bookTicker + "
-        "MEXC depth; all order writes TESTNET only."
+        "MEXC depth; LIVE and Demo fee gates must both remain exact 0/0; all order writes TESTNET only."
     )
     hybrid.console.print(f"Excursion telemetry CSV: {excursion_csv.resolve()}")
     hybrid.console.print("Symbols: " + ", ".join(symbols))
@@ -403,7 +404,8 @@ async def run(args: argparse.Namespace) -> None:
 
     demo_meta: dict[str, tuple[float, int, float, float]] = {}
     demo_available_usdt = 0.0
-    fee_provider = None
+    live_fee_provider = None
+    demo_fee_provider = None
     fee_checked_ms = 0
     next_fee_refresh = 0.0
     next_heartbeat = 0.0
@@ -456,7 +458,8 @@ async def run(args: argparse.Namespace) -> None:
                 f"{'MAX isolated volume' if args.max_demo_volume else f'{args.target_margin_usdt:g}USDT margin cap'}"
             )
 
-            fee_provider = await read_web_fee_provider(live_fee_adapter)
+            live_fee_provider = await read_web_fee_provider(live_fee_adapter)
+            demo_fee_provider = await read_web_fee_provider(demo_adapter)
             fee_checked_ms = int(time.time() * 1000)
             next_fee_refresh = time.monotonic() + FEE_REFRESH_SECONDS
 
@@ -465,7 +468,8 @@ async def run(args: argparse.Namespace) -> None:
                 now_ms = int(time.time() * 1000)
 
                 if now >= next_fee_refresh:
-                    fee_provider = await read_web_fee_provider(live_fee_adapter)
+                    live_fee_provider = await read_web_fee_provider(live_fee_adapter)
+                    demo_fee_provider = await read_web_fee_provider(demo_adapter)
                     fee_checked_ms = int(time.time() * 1000)
                     next_fee_refresh = time.monotonic() + FEE_REFRESH_SECONDS
 
@@ -473,7 +477,7 @@ async def run(args: argparse.Namespace) -> None:
                     candidates: list[MicroCandidate] = []
                     max_residual = 0.0
                     above_floor = 0
-                    if now >= warmup_until and fee_provider is not None:
+                    if now >= warmup_until and live_fee_provider is not None and demo_fee_provider is not None:
                         for symbol in symbols:
                             book = mexc.books.get(symbol)
                             if book is None:
@@ -481,8 +485,13 @@ async def run(args: argparse.Namespace) -> None:
                             book_age = now_ms - book.recv_ms
                             if book_age < 0 or book_age > float(args.max_book_age_ms):
                                 continue
-                            status = fee_provider.status(symbol)
-                            if not _zero_fee_status(status) or now_ms - fee_checked_ms > FEE_MAX_AGE_MS:
+                            live_status = live_fee_provider.status(symbol)
+                            demo_status = demo_fee_provider.status(symbol)
+                            if (
+                                not _zero_fee_status(live_status)
+                                or not _zero_fee_status(demo_status)
+                                or now_ms - fee_checked_ms > FEE_MAX_AGE_MS
+                            ):
                                 continue
                             if now_ms - last_entry_ms[symbol] < int(args.entry_cooldown_ms):
                                 continue
@@ -519,8 +528,13 @@ async def run(args: argparse.Namespace) -> None:
                                 last_excursion_key = excursion_key
 
                             side = OrderSide.LONG if consumed.direction > 0 else OrderSide.SHORT
-                            status = fee_provider.status(consumed.symbol)
-                            if _zero_fee_status(status) and now_ms - fee_checked_ms <= FEE_MAX_AGE_MS:
+                            live_status = live_fee_provider.status(consumed.symbol)
+                            demo_status = demo_fee_provider.status(consumed.symbol)
+                            if (
+                                _zero_fee_status(live_status)
+                                and _zero_fee_status(demo_status)
+                                and now_ms - fee_checked_ms <= FEE_MAX_AGE_MS
+                            ):
                                 # Capture the LIVE executable entry before any Demo REST call.
                                 live_entry = consumed.book.ask if consumed.direction > 0 else consumed.book.bid
 
@@ -627,6 +641,19 @@ async def run(args: argparse.Namespace) -> None:
                                         if remote is not None:
                                             if remote.side is not side:
                                                 raise MexcWebError("Demo microspread position side mismatch")
+                                            if fill.fee_usdt != 0.0:
+                                                emergency_fill = await _flatten_exact_demo_position(
+                                                    demo_adapter, remote, "demo_entry_fee_violation"
+                                                )
+                                                _append_excursion(
+                                                    excursion_csv, fresh, timestamp_ms=int(time.time() * 1000),
+                                                    excursion_id=excursion_id, event="rejected",
+                                                    reject_reason="demo_nonzero_fee_observed",
+                                                )
+                                                raise MexcWebError(
+                                                    "strict Demo zero-fee gate violated on entry: "
+                                                    f"entry_fee={fill.fee_usdt:g} exit_fee={emergency_fill.fee_usdt:g}"
+                                                )
                                             position = remote
                                             position_symbol = consumed.symbol
                                             position_direction = consumed.direction
@@ -741,8 +768,12 @@ async def run(args: argparse.Namespace) -> None:
                             hybrid.console.print(
                                 f"MICRO EXIT {position_symbol} reason={reason} LIVEpnl={live_pnl:+.6f}USDT "
                                 f"move={move_bps:+.3f}bps MFE={live_mfe_bps:+.3f} MAE={live_mae_bps:+.3f} "
-                                f"DemoExit={demo_fill.avg_price:g}"
+                                f"DemoExit={demo_fill.avg_price:g} DemoFee={demo_fill.fee_usdt:g}"
                             )
+                            if demo_fill.fee_usdt != 0.0:
+                                raise MexcWebError(
+                                    f"strict Demo zero-fee gate violated on exit: fee={demo_fill.fee_usdt:g}"
+                                )
                             if args.max_demo_volume:
                                 demo_available_usdt = await _demo_available_usdt(demo_adapter)
                             position = None

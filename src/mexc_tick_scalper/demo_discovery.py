@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
 
+from .lead_lag import fetch_binance_usdm_symbols, mexc_to_binance_symbol
 from .web_execution import MexcWebError, MexcWebExecutionAdapter, WebExecutionConfig
 from .web_fee import provider_from_web_fee_payload
 
@@ -111,6 +114,41 @@ async def cmd_scan(args: argparse.Namespace) -> None:
         console.print("[yellow]No Demo contracts have confirmed 0 maker + 0 taker fee for this session.[/yellow]")
 
 
+async def cmd_cross_scan(args: argparse.Namespace) -> None:
+    binance = await fetch_binance_usdm_symbols()
+    demo_cfg = WebExecutionConfig.demo_from_env(write_enabled=False)
+    live_cfg = WebExecutionConfig.from_env(write_enabled=False)
+    async with MexcWebExecutionAdapter(demo_cfg) as demo_adapter:
+        contracts = await _fetch_contracts(demo_adapter)
+        demo_fees = provider_from_web_fee_payload(await demo_adapter.get_fee_rates())
+    async with MexcWebExecutionAdapter(live_cfg) as live_adapter:
+        live_fees = provider_from_web_fee_payload(await live_adapter.get_fee_rates())
+
+    table = Table(title="Demo 0/0 cross-venue eligibility")
+    for column in ("Symbol", "Demo fee", "Live fee", "Binance USD-M", "Eligible"):
+        table.add_column(column)
+    eligible = 0
+    for row in contracts:
+        symbol = str(row.get("symbol") or "").upper()
+        demo = demo_fees.status(symbol)
+        if demo.maker != 0 or demo.taker != 0:
+            continue
+        live = live_fees.status(symbol)
+        binance_symbol = mexc_to_binance_symbol(symbol)
+        on_binance = binance_symbol in binance
+        ok = live.maker == 0 and live.taker == 0 and on_binance
+        eligible += int(ok)
+        table.add_row(
+            symbol,
+            f"{demo.maker}/{demo.taker}",
+            f"{live.maker}/{live.taker}",
+            f"{'yes' if on_binance else 'no'} ({binance_symbol})",
+            "YES" if ok else "no",
+        )
+    console.print(table)
+    console.print(f"Strict LIVE 0/0 + Demo 0/0 + Binance intersection: {eligible}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Discover MEXC Demo contracts and account-specific zero-fee symbols")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -119,6 +157,7 @@ def build_parser() -> argparse.ArgumentParser:
     contracts.add_argument("--limit", type=int, default=0, help="Show only first N rows; 0 means all")
 
     sub.add_parser("scan", help="List Demo contracts with confirmed maker=0 and taker=0 for this account")
+    sub.add_parser("cross-scan", help="Explain LIVE/Demo/Binance eligibility of Demo zero-fee contracts")
     return parser
 
 
@@ -127,9 +166,12 @@ async def _main_async(args: argparse.Namespace) -> None:
         await cmd_contracts(args)
     elif args.command == "scan":
         await cmd_scan(args)
+    elif args.command == "cross-scan":
+        await cmd_cross_scan(args)
 
 
 def main() -> None:
+    load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
     args = build_parser().parse_args()
     try:
         asyncio.run(_main_async(args))

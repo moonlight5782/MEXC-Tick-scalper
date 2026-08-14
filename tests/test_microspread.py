@@ -16,6 +16,7 @@ from mexc_tick_scalper.microspread import MicroSpreadModel
 from mexc_tick_scalper.microspread_feed import EventMexcDepthFeed, LiveBook
 from mexc_tick_scalper.execution import OrderSide, PositionSnapshot
 from mexc_tick_scalper.web_execution import MexcWebError
+import mexc_tick_scalper.demo_microspread_test as runner
 
 
 def px(base: float, bps: float) -> float:
@@ -130,6 +131,44 @@ def test_microspread_runner_imports():
     assert args.max_demo_volume is False
     assert args.demo_ioc_cross_bps == 5.0
     assert args.exclude_symbols == ""
+
+
+def test_discovery_requires_demo_and_live_zero_fee(monkeypatch):
+    live_a = SimpleNamespace(mexc_symbol="A_USDT")
+    live_b = SimpleNamespace(mexc_symbol="B_USDT")
+
+    class FakeAdapter:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+    class DemoFees:
+        def status(self, symbol):
+            return SimpleNamespace(
+                maker=0.0,
+                taker=0.0 if symbol == "A_USDT" else 0.0002,
+            )
+
+    async def live_rows():
+        return [live_a, live_b]
+
+    async def demo_rows(adapter):
+        return [{"symbol": "A_USDT"}, {"symbol": "B_USDT"}]
+
+    async def demo_fees(adapter):
+        return DemoFees()
+
+    monkeypatch.setattr(runner, "discover_live_zero_fee_crosslisted", live_rows)
+    monkeypatch.setattr(runner, "_fetch_contracts", demo_rows)
+    monkeypatch.setattr(runner, "read_web_fee_provider", demo_fees)
+    monkeypatch.setattr(runner.WebExecutionConfig, "demo_from_env", lambda **kwargs: object())
+    monkeypatch.setattr(runner, "MexcWebExecutionAdapter", lambda config: FakeAdapter())
+
+    rows = asyncio.run(runner._discover_intersection())
+
+    assert [row.live.mexc_symbol for row in rows] == ["A_USDT"]
 
 
 def test_full_depth_channel_is_parsed():
