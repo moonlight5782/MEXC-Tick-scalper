@@ -33,14 +33,14 @@ class LeadLagSnapshot:
 
 
 class LeadLagModel:
-    """Cross-exchange lead/lag estimator with a rolling Binance/MEXC basis baseline."""
+    """Estimate a short-lived Binance -> MEXC lead after removing normal basis."""
 
     def __init__(
         self,
         *,
         horizon_ms: int = 250,
         baseline_seconds: float = 20.0,
-        min_edge_bps: float = 2.0,
+        min_edge_bps: float = 4.0,
         min_binance_move_bps: float = 1.0,
         max_age_ms: float = 500.0,
     ) -> None:
@@ -73,23 +73,29 @@ class LeadLagModel:
             chosen = price
         return chosen
 
+    def _append(self, rows: deque[tuple[int, float]], ts_ms: int, price: float) -> None:
+        rows.append((ts_ms, price))
+        self._trim(rows, ts_ms - max(self.baseline_ms, self.horizon_ms) * 2)
+        self._update_gap(ts_ms)
+
     def update_binance(self, *, bid: float, ask: float, ts_ms: int | None = None) -> None:
         mid = self._mid(bid, ask)
         if mid <= 0:
             return
         ts = int(ts_ms if ts_ms is not None else time.time() * 1000)
-        self.binance.append((ts, mid))
-        self._trim(self.binance, ts - max(self.baseline_ms, self.horizon_ms) * 2)
-        self._update_gap(ts)
+        self._append(self.binance, ts, mid)
 
     def update_mexc(self, *, bid: float, ask: float, ts_ms: int | None = None) -> None:
         mid = self._mid(bid, ask)
         if mid <= 0:
             return
+        self.update_mexc_price(price=mid, ts_ms=ts_ms)
+
+    def update_mexc_price(self, *, price: float, ts_ms: int | None = None) -> None:
+        if price <= 0:
+            return
         ts = int(ts_ms if ts_ms is not None else time.time() * 1000)
-        self.mexc.append((ts, mid))
-        self._trim(self.mexc, ts - max(self.baseline_ms, self.horizon_ms) * 2)
-        self._update_gap(ts)
+        self._append(self.mexc, ts, float(price))
 
     def _update_gap(self, ts_ms: int) -> None:
         if not self.binance or not self.mexc:
@@ -114,9 +120,10 @@ class LeadLagModel:
             return LeadLagSnapshot(False, 0, 0.0, 0.0, 0.0, 0.0, 0.0, b_mid, m_mid, age_ms, "stale_quotes")
 
         raw_gap = math.log(b_mid / m_mid) * 10_000.0
+        # Do not let the newest lead itself immediately contaminate the baseline.
         baseline_values = [gap for ts, gap in self.gaps if ts <= now - self.horizon_ms]
         if len(baseline_values) < 3:
-            baseline_values = [gap for _, gap in self.gaps]
+            baseline_values = [gap for _, gap in self.gaps[:-1]] or [raw_gap]
         baseline = sum(baseline_values) / len(baseline_values)
         edge = raw_gap - baseline
 
@@ -147,7 +154,17 @@ class LeadLagModel:
             ready = True
 
         return LeadLagSnapshot(
-            ready, direction, edge, raw_gap, baseline, b_move, m_move, b_mid, m_mid, age_ms, reason
+            ready=ready,
+            direction=direction,
+            edge_bps=edge,
+            raw_gap_bps=raw_gap,
+            baseline_gap_bps=baseline,
+            binance_move_bps=b_move,
+            mexc_move_bps=m_move,
+            binance_mid=b_mid,
+            mexc_mid=m_mid,
+            age_ms=age_ms,
+            reason=reason,
         )
 
 
@@ -193,8 +210,13 @@ class BinanceBookTickerFeed:
                                 payload = json.loads(msg.data)
                                 bid = float(payload.get("b") or 0)
                                 ask = float(payload.get("a") or 0)
-                                ts = int(payload.get("E") or payload.get("T") or time.time() * 1000)
-                                self.model.update_binance(bid=bid, ask=ask, ts_ms=ts)
+                                # Use local receipt time for cross-exchange latency comparison;
+                                # exchange server clocks need not be perfectly synchronized.
+                                self.model.update_binance(
+                                    bid=bid,
+                                    ask=ask,
+                                    ts_ms=int(time.time() * 1000),
+                                )
                             elif msg.type in (aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSED):
                                 break
             except asyncio.CancelledError:
