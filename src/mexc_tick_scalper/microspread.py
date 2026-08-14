@@ -19,6 +19,8 @@ class MicroSpreadSnapshot:
     binance_mid: float
     mexc_mid: float
     age_ms: float
+    binance_age_ms: float
+    mexc_age_ms: float
     threshold_bps: float
     reason: str
 
@@ -26,14 +28,10 @@ class MicroSpreadSnapshot:
 class MicroSpreadModel:
     """Detect short Binance/MEXC basis excursions instead of rare large impulses.
 
-    The model continuously tracks log(Binance mid / MEXC mid).  A robust rolling
-    median is the normal cross-exchange basis.  The tradable edge is the current
-    gap minus that baseline.  A signal is emitted once when the residual crosses
-    an executable threshold, then it must converge before the model rearms.
-
-    This is intentionally different from the older LeadLagModel: a 1 bps
-    Binance impulse is not required.  Tiny leader moves are enough when they
-    create a fresh residual that is large relative to the live MEXC spread.
+    The normal cross-exchange basis is a rolling median.  Entry is based on the
+    residual from that basis and does not require a 1 bps leader impulse.  The
+    newest part of the gap series is excluded from the baseline so a short lag
+    cannot immediately teach itself away.
     """
 
     def __init__(
@@ -41,17 +39,21 @@ class MicroSpreadModel:
         *,
         horizon_ms: int = 100,
         baseline_seconds: float = 8.0,
+        baseline_exclusion_ms: int = 1000,
         min_edge_bps: float = 0.35,
         min_binance_move_bps: float = 0.05,
-        max_age_ms: float = 250.0,
+        max_binance_age_ms: float = 300.0,
+        max_mexc_age_ms: float = 2000.0,
         rearm_fraction: float = 0.35,
         min_baseline_points: int = 12,
     ) -> None:
         self.horizon_ms = max(20, int(horizon_ms))
-        self.baseline_ms = max(1_000, int(float(baseline_seconds) * 1000))
+        self.baseline_ms = max(2_000, int(float(baseline_seconds) * 1000))
+        self.baseline_exclusion_ms = max(self.horizon_ms, int(baseline_exclusion_ms))
         self.min_edge_bps = max(0.0, float(min_edge_bps))
         self.min_binance_move_bps = max(0.0, float(min_binance_move_bps))
-        self.max_age_ms = max(20.0, float(max_age_ms))
+        self.max_binance_age_ms = max(20.0, float(max_binance_age_ms))
+        self.max_mexc_age_ms = max(50.0, float(max_mexc_age_ms))
         self.rearm_fraction = min(0.8, max(0.05, float(rearm_fraction)))
         self.min_baseline_points = max(3, int(min_baseline_points))
 
@@ -83,7 +85,7 @@ class MicroSpreadModel:
 
     def _append(self, rows: deque[tuple[int, float]], ts_ms: int, price: float) -> None:
         rows.append((int(ts_ms), float(price)))
-        cutoff = int(ts_ms) - max(self.baseline_ms, self.horizon_ms) * 2
+        cutoff = int(ts_ms) - max(self.baseline_ms, self.baseline_exclusion_ms) * 2
         self._trim(rows, cutoff)
         self._update_gap(int(ts_ms))
 
@@ -117,24 +119,35 @@ class MicroSpreadModel:
         self.gaps.append((ts_ms, math.log(b_mid / m_mid) * 10_000.0))
         self._trim(self.gaps, ts_ms - self.baseline_ms)
 
+    def _empty(self, threshold: float, reason: str) -> MicroSpreadSnapshot:
+        return MicroSpreadSnapshot(
+            False, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+            math.inf, math.inf, math.inf, threshold, reason,
+        )
+
     def snapshot(self, *, now_ms: int | None = None, threshold_bps: float | None = None) -> MicroSpreadSnapshot:
         now = int(now_ms if now_ms is not None else time.time() * 1000)
         threshold = max(self.min_edge_bps, float(threshold_bps or 0.0))
         if not self.binance or not self.mexc or len(self.gaps) < self.min_baseline_points:
-            return MicroSpreadSnapshot(False, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, math.inf, threshold, "warming_up")
+            return self._empty(threshold, "warming_up")
 
         b_ts, b_mid = self.binance[-1]
         m_ts, m_mid = self.mexc[-1]
-        age_ms = float(max(now - b_ts, now - m_ts))
-        if age_ms < 0 or age_ms > self.max_age_ms:
-            return MicroSpreadSnapshot(False, 0, 0.0, 0.0, 0.0, 0.0, 0.0, b_mid, m_mid, age_ms, threshold, "stale_quotes")
+        b_age = float(now - b_ts)
+        m_age = float(now - m_ts)
+        age_ms = max(b_age, m_age)
+        if b_age < 0 or b_age > self.max_binance_age_ms:
+            return MicroSpreadSnapshot(False, 0, 0.0, 0.0, 0.0, 0.0, 0.0, b_mid, m_mid, age_ms, b_age, m_age, threshold, "stale_binance")
+        if m_age < 0 or m_age > self.max_mexc_age_ms:
+            return MicroSpreadSnapshot(False, 0, 0.0, 0.0, 0.0, 0.0, 0.0, b_mid, m_mid, age_ms, b_age, m_age, threshold, "stale_mexc")
 
         raw_gap = math.log(b_mid / m_mid) * 10_000.0
-        # Exclude the newest horizon from the baseline so the excursion cannot
-        # instantly teach itself away. Median is robust to transient spikes.
-        baseline_values = [gap for ts, gap in self.gaps if ts <= now - self.horizon_ms]
+        baseline_values = [
+            gap for ts, gap in self.gaps
+            if ts <= now - self.baseline_exclusion_ms
+        ]
         if len(baseline_values) < self.min_baseline_points:
-            return MicroSpreadSnapshot(False, 0, 0.0, raw_gap, 0.0, 0.0, 0.0, b_mid, m_mid, age_ms, threshold, "warming_baseline")
+            return MicroSpreadSnapshot(False, 0, 0.0, raw_gap, 0.0, 0.0, 0.0, b_mid, m_mid, age_ms, b_age, m_age, threshold, "warming_baseline")
         baseline = float(statistics.median(baseline_values))
         edge = raw_gap - baseline
         direction = 1 if edge > 0 else -1 if edge < 0 else 0
@@ -143,7 +156,7 @@ class MicroSpreadModel:
         b_old = self._past_price(self.binance, target)
         m_old = self._past_price(self.mexc, target)
         if not b_old or not m_old:
-            return MicroSpreadSnapshot(False, direction, edge, raw_gap, baseline, 0.0, 0.0, b_mid, m_mid, age_ms, threshold, "warming_horizon")
+            return MicroSpreadSnapshot(False, direction, edge, raw_gap, baseline, 0.0, 0.0, b_mid, m_mid, age_ms, b_age, m_age, threshold, "warming_horizon")
 
         b_move = math.log(b_mid / b_old) * 10_000.0
         m_move = math.log(m_mid / m_old) * 10_000.0
@@ -175,17 +188,16 @@ class MicroSpreadModel:
             binance_mid=b_mid,
             mexc_mid=m_mid,
             age_ms=age_ms,
+            binance_age_ms=b_age,
+            mexc_age_ms=m_age,
             threshold_bps=threshold,
             reason=reason,
         )
 
     def signal(self, *, now_ms: int | None = None, threshold_bps: float | None = None) -> MicroSpreadSnapshot:
         snap = self.snapshot(now_ms=now_ms, threshold_bps=threshold_bps)
-        threshold = snap.threshold_bps
-        rearm_level = max(0.05, threshold * self.rearm_fraction)
+        rearm_level = max(0.05, snap.threshold_bps * self.rearm_fraction)
 
-        # Rearm only after convergence toward the normal basis. A direct sign
-        # flip also implies a zero crossing between observations and may rearm.
         if not self._armed:
             if abs(snap.edge_bps) <= rearm_level or (
                 snap.direction != 0 and snap.direction != self._last_signal_direction
@@ -196,18 +208,10 @@ class MicroSpreadModel:
             return snap
         if not self._armed:
             return MicroSpreadSnapshot(
-                False,
-                snap.direction,
-                snap.edge_bps,
-                snap.raw_gap_bps,
-                snap.baseline_gap_bps,
-                snap.binance_move_bps,
-                snap.mexc_move_bps,
-                snap.binance_mid,
-                snap.mexc_mid,
-                snap.age_ms,
-                snap.threshold_bps,
-                "microspread_not_rearmed",
+                False, snap.direction, snap.edge_bps, snap.raw_gap_bps,
+                snap.baseline_gap_bps, snap.binance_move_bps, snap.mexc_move_bps,
+                snap.binance_mid, snap.mexc_mid, snap.age_ms, snap.binance_age_ms,
+                snap.mexc_age_ms, snap.threshold_bps, "microspread_not_rearmed",
             )
 
         self._armed = False
