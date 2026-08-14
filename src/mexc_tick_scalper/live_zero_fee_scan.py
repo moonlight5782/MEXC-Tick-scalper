@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
 
@@ -9,6 +11,11 @@ from .live_zero_fee_universe import discover_live_zero_fee_crosslisted
 from .web_execution import MexcWebError
 
 console = Console()
+
+
+def _load_env() -> None:
+    root = Path(__file__).resolve().parents[2]
+    load_dotenv(root / ".env", override=False)
 
 
 async def run() -> int:
@@ -38,6 +45,7 @@ async def run() -> int:
 
 
 def main() -> None:
+    _load_env()
     try:
         asyncio.run(run())
     except MexcWebError as exc:
