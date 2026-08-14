@@ -19,7 +19,7 @@ XAUT_ZERO_FEE_ARGS = (
     "--include-symbols", "XAUT_USDT",
     "--demo-zero-fee-only",
     "--signal-mexc-source", "demo",
-    "--min-edge-bps", "0.70",
+    "--min-edge-bps", "1.00",
     "--min-net-edge-bps", "0.60",
     "--entry-confirm-ms", "0",
     "--demo-ioc-cross-bps", "1",

@@ -73,7 +73,7 @@ def test_launcher_uses_xaut_demo_aligned_zero_fee_profile():
     assert cmd[cmd.index("--include-symbols") + 1] == "XAUT_USDT"
     assert "--demo-zero-fee-only" in cmd
     assert cmd[cmd.index("--signal-mexc-source") + 1] == "demo"
-    assert cmd[cmd.index("--min-edge-bps") + 1] == "0.70"
+    assert cmd[cmd.index("--min-edge-bps") + 1] == "1.00"
     assert cmd[cmd.index("--min-net-edge-bps") + 1] == "0.60"
     assert cmd[cmd.index("--demo-ioc-cross-bps") + 1] == "1"
     assert "--allow-demo-fee-accounting" not in cmd
