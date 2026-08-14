@@ -2,7 +2,7 @@ from mexc_tick_scalper.demo_lead_lag_test import (
     _fee_cache_allows_entry,
     _required_live_edge,
 )
-from mexc_tick_scalper.demo_live_launcher import _candidate_score
+from mexc_tick_scalper.demo_live_launcher import _build_microspread_command, _candidate_score
 from mexc_tick_scalper.models import FeeStatus
 from mexc_tick_scalper.state import EligibilityState, apply_fee_status
 
@@ -62,3 +62,19 @@ def test_candidate_score_rewards_repeatable_edge_after_spread():
     velvet_like = _candidate_score(events=11, avg_edge_bps=13.88, live_spread_bps=1.07)
     beat_like = _candidate_score(events=40, avg_edge_bps=15.62, live_spread_bps=15.05)
     assert velvet_like > beat_like
+
+
+def test_launcher_uses_xaut_demo_aligned_zero_fee_profile():
+    cmd = _build_microspread_command(
+        "python", seconds=21600, cycles=100, leverage=1000, margin=0.1,
+    )
+
+    assert cmd[0] == "python"
+    assert cmd[cmd.index("--include-symbols") + 1] == "XAUT_USDT"
+    assert "--demo-zero-fee-only" in cmd
+    assert cmd[cmd.index("--signal-mexc-source") + 1] == "demo"
+    assert cmd[cmd.index("--min-edge-bps") + 1] == "0.70"
+    assert cmd[cmd.index("--min-net-edge-bps") + 1] == "0.60"
+    assert cmd[cmd.index("--demo-ioc-cross-bps") + 1] == "1"
+    assert "--allow-demo-fee-accounting" not in cmd
+    assert "--max-demo-volume" not in cmd

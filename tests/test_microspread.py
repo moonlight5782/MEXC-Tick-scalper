@@ -8,6 +8,7 @@ import pytest
 from mexc_tick_scalper.demo_microspread_test import (
     MicroCandidate,
     _append_excursion,
+    _confirmed_candidate,
     _convergence_exit_allowed,
     _flatten_exact_demo_position,
     _find_demo_position,
@@ -143,6 +144,37 @@ def test_microspread_runner_imports():
     assert args.include_symbols == ""
     assert args.demo_zero_fee_only is False
     assert args.allow_demo_fee_accounting is False
+    assert args.signal_mexc_source == "live"
+    assert args.entry_confirm_ms == 0
+
+
+def test_demo_signal_source_is_explicit_parser_mode():
+    args = runner.build_parser().parse_args([
+        "--signal-mexc-source", "demo",
+        "--demo-zero-fee-only",
+        "--include-symbols", "XAUT_USDT",
+    ])
+
+    assert args.signal_mexc_source == "demo"
+    assert args.demo_zero_fee_only is True
+    assert args.include_symbols == "XAUT_USDT"
+
+
+def test_entry_confirmation_rejects_one_tick_flash_and_accepts_persistent_edge():
+    candidate = SimpleNamespace(symbol="XAUT_USDT", direction=1)
+
+    ready, pending = _confirmed_candidate(None, candidate, now_ms=1_000, confirm_ms=100)
+    assert ready is False
+    ready, pending = _confirmed_candidate(pending, None, now_ms=1_050, confirm_ms=100)
+    assert ready is False
+    assert pending is None
+
+    ready, pending = _confirmed_candidate(None, candidate, now_ms=2_000, confirm_ms=100)
+    assert ready is False
+    ready, pending = _confirmed_candidate(pending, candidate, now_ms=2_099, confirm_ms=100)
+    assert ready is False
+    ready, _ = _confirmed_candidate(pending, candidate, now_ms=2_100, confirm_ms=100)
+    assert ready is True
 
 
 def test_demo_net_mark_subtracts_both_fees_before_trailing():

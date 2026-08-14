@@ -15,6 +15,16 @@ from .web_execution import MexcWebError
 
 console = Console()
 
+XAUT_ZERO_FEE_ARGS = (
+    "--include-symbols", "XAUT_USDT",
+    "--demo-zero-fee-only",
+    "--signal-mexc-source", "demo",
+    "--min-edge-bps", "0.70",
+    "--min-net-edge-bps", "0.60",
+    "--entry-confirm-ms", "0",
+    "--demo-ioc-cross-bps", "1",
+)
+
 
 def _load_env() -> None:
     root = Path(__file__).resolve().parents[2]
@@ -46,6 +56,26 @@ def _cleanup_sync(reason: str) -> bool:
         return False
 
 
+def _build_microspread_command(
+    python: str,
+    *,
+    seconds: int,
+    cycles: int,
+    leverage: int,
+    margin: float,
+) -> list[str]:
+    return [
+        python,
+        "-m",
+        "mexc_tick_scalper.demo_microspread_test",
+        "--session-seconds", str(seconds),
+        "--max-cycles", str(cycles),
+        "--leverage", str(leverage),
+        "--target-margin-usdt", str(margin),
+        *XAUT_ZERO_FEE_ARGS,
+    ]
+
+
 def main() -> None:
     _load_env()
     child: subprocess.Popen | None = None
@@ -54,30 +84,25 @@ def main() -> None:
     try:
         asyncio.run(flatten_all_demo_positions(reason="startup"))
         console.print(
-            "[cyan]LIVE MICROSPREAD / DEMO EXECUTION[/cyan]\n"
-            "Binance and MEXC order books are monitored continuously. The bot trades short-lived deviations from the "
-            "normal Binance/MEXC basis, while every order/position write remains on MEXC TESTNET only."
+            "[cyan]BINANCE XAUT -> ZERO-FEE MEXC DEMO[/cyan]\n"
+            "Binance XAUTUSDT is the read-only leader. MEXC Demo XAUT_USDT supplies the lag signal, executable book "
+            "and every order/position write. Entry is blocked unless the Demo account still reports exact 0/0 fees."
         )
 
-        leverage = _ask_int("Leverage cap", 50)
-        cycles = _ask_int("Max cycles", 50)
-        seconds = _ask_int("Max session seconds", 1800)
+        leverage = _ask_int("Leverage cap (contract maximum is applied)", 1000)
+        cycles = _ask_int("Max cycles", 100)
+        seconds = _ask_int("Max session seconds", 21600)
         margin = _ask_float("Demo isolated margin cap per IOC cycle, USDT", 0.10)
         if margin <= 0:
             raise ValueError("Demo margin cap must be positive; max-balance sizing is not available from start_demo.bat")
 
-        cmd = [
+        cmd = _build_microspread_command(
             sys.executable,
-            "-m",
-            "mexc_tick_scalper.demo_microspread_test",
-            "--session-seconds",
-            str(seconds),
-            "--max-cycles",
-            str(cycles),
-            "--leverage",
-            str(leverage),
-        ]
-        cmd += ["--target-margin-usdt", str(margin)]
+            seconds=seconds,
+            cycles=cycles,
+            leverage=leverage,
+            margin=margin,
+        )
         child = subprocess.Popen(cmd, env=os.environ.copy())
         exit_code = child.wait()
     except KeyboardInterrupt:

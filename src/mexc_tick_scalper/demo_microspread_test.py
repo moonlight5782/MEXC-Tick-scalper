@@ -92,6 +92,24 @@ def _profitable_reversal_exit_allowed(
     )
 
 
+def _confirmed_candidate(
+    pending: tuple[str, int, int] | None,
+    candidate: MicroCandidate | None,
+    *,
+    now_ms: int,
+    confirm_ms: int,
+) -> tuple[bool, tuple[str, int, int] | None]:
+    """Require the same symbol/direction to remain executable for a minimum time."""
+    if candidate is None:
+        return False, None
+    required_ms = max(0, int(confirm_ms))
+    if required_ms == 0:
+        return True, (candidate.symbol, candidate.direction, now_ms)
+    if pending is None or pending[:2] != (candidate.symbol, candidate.direction):
+        return False, (candidate.symbol, candidate.direction, now_ms)
+    return now_ms - pending[2] >= required_ms, pending
+
+
 @dataclass(frozen=True, slots=True)
 class DemoLiveContract:
     live: LiveZeroFeeContract
@@ -573,12 +591,20 @@ async def run(args: argparse.Namespace) -> None:
         for symbol in symbols
     }
 
+    signal_from_demo = args.signal_mexc_source == "demo"
     binance = EventBinanceBookTickerFeed(contracts, models, wake)
-    mexc = EventMexcDepthFeed(symbols, models, wake)
+    mexc = EventMexcDepthFeed(symbols, None if signal_from_demo else models, wake)
     demo_wake = asyncio.Event()
-    demo_books = EventMexcDepthFeed(symbols, None, demo_wake, ws_url=DEMO_WS)
+    demo_books = EventMexcDepthFeed(
+        symbols,
+        models if signal_from_demo else None,
+        wake if signal_from_demo else demo_wake,
+        ws_url=DEMO_WS,
+    )
+    signal_books = demo_books if signal_from_demo else mexc
     await binance.start()
-    await mexc.start()
+    if not signal_from_demo:
+        await mexc.start()
     await demo_books.start()
 
     demo_cfg = WebExecutionConfig.demo_from_env(write_enabled=True)
@@ -587,7 +613,7 @@ async def run(args: argparse.Namespace) -> None:
 
     hybrid.console.print(
         f"[cyan]LIVE MICROSPREAD -> DEMO[/cyan]: {len(symbols)} symbol(s); event-driven Binance bookTicker + "
-        "MEXC depth; all order writes TESTNET only."
+        f"MEXC {args.signal_mexc_source.upper()} depth; all order writes TESTNET only."
     )
     hybrid.console.print(
         "Fee gate: "
@@ -637,6 +663,7 @@ async def run(args: argparse.Namespace) -> None:
     peak_pnl = max_drawdown = 0.0
     excursions_seen = 0
     last_excursion_key: tuple[str, int] | None = None
+    pending_confirmation: tuple[str, int, int] | None = None
 
     try:
         async with _FastLeadLagDemoAdapter(demo_cfg) as demo_adapter, MexcWebExecutionAdapter(live_fee_cfg) as live_fee_adapter:
@@ -681,7 +708,7 @@ async def run(args: argparse.Namespace) -> None:
                     above_floor = 0
                     if now >= warmup_until and live_fee_provider is not None and demo_fee_provider is not None:
                         for symbol in symbols:
-                            book = mexc.books.get(symbol)
+                            book = signal_books.books.get(symbol)
                             if book is None:
                                 continue
                             book_age = now_ms - book.recv_ms
@@ -715,6 +742,14 @@ async def run(args: argparse.Namespace) -> None:
                                 candidates.append(candidate)
 
                     best = _best_candidate(candidates)
+                    confirmed, pending_confirmation = _confirmed_candidate(
+                        pending_confirmation,
+                        best,
+                        now_ms=now_ms,
+                        confirm_ms=args.entry_confirm_ms,
+                    )
+                    if not confirmed:
+                        best = None
                     if best is not None:
                         # Consume the hysteresis crossing only for the winner.
                         consumed = _candidate_from_model(
@@ -762,7 +797,7 @@ async def run(args: argparse.Namespace) -> None:
                                 if demo_ask > demo_bid > 0:
                                     # Never chase an excursion that vanished between crossing and IOC preparation.
                                     fresh_now_ms = int(time.time() * 1000)
-                                    fresh_book = mexc.books.get(consumed.symbol)
+                                    fresh_book = signal_books.books.get(consumed.symbol)
                                     fresh = None
                                     if fresh_book is not None:
                                         fresh = _candidate_from_model(
@@ -890,7 +925,8 @@ async def run(args: argparse.Namespace) -> None:
                     if position is None and now >= next_heartbeat:
                         phase = "warming" if now < warmup_until else "watching"
                         hybrid.console.print(
-                            f"MICRO HEARTBEAT state={phase} symbols={len(symbols)} books={len(mexc.books)} "
+                            f"MICRO HEARTBEAT state={phase} symbols={len(symbols)} "
+                            f"signal_source={args.signal_mexc_source} books={len(signal_books.books)} "
                             f"demo_books={len(demo_books.books)} Bquotes={binance.quotes} Mdepth={mexc.updates} "
                             f"Ddepth={demo_books.updates} above_floor={above_floor} "
                             f"max_residual={max_residual:.3f}bps candidates={len(candidates)} "
@@ -900,7 +936,7 @@ async def run(args: argparse.Namespace) -> None:
 
                 else:
                     assert position_symbol and position_direction in (-1, 1) and trailing is not None
-                    book = mexc.books.get(position_symbol)
+                    book = signal_books.books.get(position_symbol)
                     demo_book = demo_books.books.get(position_symbol)
                     if book is not None and demo_book is not None:
                         live_exit = book.bid if position_direction > 0 else book.ask
@@ -1057,7 +1093,7 @@ async def run(args: argparse.Namespace) -> None:
                 wake.clear()
 
             if position is not None:
-                book = mexc.books.get(position_symbol)
+                book = signal_books.books.get(position_symbol)
                 live_exit = (book.bid if position_direction > 0 else book.ask) if book else live_entry_price
                 move_bps = _signed_move_bps(position_direction, live_entry_price, live_exit)
                 demo_fill = await _flatten_exact_demo_position(
@@ -1111,6 +1147,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--include-symbols", default="")
     parser.add_argument("--demo-zero-fee-only", action="store_true")
     parser.add_argument("--allow-demo-fee-accounting", action="store_true")
+    parser.add_argument(
+        "--signal-mexc-source", choices=("live", "demo"), default="live",
+        help="MEXC depth used for residual/convergence; demo aligns signals with Demo execution",
+    )
     parser.add_argument("--warmup-seconds", type=float, default=3.0)
     parser.add_argument("--micro-horizon-ms", type=int, default=100)
     parser.add_argument("--baseline-seconds", type=float, default=8.0)
@@ -1124,6 +1164,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-book-age-ms", type=float, default=2000.0)
     parser.add_argument("--rearm-fraction", type=float, default=0.35)
     parser.add_argument("--entry-cooldown-ms", type=int, default=250)
+    parser.add_argument(
+        "--entry-confirm-ms", type=int, default=0,
+        help="require an executable residual to persist before consuming the excursion and sending IOC",
+    )
     parser.add_argument("--heartbeat-seconds", type=float, default=2.0)
     parser.add_argument("--idle-timeout-seconds", type=float, default=0.05)
     parser.add_argument("--min-hold-seconds", type=float, default=0.05)
