@@ -8,6 +8,7 @@ from mexc_tick_scalper.demo_microspread_test import (
     _append_excursion,
     _flatten_exact_demo_position,
     _find_demo_position,
+    _marketable_demo_price,
     _open_demo_ioc_with_leverage_fallback,
     _required_edge,
 )
@@ -113,6 +114,11 @@ def test_live_spread_sets_executable_micro_threshold():
     )
 
 
+def test_marketable_demo_price_rounds_outward_to_contract_tick():
+    assert _marketable_demo_price(OrderSide.LONG, 8.829, 5.0, 0.001) == 8.834
+    assert _marketable_demo_price(OrderSide.SHORT, 8.829, 5.0, 0.001) == 8.824
+
+
 def test_microspread_runner_imports():
     import mexc_tick_scalper.demo_microspread_test as runner
 
@@ -121,6 +127,9 @@ def test_microspread_runner_imports():
     assert args.min_edge_bps == 0.35
     assert args.min_binance_move_bps == 0.02
     assert args.max_hold_seconds == 15.0
+    assert args.max_demo_volume is False
+    assert args.demo_ioc_cross_bps == 5.0
+    assert args.exclude_symbols == ""
 
 
 def test_full_depth_channel_is_parsed():
@@ -158,6 +167,8 @@ def test_excursion_csv_preserves_sub_one_bps_residual(tmp_path):
         path, candidate, timestamp_ms=3100, excursion_id="exc-1", event="demo_exit",
         live_pnl_usdt=0.001, move_bps=0.5, mfe_bps=0.8, mae_bps=-0.2,
         exit_reason="microspread_converged", hold_ms=125.0,
+        demo_entry_fee_usdt=0.002, demo_exit_fee_usdt=0.003,
+        demo_gross_pnl_usdt=0.010, demo_net_pnl_usdt=0.005,
     )
 
     with path.open(newline="", encoding="utf-8") as handle:
@@ -168,6 +179,10 @@ def test_excursion_csv_preserves_sub_one_bps_residual(tmp_path):
     assert rows[0]["excursion_id"] == "exc-1"
     assert rows[0]["exit_reason"] == "microspread_converged"
     assert float(rows[0]["live_pnl_usdt"]) == 0.001
+    assert float(rows[0]["demo_entry_fee_usdt"]) == 0.002
+    assert float(rows[0]["demo_exit_fee_usdt"]) == 0.003
+    assert float(rows[0]["demo_gross_pnl_usdt"]) == 0.010
+    assert float(rows[0]["demo_net_pnl_usdt"]) == 0.005
     assert 0.0 < abs(float(rows[0]["residual_bps"])) < 1.0
 
 
@@ -215,6 +230,47 @@ def test_demo_ioc_skips_symbol_when_every_leverage_tier_is_rejected():
 
     assert fill is None
     assert leverage == 0
+
+
+def test_max_demo_volume_reserves_round_trip_testnet_fees():
+    class RecordingAdapter:
+        async def open_ioc(self, **kwargs):
+            self.order = kwargs
+            return kwargs["qty"]
+
+    adapter = RecordingAdapter()
+    fill, leverage = asyncio.run(_open_demo_ioc_with_leverage_fallback(
+        adapter, symbol="XRP_USDT", side=OrderSide.LONG,
+        price=1.0, min_base_qty=1.0, target_margin_usdt=0.1,
+        leverage_cap=300, available_margin_usdt=10_000.0,
+    ))
+
+    notional = adapter.order["qty"] * adapter.order["price"]
+    required_with_round_trip_fees = notional / leverage + notional * 0.0004
+    assert leverage == 300
+    assert fill == adapter.order["qty"]
+    assert required_with_round_trip_fees <= 9_800.0 + 1e-9
+
+
+def test_demo_ioc_classifies_insufficient_balance_without_retrying():
+    class EmptyAdapter:
+        def __init__(self):
+            self.calls = 0
+
+        async def open_ioc(self, **kwargs):
+            self.calls += 1
+            raise MexcWebError("code=2005 message=Balance insufficient")
+
+    adapter = EmptyAdapter()
+    fill, leverage = asyncio.run(_open_demo_ioc_with_leverage_fallback(
+        adapter, symbol="XRP_USDT", side=OrderSide.SHORT,
+        price=1.0, min_base_qty=1.0, target_margin_usdt=0.1,
+        leverage_cap=300, available_margin_usdt=100.0,
+    ))
+
+    assert fill is None
+    assert leverage == -1
+    assert adapter.calls == 1
 
 
 def test_exact_position_exit_reconciles_by_position_id(monkeypatch):

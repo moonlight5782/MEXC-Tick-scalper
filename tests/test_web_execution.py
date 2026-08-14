@@ -73,6 +73,7 @@ def test_exact_hedge_leg_close_includes_position_id(monkeypatch):
     adapter = MexcWebExecutionAdapter(cfg)
     adapter._contract_cache["TEST_USDT"] = {
         "symbol": "TEST_USDT", "contractSize": 1, "volUnit": 1, "minVol": 1,
+        "priceUnit": 0.1,
     }
     position = PositionSnapshot(
         symbol="TEST_USDT", side=OrderSide.SHORT, qty=1.0, entry_price=100.0,
@@ -83,3 +84,43 @@ def test_exact_hedge_leg_close_includes_position_id(monkeypatch):
 
     assert payloads[0]["positionId"] == "short-leg-42"
     assert payloads[0]["side"] == 2
+
+
+def test_exact_close_falls_back_to_ioc_limit_when_market_crosses_liquidation(monkeypatch):
+    posts = []
+
+    async def fake_request(self, method, path, *, params=None, payload=None):
+        if method == "POST":
+            posts.append(dict(payload))
+            if len(posts) == 1:
+                raise MexcWebError("code=2078 message=Fill price exceeds the liquidation price")
+            return {"data": "submitted"}
+        return {"data": {"asks": [[100.0, 1]], "bids": [[99.9, 1]]}}
+
+    async def fake_result(self, symbol, external_id, timeout_seconds=1.2):
+        return {"dealVol": 1, "dealAvgPrice": 100.1, "orderId": "close-limit"}
+
+    monkeypatch.setattr(MexcWebExecutionAdapter, "_request", fake_request)
+    monkeypatch.setattr(MexcWebExecutionAdapter, "_wait_for_order_result", fake_result)
+    cfg = WebExecutionConfig(
+        auth_token="WEB_test", base_url="https://futures.testnet.mexc.com/api/v1",
+        origin="https://futures.testnet.mexc.com",
+        referer="https://futures.testnet.mexc.com/futures/TEST_USDT",
+        write_enabled=True, environment="demo",
+    )
+    adapter = MexcWebExecutionAdapter(cfg)
+    adapter._contract_cache["TEST_USDT"] = {
+        "symbol": "TEST_USDT", "contractSize": 1, "volUnit": 1, "minVol": 1,
+        "priceUnit": 0.1,
+    }
+    position = PositionSnapshot(
+        symbol="TEST_USDT", side=OrderSide.SHORT, qty=1.0, entry_price=100.0,
+        leverage=200, isolated=True, position_id="short-max",
+    )
+
+    asyncio.run(adapter.close_position_snapshot_reduce_only(position, client_order_id="cleanup-2078"))
+
+    assert posts[0]["type"] == 5
+    assert posts[1]["type"] == 3
+    assert posts[1]["positionId"] == "short-max"
+    assert posts[1]["price"] > 100.0

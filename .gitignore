@@ -8,5 +8,6 @@ config.yaml
 logs/
 data/
 microspread_excursions_*.csv
+microspread_*.log
 .codex-test-*
 .DS_Store

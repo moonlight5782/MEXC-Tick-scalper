@@ -62,7 +62,9 @@ def main() -> None:
         leverage = _ask_int("Leverage cap", 50)
         cycles = _ask_int("Max cycles", 50)
         seconds = _ask_int("Max session seconds", 1800)
-        margin = _ask_float("Target margin per Demo IOC cycle, USDT", 2.0)
+        margin = _ask_float("Demo isolated margin cap per IOC cycle, USDT", 0.10)
+        if margin <= 0:
+            raise ValueError("Demo margin cap must be positive; max-balance sizing is not available from start_demo.bat")
 
         cmd = [
             sys.executable,
@@ -74,9 +76,8 @@ def main() -> None:
             str(cycles),
             "--leverage",
             str(leverage),
-            "--target-margin-usdt",
-            str(margin),
         ]
+        cmd += ["--target-margin-usdt", str(margin)]
         child = subprocess.Popen(cmd, env=os.environ.copy())
         exit_code = child.wait()
     except KeyboardInterrupt:

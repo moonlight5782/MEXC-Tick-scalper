@@ -7,6 +7,7 @@ import math
 import os
 import time
 from dataclasses import dataclass
+from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 from typing import Any
 from urllib.parse import urlparse
 
@@ -422,8 +423,41 @@ class MexcWebExecutionAdapter:
             "externalOid": external_id,
             "positionId": position.position_id,
         }
-        submitted = await self._request("POST", "/private/order/submit", payload=payload)
-        order = await self._wait_for_order_result(position.symbol, external_id)
+        try:
+            submitted = await self._request("POST", "/private/order/submit", payload=payload)
+            order = await self._wait_for_order_result(position.symbol, external_id)
+        except MexcWebError as exc:
+            if "code=2078" not in str(exc):
+                raise
+            # At maximum isolated leverage Testnet can reject a market close
+            # whose synthetic fill crosses the liquidation price. Fall back to
+            # an exact-position IOC limit beyond the current executable top.
+            close_order_side = OrderSide.LONG if position.side is OrderSide.SHORT else OrderSide.SHORT
+            best = await self.get_best_price(position.symbol, close_order_side)
+            detail = await self.get_contract_detail(position.symbol)
+            price_unit = Decimal(str(float(detail.get("priceUnit") or 0)))
+            best_decimal = Decimal(str(best))
+            factor = Decimal("1.002") if close_order_side is OrderSide.LONG else Decimal("0.998")
+            raw_limit = best_decimal * factor
+            if price_unit > 0:
+                rounding = ROUND_CEILING if close_order_side is OrderSide.LONG else ROUND_FLOOR
+                limit_price = float(
+                    (raw_limit / price_unit).to_integral_value(rounding=rounding) * price_unit
+                )
+                if position.liquidation_price:
+                    liquidation = Decimal(str(position.liquidation_price))
+                    if position.side is OrderSide.SHORT:
+                        limit_price = min(limit_price, float(liquidation - price_unit))
+                    else:
+                        limit_price = max(limit_price, float(liquidation + price_unit))
+            else:
+                limit_price = float(best_decimal)
+            limit_external_id = f"l-{client_order_id}"[:32]
+            payload["price"] = limit_price
+            payload["type"] = 3
+            payload["externalOid"] = limit_external_id
+            submitted = await self._request("POST", "/private/order/submit", payload=payload)
+            order = await self._wait_for_order_result(position.symbol, limit_external_id)
         filled_base_qty = await self._from_contract_vol(position.symbol, float(order.get("dealVol") or 0))
         return OrderFill(
             symbol=position.symbol,

@@ -121,7 +121,8 @@ async def flatten_all_demo_positions(
             for position in positions:
                 console.print(
                     f"  closing {position.symbol} "
-                    f"{'LONG' if position.side is OrderSide.LONG else 'SHORT'} qty={position.qty:g}"
+                    f"{'LONG' if position.side is OrderSide.LONG else 'SHORT'} qty={position.qty:g} "
+                    f"entry={position.entry_price:g} liquidation={position.liquidation_price}"
                 )
                 try:
                     await adapter.close_position_snapshot_reduce_only(

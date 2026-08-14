@@ -64,18 +64,51 @@ async def fetch_history(adapter: MexcWebExecutionAdapter, *, symbol: str, start_
     return result
 
 
+async def fetch_position_history(
+    adapter: MexcWebExecutionAdapter, *, symbol: str, start_ms: int, end_ms: int, max_pages: int = 50,
+):
+    result = []
+    for page in range(1, max_pages + 1):
+        payload = await adapter._request(
+            "GET",
+            "/private/position/list/history_positions",
+            params={
+                "symbol": symbol,
+                "start_time": start_ms,
+                "end_time": end_ms,
+                "page_num": page,
+                "page_size": 100,
+            },
+        )
+        page_rows = _rows(payload)
+        if not page_rows:
+            break
+        result.extend(page_rows)
+        if len(page_rows) < 100:
+            break
+    return result
+
+
 async def run(args: argparse.Namespace) -> None:
     _load_project_env()
-    cfg = WebExecutionConfig.from_env(write_enabled=False)
+    cfg = (
+        WebExecutionConfig.demo_from_env(write_enabled=False)
+        if args.demo else WebExecutionConfig.from_env(write_enabled=False)
+    )
     adapter = MexcWebExecutionAdapter(cfg)
     start_ms = _to_epoch_ms(args.start)
     end_ms = _to_epoch_ms(args.end)
     try:
         rows = await fetch_history(adapter, symbol=args.symbol.upper(), start_ms=start_ms, end_ms=end_ms)
+        positions = (
+            await fetch_position_history(adapter, symbol=args.symbol.upper(), start_ms=start_ms, end_ms=end_ms)
+            if args.positions_output else []
+        )
     finally:
         await adapter.close()
 
-    table = Table(title=f"Live MEXC history probe: {args.symbol.upper()} ({len(rows)} rows)")
+    account = "Demo" if args.demo else "Live"
+    table = Table(title=f"{account} MEXC history probe: {args.symbol.upper()} ({len(rows)} rows)")
     for col in ("orderId", "createTime", "updateTime", "side", "orderType", "vol", "dealVol", "dealAvgPrice", "usedMargin", "profit", "takerFee", "makerFee", "state"):
         table.add_column(col)
     for row in rows[: args.show]:
@@ -85,6 +118,9 @@ async def run(args: argparse.Namespace) -> None:
     if args.output:
         Path(args.output).write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
         console.print(f"Saved {len(rows)} rows to {args.output}")
+    if args.positions_output:
+        Path(args.positions_output).write_text(json.dumps(positions, ensure_ascii=False, indent=2), encoding="utf-8")
+        console.print(f"Saved {len(positions)} position rows to {args.positions_output}")
 
     if not rows:
         console.print("[yellow]No rows returned. The current WEB session may not expose history that far back, the endpoint may differ for browser sessions, or the token may be stale.[/yellow]")
@@ -97,6 +133,8 @@ def main() -> None:
     parser.add_argument("--end", required=True, help="Local Europe/Chisinau time, YYYY-MM-DD HH:MM:SS")
     parser.add_argument("--show", type=int, default=20)
     parser.add_argument("--output", default="")
+    parser.add_argument("--positions-output", default="")
+    parser.add_argument("--demo", action="store_true", help="Read MEXC Demo history instead of LIVE history")
     args = parser.parse_args()
     try:
         asyncio.run(run(args))

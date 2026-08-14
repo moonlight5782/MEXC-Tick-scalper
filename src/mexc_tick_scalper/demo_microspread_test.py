@@ -7,6 +7,7 @@ import math
 import time
 import uuid
 from dataclasses import dataclass
+from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 from pathlib import Path
 
 from . import demo_hybrid_test as hybrid
@@ -27,6 +28,9 @@ FEE_MAX_AGE_MS = 7_000
 DEMO_WS = "wss://futures.testnet.mexc.com/edge"
 AMBIGUOUS_IOC_FLAT_TIMEOUT_SECONDS = 12.0
 EXACT_CLOSE_VISIBILITY_SECONDS = 5.0
+MAX_VOLUME_DEMO_QUARANTINE = frozenset({"ARB_USDT", "RAVE_USDT", "SEI_USDT"})
+DEMO_ROUND_TRIP_FEE_RATE = 0.0004
+DEMO_BALANCE_SAFETY_FRACTION = 0.98
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +75,17 @@ def _signed_move_bps(direction: int, entry: float, current: float) -> float:
     if entry <= 0 or current <= 0 or direction not in (-1, 1):
         return 0.0
     return direction * (current - entry) / entry * 10_000.0
+
+
+def _marketable_demo_price(side: OrderSide, best: float, cross_bps: float, price_unit: float) -> float:
+    if best <= 0 or price_unit <= 0:
+        raise ValueError("best and price_unit must be positive")
+    cross = Decimal(str(max(0.0, cross_bps))) / Decimal("10000")
+    factor = Decimal("1") + cross if side is OrderSide.LONG else Decimal("1") - cross
+    raw = Decimal(str(best)) * factor
+    tick = Decimal(str(price_unit))
+    rounding = ROUND_CEILING if side is OrderSide.LONG else ROUND_FLOOR
+    return float((raw / tick).to_integral_value(rounding=rounding) * tick)
 
 
 def _candidate_from_model(
@@ -120,6 +135,8 @@ EXCURSION_FIELDS = (
     "net_margin_bps", "spread_bps", "binance_move_bps", "mexc_move_bps",
     "binance_age_ms", "mexc_age_ms", "reject_reason", "signal_to_order_latency_ms",
     "live_pnl_usdt", "move_bps", "mfe_bps", "mae_bps", "exit_reason", "hold_ms",
+    "filled_qty", "effective_leverage", "live_notional_usdt",
+    "demo_entry_fee_usdt", "demo_exit_fee_usdt", "demo_gross_pnl_usdt", "demo_net_pnl_usdt",
 )
 
 
@@ -138,6 +155,13 @@ def _append_excursion(
     mae_bps: float | None = None,
     exit_reason: str = "",
     hold_ms: float | None = None,
+    filled_qty: float | None = None,
+    effective_leverage: int | None = None,
+    live_notional_usdt: float | None = None,
+    demo_entry_fee_usdt: float | None = None,
+    demo_exit_fee_usdt: float | None = None,
+    demo_gross_pnl_usdt: float | None = None,
+    demo_net_pnl_usdt: float | None = None,
 ) -> None:
     """Append one structured row for each hysteresis-consumed LIVE excursion."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -168,6 +192,13 @@ def _append_excursion(
             "mae_bps": "" if mae_bps is None else f"{mae_bps:.9f}",
             "exit_reason": exit_reason,
             "hold_ms": "" if hold_ms is None else f"{hold_ms:.3f}",
+            "filled_qty": "" if filled_qty is None else f"{filled_qty:.12g}",
+            "effective_leverage": "" if effective_leverage is None else str(effective_leverage),
+            "live_notional_usdt": "" if live_notional_usdt is None else f"{live_notional_usdt:.9f}",
+            "demo_entry_fee_usdt": "" if demo_entry_fee_usdt is None else f"{demo_entry_fee_usdt:.9f}",
+            "demo_exit_fee_usdt": "" if demo_exit_fee_usdt is None else f"{demo_exit_fee_usdt:.9f}",
+            "demo_gross_pnl_usdt": "" if demo_gross_pnl_usdt is None else f"{demo_gross_pnl_usdt:.9f}",
+            "demo_net_pnl_usdt": "" if demo_net_pnl_usdt is None else f"{demo_net_pnl_usdt:.9f}",
         })
 
 
@@ -198,16 +229,30 @@ async def _open_demo_ioc_with_leverage_fallback(
     min_base_qty: float,
     target_margin_usdt: float,
     leverage_cap: int,
+    available_margin_usdt: float | None = None,
+    max_base_qty: float = math.inf,
 ):
     """Retry only an explicit Testnet risk-tier rejection at lower leverage."""
     leverage = max(1, int(leverage_cap))
     attempted: set[int] = set()
     while leverage not in attempted:
         attempted.add(leverage)
-        requested_qty = max(
-            float(min_base_qty),
-            max(0.01, float(target_margin_usdt)) * leverage / float(price),
+        # Testnet charges taker fees even though the selected LIVE account is
+        # gated to exact 0/0 fees. Reserve both Demo legs so a maximum-volume
+        # entry can always be reduced-only closed.
+        margin = (
+            max(
+                0.01,
+                float(available_margin_usdt) * DEMO_BALANCE_SAFETY_FRACTION
+                / (1.0 + leverage * DEMO_ROUND_TRIP_FEE_RATE),
+            )
+            if available_margin_usdt is not None
+            else max(0.01, float(target_margin_usdt))
         )
+        requested_qty = min(float(max_base_qty), max(
+            float(min_base_qty),
+            margin * leverage / float(price),
+        ))
         try:
             fill = await adapter.open_ioc(
                 symbol=symbol,
@@ -219,12 +264,25 @@ async def _open_demo_ioc_with_leverage_fallback(
             )
             return fill, leverage
         except MexcWebError as exc:
+            if "code=2005" in str(exc):
+                return None, -1
             if "code=8819" not in str(exc):
                 raise
             if leverage == 1:
                 return None, 0
             leverage = max(1, leverage // 2)
     return None, 0
+
+
+async def _demo_available_usdt(adapter) -> float:
+    response = await adapter._request("GET", "/private/account/asset/USDT")  # noqa: SLF001
+    data = response.get("data", response) if isinstance(response, dict) else {}
+    if not isinstance(data, dict):
+        raise MexcWebError("Demo USDT asset payload is missing")
+    available = float(data.get("availableBalance", data.get("available", 0)) or 0)
+    if available <= 0:
+        raise MexcWebError(f"Demo available USDT must be positive, got {available:g}")
+    return available
 
 
 async def _flatten_exact_demo_position(adapter, position: PositionSnapshot, reason: str):
@@ -291,6 +349,19 @@ async def run(args: argparse.Namespace) -> None:
 
     contracts = [row.live for row in intersection]
     symbols = [row.live.mexc_symbol for row in intersection]
+    excluded = {
+        item.strip().upper()
+        for item in str(args.exclude_symbols or "").split(",")
+        if item.strip()
+    }
+    if args.max_demo_volume:
+        excluded.update(MAX_VOLUME_DEMO_QUARANTINE)
+    if excluded:
+        contracts = [row for row in contracts if row.mexc_symbol not in excluded]
+        symbols = [symbol for symbol in symbols if symbol not in excluded]
+        hybrid.console.print("Demo execution quarantine: " + ", ".join(sorted(excluded)))
+    if not symbols:
+        raise MexcWebError("all Demo/LIVE intersection symbols were excluded")
     wake = asyncio.Event()
     models = {
         symbol: MicroSpreadModel(
@@ -330,7 +401,8 @@ async def run(args: argparse.Namespace) -> None:
         f"basis baseline={args.baseline_seconds:g}s excluding newest {args.baseline_exclusion_ms}ms."
     )
 
-    demo_meta: dict[str, tuple[float, int]] = {}
+    demo_meta: dict[str, tuple[float, int, float, float]] = {}
+    demo_available_usdt = 0.0
     fee_provider = None
     fee_checked_ms = 0
     next_fee_refresh = 0.0
@@ -346,6 +418,8 @@ async def run(args: argparse.Namespace) -> None:
     live_entry_edge_bps = 0.0
     live_entry_spread_bps = 0.0
     live_entry_leverage = 1
+    live_entry_notional_usdt = 0.0
+    demo_entry_fee_usdt = 0.0
     entry_time = 0.0
     live_mfe_bps = 0.0
     live_mae_bps = 0.0
@@ -362,16 +436,25 @@ async def run(args: argparse.Namespace) -> None:
 
     try:
         async with _FastLeadLagDemoAdapter(demo_cfg) as demo_adapter, MexcWebExecutionAdapter(live_fee_cfg) as live_fee_adapter:
+            demo_available_usdt = await _demo_available_usdt(demo_adapter)
             for symbol in symbols:
                 detail = await demo_adapter.get_contract_detail(symbol)
                 contract_size = float(detail.get("contractSize") or 0)
                 min_vol = float(detail.get("minVol") or 0)
                 max_lev = int(detail.get("maxLeverage") or 1)
-                if contract_size > 0 and min_vol > 0:
-                    demo_meta[symbol] = (contract_size * min_vol, max_lev)
+                max_vol = float(detail.get("maxVol") or math.inf)
+                price_unit = float(detail.get("priceUnit") or 0)
+                if contract_size > 0 and min_vol > 0 and price_unit > 0:
+                    demo_meta[symbol] = (
+                        contract_size * min_vol, max_lev, contract_size * max_vol, price_unit,
+                    )
             symbols = [symbol for symbol in symbols if symbol in demo_meta]
             if not symbols:
                 raise MexcWebError("no Demo contract has valid sizing metadata")
+            hybrid.console.print(
+                f"Demo sizing: available={demo_available_usdt:g}USDT mode="
+                f"{'MAX isolated volume' if args.max_demo_volume else f'{args.target_margin_usdt:g}USDT margin cap'}"
+            )
 
             fee_provider = await read_web_fee_provider(live_fee_adapter)
             fee_checked_ms = int(time.time() * 1000)
@@ -469,8 +552,13 @@ async def run(args: argparse.Namespace) -> None:
                                             consume=False,
                                         )
                                     if fresh is not None and fresh.direction == consumed.direction:
-                                        demo_best = demo_ask if side is OrderSide.LONG else demo_bid
-                                        min_base_qty, max_lev = demo_meta[consumed.symbol]
+                                        min_base_qty, max_lev, max_base_qty, price_unit = demo_meta[consumed.symbol]
+                                        demo_best = _marketable_demo_price(
+                                            side,
+                                            demo_ask if side is OrderSide.LONG else demo_bid,
+                                            args.demo_ioc_cross_bps,
+                                            price_unit,
+                                        )
                                         leverage = min(max(1, int(args.leverage)), max_lev)
                                         signals += 1
                                         order_request_monotonic = time.monotonic()
@@ -485,7 +573,8 @@ async def run(args: argparse.Namespace) -> None:
                                             f"residual={fresh.edge_bps:+.3f}bps threshold={fresh.threshold_bps:.3f} "
                                             f"spread={fresh.spread_bps:.3f} net={fresh.net_margin_bps:+.3f} "
                                             f"B100={fresh.binance_move_bps:+.3f} M100={fresh.mexc_move_bps:+.3f} "
-                                            f"Bage={fresh.snapshot.binance_age_ms:.0f}ms Mage={fresh.snapshot.mexc_age_ms:.0f}ms"
+                                            f"Bage={fresh.snapshot.binance_age_ms:.0f}ms Mage={fresh.snapshot.mexc_age_ms:.0f}ms "
+                                            f"DemoCross={args.demo_ioc_cross_bps:.1f}bps"
                                         )
                                         fill, leverage = await _open_demo_ioc_with_leverage_fallback(
                                             demo_adapter,
@@ -495,12 +584,17 @@ async def run(args: argparse.Namespace) -> None:
                                             min_base_qty=min_base_qty,
                                             target_margin_usdt=args.target_margin_usdt,
                                             leverage_cap=leverage,
+                                            available_margin_usdt=(demo_available_usdt if args.max_demo_volume else None),
+                                            max_base_qty=max_base_qty,
                                         )
                                         if fill is None:
                                             _append_excursion(
                                                 excursion_csv, fresh, timestamp_ms=int(time.time() * 1000),
                                                 excursion_id=excursion_id, event="rejected",
-                                                reject_reason="demo_leverage_unavailable",
+                                                reject_reason=(
+                                                    "demo_balance_insufficient"
+                                                    if leverage < 0 else "demo_leverage_unavailable"
+                                                ),
                                                 signal_to_order_latency_ms=order_request_ms - signal_timestamp_ms,
                                             )
                                             continue
@@ -540,6 +634,8 @@ async def run(args: argparse.Namespace) -> None:
                                             live_entry_edge_bps = fresh.edge_bps
                                             live_entry_spread_bps = fresh.spread_bps
                                             live_entry_leverage = leverage
+                                            live_entry_notional_usdt = remote.qty * live_entry_price
+                                            demo_entry_fee_usdt = fill.fee_usdt
                                             entry_time = order_request_monotonic
                                             live_mfe_bps = live_mae_bps = 0.0
                                             trailing = PositiveTrailing(
@@ -551,6 +647,7 @@ async def run(args: argparse.Namespace) -> None:
                                             hybrid.console.print(
                                                 f"DEMO ENTRY {position_symbol} {'LONG' if position_direction > 0 else 'SHORT'} "
                                                 f"qty={remote.qty:g} LIVEEntry={live_entry_price:g} residual={live_entry_edge_bps:+.3f} "
+                                                f"notional={live_entry_notional_usdt:g}USDT leverage={leverage}x "
                                                 f"spread={live_entry_spread_bps:.3f} DemoFeeReported={fill.fee_usdt:g}"
                                             )
 
@@ -612,7 +709,11 @@ async def run(args: argparse.Namespace) -> None:
 
                         if reason is not None:
                             demo_fill = await _flatten_exact_demo_position(demo_adapter, position, reason)
-                            live_pnl = float(args.target_margin_usdt) * live_entry_leverage * move_bps / 10_000.0
+                            live_pnl = live_entry_notional_usdt * move_bps / 10_000.0
+                            demo_gross_pnl = (
+                                position_direction * (demo_fill.avg_price - position.entry_price) * position.qty
+                            )
+                            demo_net_pnl = demo_gross_pnl - demo_entry_fee_usdt - demo_fill.fee_usdt
                             total_live_pnl += live_pnl
                             peak_pnl = max(peak_pnl, total_live_pnl)
                             max_drawdown = max(max_drawdown, peak_pnl - total_live_pnl)
@@ -630,17 +731,27 @@ async def run(args: argparse.Namespace) -> None:
                                 live_pnl_usdt=live_pnl, move_bps=move_bps,
                                 mfe_bps=live_mfe_bps, mae_bps=live_mae_bps,
                                 exit_reason=reason, hold_ms=age_s * 1000.0,
+                                filled_qty=position.qty, effective_leverage=live_entry_leverage,
+                                live_notional_usdt=live_entry_notional_usdt,
+                                demo_entry_fee_usdt=demo_entry_fee_usdt,
+                                demo_exit_fee_usdt=demo_fill.fee_usdt,
+                                demo_gross_pnl_usdt=demo_gross_pnl,
+                                demo_net_pnl_usdt=demo_net_pnl,
                             )
                             hybrid.console.print(
                                 f"MICRO EXIT {position_symbol} reason={reason} LIVEpnl={live_pnl:+.6f}USDT "
                                 f"move={move_bps:+.3f}bps MFE={live_mfe_bps:+.3f} MAE={live_mae_bps:+.3f} "
                                 f"DemoExit={demo_fill.avg_price:g}"
                             )
+                            if args.max_demo_volume:
+                                demo_available_usdt = await _demo_available_usdt(demo_adapter)
                             position = None
                             position_symbol = ""
                             position_direction = 0
                             live_entry_price = live_entry_edge_bps = live_entry_spread_bps = 0.0
                             live_entry_leverage = 1
+                            live_entry_notional_usdt = 0.0
+                            demo_entry_fee_usdt = 0.0
                             entry_time = live_mfe_bps = live_mae_bps = 0.0
                             trailing = None
                             position_candidate = None
@@ -667,7 +778,9 @@ async def run(args: argparse.Namespace) -> None:
                 live_exit = (book.bid if position_direction > 0 else book.ask) if book else live_entry_price
                 move_bps = _signed_move_bps(position_direction, live_entry_price, live_exit)
                 demo_fill = await _flatten_exact_demo_position(demo_adapter, position, "session_end")
-                live_pnl = float(args.target_margin_usdt) * live_entry_leverage * move_bps / 10_000.0
+                live_pnl = live_entry_notional_usdt * move_bps / 10_000.0
+                demo_gross_pnl = position_direction * (demo_fill.avg_price - position.entry_price) * position.qty
+                demo_net_pnl = demo_gross_pnl - demo_entry_fee_usdt - demo_fill.fee_usdt
                 total_live_pnl += live_pnl
                 cycles += 1
                 assert position_candidate is not None
@@ -677,6 +790,12 @@ async def run(args: argparse.Namespace) -> None:
                     live_pnl_usdt=live_pnl, move_bps=move_bps,
                     mfe_bps=live_mfe_bps, mae_bps=live_mae_bps,
                     exit_reason="session_end", hold_ms=(time.monotonic() - entry_time) * 1000.0,
+                    filled_qty=position.qty, effective_leverage=live_entry_leverage,
+                    live_notional_usdt=live_entry_notional_usdt,
+                    demo_entry_fee_usdt=demo_entry_fee_usdt,
+                    demo_exit_fee_usdt=demo_fill.fee_usdt,
+                    demo_gross_pnl_usdt=demo_gross_pnl,
+                    demo_net_pnl_usdt=demo_net_pnl,
                 )
                 hybrid.console.print(
                     f"SESSION FLATTEN {position_symbol} LIVEpnl={live_pnl:+.6f}USDT DemoExit={demo_fill.avg_price:g}"
@@ -701,6 +820,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-cycles", type=int, default=50)
     parser.add_argument("--leverage", type=int, default=50)
     parser.add_argument("--target-margin-usdt", type=float, default=2.0)
+    parser.add_argument("--max-demo-volume", action="store_true")
+    parser.add_argument("--demo-ioc-cross-bps", type=float, default=5.0)
+    parser.add_argument("--exclude-symbols", default="")
     parser.add_argument("--warmup-seconds", type=float, default=3.0)
     parser.add_argument("--micro-horizon-ms", type=int, default=100)
     parser.add_argument("--baseline-seconds", type=float, default=8.0)
