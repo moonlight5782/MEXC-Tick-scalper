@@ -15,7 +15,7 @@ from .demo_discovery import _fetch_contracts
 from .demo_lead_lag_test import _FastLeadLagDemoAdapter
 from .demo_position_manager import flatten_all_demo_positions, wait_account_flat
 from .demo_smoke import _assert_demo_safety
-from .execution import OrderSide, PositionSnapshot
+from .execution import OrderFill, OrderSide, PositionSnapshot
 from .lead_lag import fetch_binance_usdm_symbols, mexc_to_binance_symbol
 from .live_lead_lag_shadow import PositiveTrailing
 from .live_zero_fee_universe import (
@@ -72,6 +72,24 @@ def _convergence_exit_allowed(
         abs(entry_edge_bps) * max(0.0, convergence_fraction),
     )
     return abs(current_edge_bps) <= convergence and demo_net_bps >= min_exit_profit_bps
+
+
+def _profitable_reversal_exit_allowed(
+    *,
+    current_direction: int,
+    position_direction: int,
+    current_edge_bps: float,
+    entry_threshold_bps: float,
+    reversal_edge_bps: float,
+    demo_net_bps: float,
+    min_exit_profit_bps: float,
+) -> bool:
+    meaningful_reversal = max(max(0.0, reversal_edge_bps), max(0.0, entry_threshold_bps))
+    return (
+        current_direction == -position_direction
+        and abs(current_edge_bps) >= meaningful_reversal
+        and demo_net_bps >= min_exit_profit_bps
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,6 +196,7 @@ EXCURSION_FIELDS = (
     "live_pnl_usdt", "move_bps", "mfe_bps", "mae_bps", "exit_reason", "hold_ms",
     "filled_qty", "effective_leverage", "live_notional_usdt",
     "demo_entry_fee_usdt", "demo_exit_fee_usdt", "demo_gross_pnl_usdt", "demo_net_pnl_usdt",
+    "exit_residual_bps", "decision_demo_net_bps",
 )
 
 
@@ -203,6 +222,8 @@ def _append_excursion(
     demo_exit_fee_usdt: float | None = None,
     demo_gross_pnl_usdt: float | None = None,
     demo_net_pnl_usdt: float | None = None,
+    exit_residual_bps: float | None = None,
+    decision_demo_net_bps: float | None = None,
 ) -> None:
     """Append one structured row for each hysteresis-consumed LIVE excursion."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -240,6 +261,8 @@ def _append_excursion(
             "demo_exit_fee_usdt": "" if demo_exit_fee_usdt is None else f"{demo_exit_fee_usdt:.9f}",
             "demo_gross_pnl_usdt": "" if demo_gross_pnl_usdt is None else f"{demo_gross_pnl_usdt:.9f}",
             "demo_net_pnl_usdt": "" if demo_net_pnl_usdt is None else f"{demo_net_pnl_usdt:.9f}",
+            "exit_residual_bps": "" if exit_residual_bps is None else f"{exit_residual_bps:.9f}",
+            "decision_demo_net_bps": "" if decision_demo_net_bps is None else f"{decision_demo_net_bps:.9f}",
         })
 
 
@@ -353,23 +376,97 @@ async def _demo_available_usdt(adapter) -> float:
     return available
 
 
-async def _flatten_exact_demo_position(adapter, position: PositionSnapshot, reason: str):
+async def _history_reconciled_fill(
+    adapter,
+    position: PositionSnapshot,
+    fallback,
+    *,
+    entry_fee_usdt: float,
+    timeout_seconds: float = 2.0,
+):
+    """Replace an eventually-consistent close response with authoritative position history."""
+    if not hasattr(adapter, "_request"):
+        return fallback
+    deadline = time.monotonic() + max(0.0, timeout_seconds)
+    while True:
+        now_ms = int(time.time() * 1000)
+        response = await adapter._request(  # noqa: SLF001
+            "GET",
+            "/private/position/list/history_positions",
+            params={
+                "symbol": position.symbol,
+                "start_time": now_ms - 3_600_000,
+                "end_time": now_ms + 60_000,
+                "page_num": 1,
+                "page_size": 100,
+            },
+        )
+        data = response.get("data", response) if isinstance(response, dict) else {}
+        rows = data if isinstance(data, list) else next(
+            (data.get(key) for key in ("resultList", "list", "rows") if isinstance(data.get(key), list)),
+            [],
+        ) if isinstance(data, dict) else []
+        history = next(
+            (row for row in rows if str(row.get("positionId")) == str(position.position_id)),
+            None,
+        )
+        if history is not None:
+            total_fee = abs(float(history.get("totalFee", history.get("fee", 0)) or 0))
+            return OrderFill(
+                symbol=position.symbol,
+                side=OrderSide.SHORT if position.side is OrderSide.LONG else OrderSide.LONG,
+                requested_qty=position.qty,
+                filled_qty=position.qty,
+                avg_price=float(history.get("closeAvgPrice") or position.entry_price),
+                fee_usdt=max(0.0, total_fee - max(0.0, entry_fee_usdt)),
+                order_id=(fallback.order_id if isinstance(fallback, OrderFill) else "history"),
+                client_order_id=(fallback.client_order_id if isinstance(fallback, OrderFill) else "history"),
+                position_id=position.position_id,
+            )
+        if time.monotonic() >= deadline:
+            return fallback
+        await asyncio.sleep(0.10)
+
+
+async def _flatten_exact_demo_position(
+    adapter,
+    position: PositionSnapshot,
+    reason: str,
+    *,
+    entry_fee_usdt: float = 0.0,
+):
     """Close and reconcile one exact Testnet hedge leg by positionId."""
     if position.position_id is None:
         return await hybrid._flatten_position(adapter, position, reason)
     current = position
     last_fill = None
     for _ in range(4):
-        last_fill = await adapter.close_position_snapshot_reduce_only(
-            current,
-            client_order_id=f"micro-exit-{uuid.uuid4().hex}",
-        )
+        try:
+            last_fill = await adapter.close_position_snapshot_reduce_only(
+                current,
+                client_order_id=f"micro-exit-{uuid.uuid4().hex}",
+            )
+        except MexcWebError as exc:
+            if "code=2009" not in str(exc):
+                raise
+            rows = await adapter.get_positions(current.symbol)
+            residual = next((row for row in rows if row.position_id == current.position_id), None)
+            if residual is not None:
+                raise
+            reconciled = await _history_reconciled_fill(
+                adapter, position, last_fill, entry_fee_usdt=entry_fee_usdt,
+            )
+            if reconciled is not None:
+                return reconciled
+            raise
         deadline = time.monotonic() + EXACT_CLOSE_VISIBILITY_SECONDS
         while time.monotonic() < deadline:
             rows = await adapter.get_positions(current.symbol)
             residual = next((row for row in rows if row.position_id == current.position_id), None)
             if residual is None:
-                return last_fill
+                return await _history_reconciled_fill(
+                    adapter, position, last_fill, entry_fee_usdt=entry_fee_usdt,
+                )
             current = residual
             await asyncio.sleep(0.08)
     raise MexcWebError(
@@ -821,6 +918,11 @@ async def run(args: argparse.Namespace) -> None:
                             entry_fee_usdt=demo_entry_fee_usdt,
                             exit_fee_rate=demo_exit_fee_rate,
                         )
+                        demo_entry_notional = position.entry_price * position.qty
+                        demo_mark_gross_bps = (
+                            demo_mark_gross / demo_entry_notional * 10_000.0
+                            if demo_entry_notional > 0 else -math.inf
+                        )
                         demo_net_mfe_bps = max(demo_net_mfe_bps, demo_mark_net_bps)
                         demo_net_mae_bps = min(demo_net_mae_bps, demo_mark_net_bps)
                         trail = trailing.update(demo_mark_net_bps)
@@ -831,8 +933,8 @@ async def run(args: argparse.Namespace) -> None:
                         if trail is not None and demo_mark_net_bps <= trail and age_s >= args.min_hold_seconds:
                             reason = "positive_trailing_stop"
                         adverse = max(args.adverse_cut_bps, live_entry_spread_bps * args.adverse_spread_mult)
-                        if reason is None and move_bps <= -adverse and age_s >= args.min_hold_seconds:
-                            reason = "live_adverse_cut"
+                        if reason is None and demo_mark_gross_bps <= -adverse and age_s >= args.min_hold_seconds:
+                            reason = "demo_adverse_cut"
                         if (
                             reason is None
                             and _convergence_exit_allowed(
@@ -845,15 +947,21 @@ async def run(args: argparse.Namespace) -> None:
                             )
                         ):
                             reason = "microspread_converged"
-                        if (
-                            reason is None
-                            and snap.direction == -position_direction
-                            and abs(snap.edge_bps) >= args.reversal_edge_bps
+                        assert position_candidate is not None
+                        if reason is None and _profitable_reversal_exit_allowed(
+                            current_direction=snap.direction,
+                            position_direction=position_direction,
+                            current_edge_bps=snap.edge_bps,
+                            entry_threshold_bps=position_candidate.threshold_bps,
+                            reversal_edge_bps=args.reversal_edge_bps,
+                            demo_net_bps=demo_mark_net_bps,
+                            min_exit_profit_bps=args.min_exit_profit_bps,
                         ):
                             reason = "microspread_reversed"
                         if (
                             reason is None
-                            and snap.binance_move_bps * position_direction <= -args.min_binance_move_bps
+                            and args.binance_reversal_exit_bps > 0
+                            and snap.binance_move_bps * position_direction <= -args.binance_reversal_exit_bps
                             and age_s >= args.min_hold_seconds
                         ):
                             reason = "binance_micro_reversal"
@@ -872,7 +980,9 @@ async def run(args: argparse.Namespace) -> None:
                             next_heartbeat = now + float(args.heartbeat_seconds)
 
                         if reason is not None:
-                            demo_fill = await _flatten_exact_demo_position(demo_adapter, position, reason)
+                            demo_fill = await _flatten_exact_demo_position(
+                                demo_adapter, position, reason, entry_fee_usdt=demo_entry_fee_usdt,
+                            )
                             live_pnl = live_entry_notional_usdt * move_bps / 10_000.0
                             demo_gross_pnl = (
                                 position_direction * (demo_fill.avg_price - position.entry_price) * position.qty
@@ -901,6 +1011,8 @@ async def run(args: argparse.Namespace) -> None:
                                 demo_exit_fee_usdt=demo_fill.fee_usdt,
                                 demo_gross_pnl_usdt=demo_gross_pnl,
                                 demo_net_pnl_usdt=demo_net_pnl,
+                                exit_residual_bps=snap.edge_bps,
+                                decision_demo_net_bps=demo_mark_net_bps,
                             )
                             hybrid.console.print(
                                 f"MICRO EXIT {position_symbol} reason={reason} LIVEpnl={live_pnl:+.6f}USDT "
@@ -948,7 +1060,9 @@ async def run(args: argparse.Namespace) -> None:
                 book = mexc.books.get(position_symbol)
                 live_exit = (book.bid if position_direction > 0 else book.ask) if book else live_entry_price
                 move_bps = _signed_move_bps(position_direction, live_entry_price, live_exit)
-                demo_fill = await _flatten_exact_demo_position(demo_adapter, position, "session_end")
+                demo_fill = await _flatten_exact_demo_position(
+                    demo_adapter, position, "session_end", entry_fee_usdt=demo_entry_fee_usdt,
+                )
                 live_pnl = live_entry_notional_usdt * move_bps / 10_000.0
                 demo_gross_pnl = position_direction * (demo_fill.avg_price - position.entry_price) * position.qty
                 demo_net_pnl = demo_gross_pnl - demo_entry_fee_usdt - demo_fill.fee_usdt
@@ -1026,6 +1140,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="minimum estimated Demo net profit required for a convergence exit",
     )
     parser.add_argument("--reversal-edge-bps", type=float, default=0.20)
+    parser.add_argument(
+        "--binance-reversal-exit-bps", type=float, default=0.0,
+        help="opposite Binance micro-move exit threshold; 0 disables this noise-sensitive exit",
+    )
     parser.add_argument("--trailing-distance-bps", type=float, default=1.0)
     parser.add_argument("--max-session-loss-usdt", type=float, default=0.50)
     parser.add_argument("--excursion-csv", default="")

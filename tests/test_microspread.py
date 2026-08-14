@@ -11,9 +11,11 @@ from mexc_tick_scalper.demo_microspread_test import (
     _convergence_exit_allowed,
     _flatten_exact_demo_position,
     _find_demo_position,
+    _history_reconciled_fill,
     _estimated_demo_net_bps,
     _marketable_demo_price,
     _open_demo_ioc_with_leverage_fallback,
+    _profitable_reversal_exit_allowed,
     _required_edge,
 )
 from mexc_tick_scalper.microspread import MicroSpreadModel
@@ -134,6 +136,7 @@ def test_microspread_runner_imports():
     assert args.max_hold_seconds == 0.0
     assert args.convergence_fraction == 0.0
     assert args.min_exit_profit_bps == 0.5
+    assert args.binance_reversal_exit_bps == 0.0
     assert args.max_demo_volume is False
     assert args.demo_ioc_cross_bps == 5.0
     assert args.exclude_symbols == ""
@@ -197,6 +200,26 @@ def test_convergence_does_not_lock_in_negative_demo_net():
         convergence_fraction=0.0,
         demo_net_bps=0.5,
         min_exit_profit_bps=0.5,
+    )
+
+
+def test_reversal_exit_ignores_noise_and_never_locks_in_negative_net():
+    common = dict(
+        current_direction=-1,
+        position_direction=1,
+        entry_threshold_bps=1.2,
+        reversal_edge_bps=0.2,
+        min_exit_profit_bps=0.5,
+    )
+
+    assert not _profitable_reversal_exit_allowed(
+        current_edge_bps=-0.3, demo_net_bps=2.0, **common,
+    )
+    assert not _profitable_reversal_exit_allowed(
+        current_edge_bps=-2.0, demo_net_bps=-0.1, **common,
+    )
+    assert _profitable_reversal_exit_allowed(
+        current_edge_bps=-2.0, demo_net_bps=0.5, **common,
     )
 
 
@@ -426,6 +449,29 @@ def test_exact_position_exit_reconciles_by_position_id(monkeypatch):
 
     assert result == "closed"
     assert adapter.closed == ["short-1"]
+
+
+def test_position_history_replaces_stale_close_price_and_splits_total_fee():
+    target = PositionSnapshot(
+        symbol="XRP_USDT", side=OrderSide.LONG, qty=30.0, entry_price=0.9997,
+        leverage=300, isolated=True, position_id="31601275",
+    )
+
+    class HistoryAdapter:
+        async def _request(self, method, path, params):
+            return {"data": {"resultList": [{
+                "positionId": 31601275,
+                "closeAvgPrice": 0.9993,
+                "totalFee": 0.011994,
+            }]}}
+
+    fill = asyncio.run(_history_reconciled_fill(
+        HistoryAdapter(), target, None, entry_fee_usdt=0.0059982,
+    ))
+
+    assert fill.avg_price == pytest.approx(0.9993)
+    assert fill.fee_usdt == pytest.approx(0.0059958)
+    assert fill.position_id == "31601275"
 
 
 def test_position_lookup_selects_requested_hedge_leg():
