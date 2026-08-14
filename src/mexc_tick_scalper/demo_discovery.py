@@ -149,6 +149,27 @@ async def cmd_cross_scan(args: argparse.Namespace) -> None:
     console.print(f"Strict LIVE 0/0 + Demo 0/0 + Binance intersection: {eligible}")
 
 
+async def cmd_check(args: argparse.Namespace) -> None:
+    symbols = [item.strip().upper() for item in args.symbols.split(",") if item.strip()]
+    binance = await fetch_binance_usdm_symbols()
+    demo_cfg = WebExecutionConfig.demo_from_env(write_enabled=False)
+    live_cfg = WebExecutionConfig.from_env(write_enabled=False)
+    async with MexcWebExecutionAdapter(demo_cfg) as demo_adapter:
+        demo_contracts = {str(row.get("symbol") or "").upper() for row in await _fetch_contracts(demo_adapter)}
+        demo_fees = provider_from_web_fee_payload(await demo_adapter.get_fee_rates())
+    async with MexcWebExecutionAdapter(live_cfg) as live_adapter:
+        live_fees = provider_from_web_fee_payload(await live_adapter.get_fee_rates())
+    for symbol in symbols:
+        demo = demo_fees.status(symbol)
+        live = live_fees.status(symbol)
+        binance_symbol = mexc_to_binance_symbol(symbol)
+        console.print(
+            f"{symbol}: DemoContract={'yes' if symbol in demo_contracts else 'no'} "
+            f"DemoFee={demo.maker}/{demo.taker} LiveFee={live.maker}/{live.taker} "
+            f"BinanceExact={'yes' if binance_symbol in binance else 'no'} ({binance_symbol})"
+        )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Discover MEXC Demo contracts and account-specific zero-fee symbols")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -158,6 +179,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("scan", help="List Demo contracts with confirmed maker=0 and taker=0 for this account")
     sub.add_parser("cross-scan", help="Explain LIVE/Demo/Binance eligibility of Demo zero-fee contracts")
+    check = sub.add_parser("check", help="Inspect arbitrary symbols across LIVE, Demo and Binance")
+    check.add_argument("--symbols", required=True, help="Comma-separated MEXC symbols")
     return parser
 
 
@@ -168,6 +191,8 @@ async def _main_async(args: argparse.Namespace) -> None:
         await cmd_scan(args)
     elif args.command == "cross-scan":
         await cmd_cross_scan(args)
+    elif args.command == "check":
+        await cmd_check(args)
 
 
 def main() -> None:

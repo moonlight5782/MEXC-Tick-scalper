@@ -16,8 +16,15 @@ from .demo_lead_lag_test import _FastLeadLagDemoAdapter
 from .demo_position_manager import flatten_all_demo_positions, wait_account_flat
 from .demo_smoke import _assert_demo_safety
 from .execution import OrderSide, PositionSnapshot
+from .lead_lag import fetch_binance_usdm_symbols, mexc_to_binance_symbol
 from .live_lead_lag_shadow import PositiveTrailing
-from .live_zero_fee_universe import LiveZeroFeeContract, discover_live_zero_fee_crosslisted
+from .live_zero_fee_universe import (
+    LIVE_REST,
+    LIVE_WS,
+    LiveZeroFeeContract,
+    discover_live_zero_fee_crosslisted,
+)
+from .market import MexcPublicMarket
 from .microspread import MicroSpreadModel, MicroSpreadSnapshot
 from .microspread_feed import EventBinanceBookTickerFeed, EventMexcDepthFeed, LiveBook
 from .web_execution import MexcWebError, MexcWebExecutionAdapter, WebExecutionConfig
@@ -202,8 +209,30 @@ def _append_excursion(
         })
 
 
-async def _discover_intersection() -> list[DemoLiveContract]:
-    live_rows = await discover_live_zero_fee_crosslisted()
+async def _discover_live_crosslisted_without_fee_gate() -> list[LiveZeroFeeContract]:
+    binance_symbols = await fetch_binance_usdm_symbols()
+    contracts = await MexcPublicMarket(LIVE_REST, LIVE_WS).contracts()
+    rows: list[LiveZeroFeeContract] = []
+    for row in contracts:
+        symbol = str(row.get("symbol") or "").upper()
+        binance_symbol = mexc_to_binance_symbol(symbol)
+        if not symbol or binance_symbol not in binance_symbols:
+            continue
+        rows.append(LiveZeroFeeContract(
+            mexc_symbol=symbol,
+            binance_symbol=binance_symbol,
+            max_leverage=int(row.get("maxLeverage") or 1),
+            contract_size=float(row.get("contractSize") or 0),
+            min_vol=float(row.get("minVol") or 0),
+        ))
+    return rows
+
+
+async def _discover_intersection(*, require_live_zero_fee: bool = True) -> list[DemoLiveContract]:
+    live_rows = (
+        await discover_live_zero_fee_crosslisted()
+        if require_live_zero_fee else await _discover_live_crosslisted_without_fee_gate()
+    )
     live_by_symbol = {row.mexc_symbol: row for row in live_rows}
 
     demo_cfg = WebExecutionConfig.demo_from_env(write_enabled=False)
@@ -310,6 +339,12 @@ async def _flatten_exact_demo_position(adapter, position: PositionSnapshot, reas
     )
 
 
+def _fee_gate_allows_entry(live_status, demo_status, *, require_live_zero_fee: bool) -> bool:
+    return _zero_fee_status(demo_status) and (
+        not require_live_zero_fee or _zero_fee_status(live_status)
+    )
+
+
 async def _find_demo_position(adapter, symbol: str, side: OrderSide) -> PositionSnapshot | None:
     """Select the requested hedge leg and refuse an unexpected opposite leg."""
     rows = await adapter.get_positions(symbol)
@@ -338,7 +373,10 @@ async def _wait_for_demo_position(
 
 async def run(args: argparse.Namespace) -> None:
     hybrid._load_project_env()
-    intersection = await _discover_intersection()
+    require_live_zero_fee = not args.demo_zero_fee_only
+    if args.demo_zero_fee_only and not args.include_symbols.strip():
+        raise MexcWebError("--demo-zero-fee-only requires an explicit --include-symbols allowlist")
+    intersection = await _discover_intersection(require_live_zero_fee=require_live_zero_fee)
     if not intersection:
         raise MexcWebError(
             "no exact symbol exists in LIVE MEXC fee=0/0, Demo MEXC fee=0/0 and Binance USD-M simultaneously"
@@ -350,6 +388,14 @@ async def run(args: argparse.Namespace) -> None:
 
     contracts = [row.live for row in intersection]
     symbols = [row.live.mexc_symbol for row in intersection]
+    included = {
+        item.strip().upper()
+        for item in str(args.include_symbols or "").split(",")
+        if item.strip()
+    }
+    if included:
+        contracts = [row for row in contracts if row.mexc_symbol in included]
+        symbols = [symbol for symbol in symbols if symbol in included]
     excluded = {
         item.strip().upper()
         for item in str(args.exclude_symbols or "").split(",")
@@ -392,7 +438,11 @@ async def run(args: argparse.Namespace) -> None:
 
     hybrid.console.print(
         f"[cyan]LIVE MICROSPREAD -> DEMO[/cyan]: {len(symbols)} symbol(s); event-driven Binance bookTicker + "
-        "MEXC depth; LIVE and Demo fee gates must both remain exact 0/0; all order writes TESTNET only."
+        "MEXC depth; all order writes TESTNET only."
+    )
+    hybrid.console.print(
+        "Fee gate: Demo exact 0/0 + "
+        + ("LIVE exact 0/0" if require_live_zero_fee else "explicit Demo-only experiment")
     )
     hybrid.console.print(f"Excursion telemetry CSV: {excursion_csv.resolve()}")
     hybrid.console.print("Symbols: " + ", ".join(symbols))
@@ -488,8 +538,10 @@ async def run(args: argparse.Namespace) -> None:
                             live_status = live_fee_provider.status(symbol)
                             demo_status = demo_fee_provider.status(symbol)
                             if (
-                                not _zero_fee_status(live_status)
-                                or not _zero_fee_status(demo_status)
+                                not _fee_gate_allows_entry(
+                                    live_status, demo_status,
+                                    require_live_zero_fee=require_live_zero_fee,
+                                )
                                 or now_ms - fee_checked_ms > FEE_MAX_AGE_MS
                             ):
                                 continue
@@ -531,8 +583,10 @@ async def run(args: argparse.Namespace) -> None:
                             live_status = live_fee_provider.status(consumed.symbol)
                             demo_status = demo_fee_provider.status(consumed.symbol)
                             if (
-                                _zero_fee_status(live_status)
-                                and _zero_fee_status(demo_status)
+                                _fee_gate_allows_entry(
+                                    live_status, demo_status,
+                                    require_live_zero_fee=require_live_zero_fee,
+                                )
                                 and now_ms - fee_checked_ms <= FEE_MAX_AGE_MS
                             ):
                                 # Capture the LIVE executable entry before any Demo REST call.
@@ -854,6 +908,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-demo-volume", action="store_true")
     parser.add_argument("--demo-ioc-cross-bps", type=float, default=5.0)
     parser.add_argument("--exclude-symbols", default="")
+    parser.add_argument("--include-symbols", default="")
+    parser.add_argument("--demo-zero-fee-only", action="store_true")
     parser.add_argument("--warmup-seconds", type=float, default=3.0)
     parser.add_argument("--micro-horizon-ms", type=int, default=100)
     parser.add_argument("--baseline-seconds", type=float, default=8.0)
