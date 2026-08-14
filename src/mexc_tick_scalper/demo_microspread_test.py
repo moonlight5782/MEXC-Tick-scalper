@@ -775,9 +775,14 @@ async def run(args: argparse.Namespace) -> None:
             symbols = [symbol for symbol in symbols if symbol in demo_meta]
             if not symbols:
                 raise MexcWebError("no Demo contract has valid sizing metadata")
+            if args.max_demo_volume:
+                sizing_label = "MAX isolated volume"
+            elif args.target_notional_usdt > 0:
+                sizing_label = f"{args.target_notional_usdt:g}USDT target IOC notional"
+            else:
+                sizing_label = f"{args.target_margin_usdt:g}USDT margin cap"
             hybrid.console.print(
-                f"Demo sizing: available={demo_available_usdt:g}USDT mode="
-                f"{'MAX isolated volume' if args.max_demo_volume else f'{args.target_margin_usdt:g}USDT margin cap'}"
+                f"Demo sizing: available={demo_available_usdt:g}USDT mode={sizing_label}"
             )
 
             live_fee_provider = await read_web_fee_provider(live_fee_adapter)
