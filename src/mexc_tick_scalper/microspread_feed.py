@@ -122,7 +122,11 @@ class EventMexcDepthFeed:
 
     @staticmethod
     def _parse_book(payload: dict, recv_ms: int) -> tuple[str, LiveBook] | None:
-        if str(payload.get("channel") or "") != "push.depth":
+        # A ``sub.depth.full`` subscription currently answers on
+        # ``push.depth.full``.  MEXC has also used ``push.depth`` for the same
+        # payload shape, so accept the channel family rather than silently
+        # discarding every full-depth update.
+        if not str(payload.get("channel") or "").startswith("push.depth"):
             return None
         symbol = str(payload.get("symbol") or "").upper()
         data = payload.get("data") or {}

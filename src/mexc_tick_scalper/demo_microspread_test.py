@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import csv
 import math
 import time
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 
 from . import demo_hybrid_test as hybrid
 from .demo_discovery import _fetch_contracts
@@ -109,6 +111,36 @@ def _best_candidate(rows: list[MicroCandidate]) -> MicroCandidate | None:
     return max(rows, key=lambda row: (row.net_margin_bps, abs(row.edge_bps), -row.spread_bps))
 
 
+EXCURSION_FIELDS = (
+    "timestamp_ms", "symbol", "direction", "residual_bps", "threshold_bps",
+    "net_margin_bps", "spread_bps", "binance_move_bps", "mexc_move_bps",
+    "binance_age_ms", "mexc_age_ms",
+)
+
+
+def _append_excursion(path: Path, candidate: MicroCandidate, *, timestamp_ms: int) -> None:
+    """Append one structured row for each hysteresis-consumed LIVE excursion."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    needs_header = not path.exists() or path.stat().st_size == 0
+    with path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=EXCURSION_FIELDS)
+        if needs_header:
+            writer.writeheader()
+        writer.writerow({
+            "timestamp_ms": int(timestamp_ms),
+            "symbol": candidate.symbol,
+            "direction": candidate.direction,
+            "residual_bps": f"{candidate.edge_bps:.9f}",
+            "threshold_bps": f"{candidate.threshold_bps:.9f}",
+            "net_margin_bps": f"{candidate.net_margin_bps:.9f}",
+            "spread_bps": f"{candidate.spread_bps:.9f}",
+            "binance_move_bps": f"{candidate.binance_move_bps:.9f}",
+            "mexc_move_bps": f"{candidate.mexc_move_bps:.9f}",
+            "binance_age_ms": f"{candidate.snapshot.binance_age_ms:.3f}",
+            "mexc_age_ms": f"{candidate.snapshot.mexc_age_ms:.3f}",
+        })
+
+
 async def _discover_intersection() -> list[DemoLiveContract]:
     live_rows = await discover_live_zero_fee_crosslisted()
     live_by_symbol = {row.mexc_symbol: row for row in live_rows}
@@ -134,6 +166,10 @@ async def run(args: argparse.Namespace) -> None:
         raise MexcWebError(
             "no exact symbol exists in LIVE MEXC fee=0/0, Binance USD-M and MEXC Demo simultaneously"
         )
+
+    excursion_csv = Path(args.excursion_csv) if args.excursion_csv else Path(
+        f"microspread_excursions_{int(time.time())}.csv"
+    )
 
     contracts = [row.live for row in intersection]
     symbols = [row.live.mexc_symbol for row in intersection]
@@ -165,6 +201,7 @@ async def run(args: argparse.Namespace) -> None:
         f"[cyan]LIVE MICROSPREAD -> DEMO[/cyan]: {len(symbols)} symbol(s); event-driven Binance bookTicker + "
         "MEXC depth; all order writes TESTNET only."
     )
+    hybrid.console.print(f"Excursion telemetry CSV: {excursion_csv.resolve()}")
     hybrid.console.print("Symbols: " + ", ".join(symbols))
     hybrid.console.print(
         f"Micro gate: residual >= max({args.min_edge_bps:.2f}bps, LIVE spread+{args.min_net_edge_bps:.2f}bps, "
@@ -258,6 +295,7 @@ async def run(args: argparse.Namespace) -> None:
                             best.symbol, models[best.symbol], best.book, args, now_ms=now_ms, consume=True
                         )
                         if consumed is not None:
+                            _append_excursion(excursion_csv, consumed, timestamp_ms=now_ms)
                             excursion_key = (consumed.symbol, consumed.direction)
                             if excursion_key != last_excursion_key:
                                 excursions_seen += 1
@@ -485,6 +523,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reversal-edge-bps", type=float, default=0.20)
     parser.add_argument("--trailing-distance-bps", type=float, default=1.0)
     parser.add_argument("--max-session-loss-usdt", type=float, default=0.50)
+    parser.add_argument("--excursion-csv", default="")
     return parser
 
 

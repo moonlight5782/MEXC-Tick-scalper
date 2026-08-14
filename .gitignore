@@ -7,4 +7,5 @@ config.yaml
 *.sqlite3
 logs/
 data/
+microspread_excursions_*.csv
 .DS_Store

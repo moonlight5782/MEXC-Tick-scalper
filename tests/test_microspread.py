@@ -1,8 +1,14 @@
 import math
+import csv
 from types import SimpleNamespace
 
-from mexc_tick_scalper.demo_microspread_test import _required_edge
+from mexc_tick_scalper.demo_microspread_test import (
+    MicroCandidate,
+    _append_excursion,
+    _required_edge,
+)
 from mexc_tick_scalper.microspread import MicroSpreadModel
+from mexc_tick_scalper.microspread_feed import EventMexcDepthFeed, LiveBook
 
 
 def px(base: float, bps: float) -> float:
@@ -109,3 +115,43 @@ def test_microspread_runner_imports():
     assert args.min_edge_bps == 0.35
     assert args.min_binance_move_bps == 0.02
     assert args.max_hold_seconds == 15.0
+
+
+def test_full_depth_channel_is_parsed():
+    parsed = EventMexcDepthFeed._parse_book({
+        "channel": "push.depth.full",
+        "symbol": "BCH_USDT",
+        "ts": 1_786_700_000_000,
+        "data": {"bids": [["100.00", "2"]], "asks": [["100.01", "3"]]},
+    }, 1_786_700_000_123)
+
+    assert parsed is not None
+    symbol, book = parsed
+    assert symbol == "BCH_USDT"
+    assert book.bid == 100.0
+    assert book.ask == 100.01
+
+
+def test_excursion_csv_preserves_sub_one_bps_residual(tmp_path):
+    model = MicroSpreadModel(min_edge_bps=0.35)
+    seed(model)
+    moved = px(100.0, 0.60)
+    model.update_binance(bid=moved - 0.01, ask=moved + 0.01, ts_ms=3100)
+    snap = model.signal(now_ms=3100, threshold_bps=0.40)
+    candidate = MicroCandidate(
+        symbol="BCH_USDT", direction=snap.direction, edge_bps=snap.edge_bps,
+        threshold_bps=snap.threshold_bps,
+        net_margin_bps=abs(snap.edge_bps) - snap.threshold_bps,
+        spread_bps=0.20, binance_move_bps=snap.binance_move_bps,
+        mexc_move_bps=snap.mexc_move_bps,
+        book=LiveBook(99.99, 100.01, 3100, 3100), snapshot=snap,
+    )
+    path = tmp_path / "excursions.csv"
+
+    _append_excursion(path, candidate, timestamp_ms=3100)
+
+    with path.open(newline="", encoding="utf-8") as handle:
+        rows = list(csv.DictReader(handle))
+    assert len(rows) == 1
+    assert rows[0]["symbol"] == "BCH_USDT"
+    assert 0.0 < abs(float(rows[0]["residual_bps"])) < 1.0
