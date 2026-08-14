@@ -9,8 +9,11 @@ from dataclasses import dataclass
 
 import aiohttp
 
-BINANCE_FUTURES_WS = "wss://fstream.binance.com/public/ws"
+# Official Binance USD-M raw WebSocket stream base. Raw streams are addressed as
+# wss://fstream.binance.com/ws/<symbol>@bookTicker.
+BINANCE_FUTURES_WS = "wss://fstream.binance.com/ws"
 BINANCE_FUTURES_REST = "https://fapi.binance.com"
+BINANCE_FIRST_QUOTE_TIMEOUT_SECONDS = 5.0
 
 
 def mexc_to_binance_symbol(symbol: str) -> str:
@@ -123,7 +126,10 @@ class LeadLagModel:
         # Do not let the newest lead itself immediately contaminate the baseline.
         baseline_values = [gap for ts, gap in self.gaps if ts <= now - self.horizon_ms]
         if len(baseline_values) < 3:
-            baseline_values = [gap for _, gap in self.gaps[:-1]] or [raw_gap]
+            # deque does not support slicing. Materialize only on this warmup
+            # fallback path; the normal hot path above remains allocation-light.
+            prior_gaps = list(self.gaps)
+            baseline_values = [gap for _, gap in prior_gaps[:-1]] or [raw_gap]
         baseline = sum(baseline_values) / len(baseline_values)
         edge = raw_gap - baseline
 
@@ -176,12 +182,31 @@ class BinanceBookTickerFeed:
         self.model = model
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
+        self._first_quote = asyncio.Event()
         self.last_error: str | None = None
+        self.message_count = 0
+        self.last_quote_ms: int | None = None
+
+    @property
+    def has_quotes(self) -> bool:
+        return self.message_count > 0
 
     async def start(self) -> None:
         if self._task is None or self._task.done():
             self._stop.clear()
+            self._first_quote.clear()
             self._task = asyncio.create_task(self._run())
+        try:
+            await asyncio.wait_for(
+                self._first_quote.wait(),
+                timeout=BINANCE_FIRST_QUOTE_TIMEOUT_SECONDS,
+            )
+        except TimeoutError as exc:
+            detail = self.last_error or "no bookTicker message received"
+            await self.close()
+            raise RuntimeError(
+                f"Binance USD-M bookTicker unavailable for {self.symbol}: {detail}"
+            ) from exc
 
     async def close(self) -> None:
         self._stop.set()
@@ -210,13 +235,15 @@ class BinanceBookTickerFeed:
                                 payload = json.loads(msg.data)
                                 bid = float(payload.get("b") or 0)
                                 ask = float(payload.get("a") or 0)
-                                # Use local receipt time for cross-exchange latency comparison;
-                                # exchange server clocks need not be perfectly synchronized.
-                                self.model.update_binance(
-                                    bid=bid,
-                                    ask=ask,
-                                    ts_ms=int(time.time() * 1000),
-                                )
+                                if ask <= bid or bid <= 0:
+                                    continue
+                                # Use local receipt time for cross-exchange latency
+                                # comparison; exchange clocks need not be synchronized.
+                                now_ms = int(time.time() * 1000)
+                                self.model.update_binance(bid=bid, ask=ask, ts_ms=now_ms)
+                                self.message_count += 1
+                                self.last_quote_ms = now_ms
+                                self._first_quote.set()
                             elif msg.type in (aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSED):
                                 break
             except asyncio.CancelledError:
