@@ -40,6 +40,40 @@ DEMO_ROUND_TRIP_FEE_RATE = 0.0004
 DEMO_BALANCE_SAFETY_FRACTION = 0.98
 
 
+def _estimated_demo_net_bps(
+    *,
+    direction: int,
+    entry_price: float,
+    exit_price: float,
+    qty: float,
+    entry_fee_usdt: float,
+    exit_fee_rate: float,
+) -> tuple[float, float, float]:
+    """Return executable Demo gross/net PnL and net return in basis points."""
+    gross = direction * (exit_price - entry_price) * qty
+    exit_fee = max(0.0, exit_fee_rate) * exit_price * qty
+    net = gross - max(0.0, entry_fee_usdt) - exit_fee
+    notional = entry_price * qty
+    net_bps = net / notional * 10_000.0 if notional > 0 else -math.inf
+    return gross, net, net_bps
+
+
+def _convergence_exit_allowed(
+    *,
+    current_edge_bps: float,
+    entry_edge_bps: float,
+    convergence_bps: float,
+    convergence_fraction: float,
+    demo_net_bps: float,
+    min_exit_profit_bps: float,
+) -> bool:
+    convergence = max(
+        max(0.0, convergence_bps),
+        abs(entry_edge_bps) * max(0.0, convergence_fraction),
+    )
+    return abs(current_edge_bps) <= convergence and demo_net_bps >= min_exit_profit_bps
+
+
 @dataclass(frozen=True, slots=True)
 class DemoLiveContract:
     live: LiveZeroFeeContract
@@ -494,6 +528,8 @@ async def run(args: argparse.Namespace) -> None:
     entry_time = 0.0
     live_mfe_bps = 0.0
     live_mae_bps = 0.0
+    demo_net_mfe_bps = 0.0
+    demo_net_mae_bps = 0.0
     trailing: PositiveTrailing | None = None
     position_candidate: MicroCandidate | None = None
     position_excursion_id = ""
@@ -740,6 +776,7 @@ async def run(args: argparse.Namespace) -> None:
                                             demo_entry_fee_usdt = fill.fee_usdt
                                             entry_time = order_request_monotonic
                                             live_mfe_bps = live_mae_bps = 0.0
+                                            demo_net_mfe_bps = demo_net_mae_bps = 0.0
                                             trailing = PositiveTrailing(
                                                 distance_bps=max(args.trailing_distance_bps, live_entry_spread_bps)
                                             )
@@ -767,23 +804,46 @@ async def run(args: argparse.Namespace) -> None:
                 else:
                     assert position_symbol and position_direction in (-1, 1) and trailing is not None
                     book = mexc.books.get(position_symbol)
-                    if book is not None:
+                    demo_book = demo_books.books.get(position_symbol)
+                    if book is not None and demo_book is not None:
                         live_exit = book.bid if position_direction > 0 else book.ask
                         move_bps = _signed_move_bps(position_direction, live_entry_price, live_exit)
                         live_mfe_bps = max(live_mfe_bps, move_bps)
                         live_mae_bps = min(live_mae_bps, move_bps)
-                        trail = trailing.update(move_bps)
+                        demo_exit_mark = demo_book.bid if position_direction > 0 else demo_book.ask
+                        current_demo_fee = demo_fee_provider.status(position_symbol)
+                        demo_exit_fee_rate = float(current_demo_fee.taker or 0.0)
+                        demo_mark_gross, demo_mark_net, demo_mark_net_bps = _estimated_demo_net_bps(
+                            direction=position_direction,
+                            entry_price=position.entry_price,
+                            exit_price=demo_exit_mark,
+                            qty=position.qty,
+                            entry_fee_usdt=demo_entry_fee_usdt,
+                            exit_fee_rate=demo_exit_fee_rate,
+                        )
+                        demo_net_mfe_bps = max(demo_net_mfe_bps, demo_mark_net_bps)
+                        demo_net_mae_bps = min(demo_net_mae_bps, demo_mark_net_bps)
+                        trail = trailing.update(demo_mark_net_bps)
                         age_s = now - entry_time
                         snap = models[position_symbol].snapshot(now_ms=now_ms, threshold_bps=0.0)
 
                         reason: str | None = None
-                        if trail is not None and move_bps <= trail and age_s >= args.min_hold_seconds:
+                        if trail is not None and demo_mark_net_bps <= trail and age_s >= args.min_hold_seconds:
                             reason = "positive_trailing_stop"
                         adverse = max(args.adverse_cut_bps, live_entry_spread_bps * args.adverse_spread_mult)
                         if reason is None and move_bps <= -adverse and age_s >= args.min_hold_seconds:
                             reason = "live_adverse_cut"
-                        convergence = max(args.convergence_bps, abs(live_entry_edge_bps) * args.convergence_fraction)
-                        if reason is None and abs(snap.edge_bps) <= convergence:
+                        if (
+                            reason is None
+                            and _convergence_exit_allowed(
+                                current_edge_bps=snap.edge_bps,
+                                entry_edge_bps=live_entry_edge_bps,
+                                convergence_bps=args.convergence_bps,
+                                convergence_fraction=args.convergence_fraction,
+                                demo_net_bps=demo_mark_net_bps,
+                                min_exit_profit_bps=args.min_exit_profit_bps,
+                            )
+                        ):
                             reason = "microspread_converged"
                         if (
                             reason is None
@@ -797,14 +857,16 @@ async def run(args: argparse.Namespace) -> None:
                             and age_s >= args.min_hold_seconds
                         ):
                             reason = "binance_micro_reversal"
-                        if reason is None and age_s >= args.max_hold_seconds:
+                        if reason is None and args.max_hold_seconds > 0 and age_s >= args.max_hold_seconds:
                             reason = "microspread_timeout"
 
                         if now >= next_heartbeat:
                             trail_txt = "OFF" if trail is None else f"+{trail:.3f}bps"
                             hybrid.console.print(
                                 f"MICRO POSITION {position_symbol} mark={move_bps:+.3f}bps MFE={live_mfe_bps:+.3f} "
-                                f"MAE={live_mae_bps:+.3f} TRAIL={trail_txt} residual={snap.edge_bps:+.3f}bps "
+                                f"MAE={live_mae_bps:+.3f} DemoNetMark={demo_mark_net:+.6f}USDT "
+                                f"DemoNet={demo_mark_net_bps:+.3f}bps DemoMFE={demo_net_mfe_bps:+.3f} "
+                                f"DemoMAE={demo_net_mae_bps:+.3f} TRAIL={trail_txt} residual={snap.edge_bps:+.3f}bps "
                                 f"B100={snap.binance_move_bps:+.3f}"
                             )
                             next_heartbeat = now + float(args.heartbeat_seconds)
@@ -844,6 +906,7 @@ async def run(args: argparse.Namespace) -> None:
                                 f"MICRO EXIT {position_symbol} reason={reason} LIVEpnl={live_pnl:+.6f}USDT "
                                 f"move={move_bps:+.3f}bps MFE={live_mfe_bps:+.3f} MAE={live_mae_bps:+.3f} "
                                 f"hold={age_s * 1000.0:.0f}ms DemoExit={demo_fill.avg_price:g} "
+                                f"DemoGross={demo_gross_pnl:+.6f} DemoNet={demo_net_pnl:+.6f} "
                                 f"DemoFee={demo_fill.fee_usdt:g}"
                             )
                             if require_demo_zero_fee and demo_fill.fee_usdt != 0.0:
@@ -860,6 +923,7 @@ async def run(args: argparse.Namespace) -> None:
                             live_entry_notional_usdt = 0.0
                             demo_entry_fee_usdt = 0.0
                             entry_time = live_mfe_bps = live_mae_bps = 0.0
+                            demo_net_mfe_bps = demo_net_mae_bps = 0.0
                             trailing = None
                             position_candidate = None
                             position_excursion_id = ""
@@ -949,11 +1013,18 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--heartbeat-seconds", type=float, default=2.0)
     parser.add_argument("--idle-timeout-seconds", type=float, default=0.05)
     parser.add_argument("--min-hold-seconds", type=float, default=0.05)
-    parser.add_argument("--max-hold-seconds", type=float, default=15.0)
+    parser.add_argument(
+        "--max-hold-seconds", type=float, default=0.0,
+        help="hard position timeout; 0 disables it so convergence/protective exits control the hold",
+    )
     parser.add_argument("--adverse-cut-bps", type=float, default=1.5)
     parser.add_argument("--adverse-spread-mult", type=float, default=1.25)
     parser.add_argument("--convergence-bps", type=float, default=0.10)
-    parser.add_argument("--convergence-fraction", type=float, default=0.20)
+    parser.add_argument("--convergence-fraction", type=float, default=0.0)
+    parser.add_argument(
+        "--min-exit-profit-bps", type=float, default=0.5,
+        help="minimum estimated Demo net profit required for a convergence exit",
+    )
     parser.add_argument("--reversal-edge-bps", type=float, default=0.20)
     parser.add_argument("--trailing-distance-bps", type=float, default=1.0)
     parser.add_argument("--max-session-loss-usdt", type=float, default=0.50)

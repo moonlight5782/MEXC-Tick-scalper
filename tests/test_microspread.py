@@ -3,11 +3,15 @@ import csv
 import asyncio
 from types import SimpleNamespace
 
+import pytest
+
 from mexc_tick_scalper.demo_microspread_test import (
     MicroCandidate,
     _append_excursion,
+    _convergence_exit_allowed,
     _flatten_exact_demo_position,
     _find_demo_position,
+    _estimated_demo_net_bps,
     _marketable_demo_price,
     _open_demo_ioc_with_leverage_fallback,
     _required_edge,
@@ -127,13 +131,73 @@ def test_microspread_runner_imports():
     args = parser.parse_args([])
     assert args.min_edge_bps == 0.35
     assert args.min_binance_move_bps == 0.02
-    assert args.max_hold_seconds == 15.0
+    assert args.max_hold_seconds == 0.0
+    assert args.convergence_fraction == 0.0
+    assert args.min_exit_profit_bps == 0.5
     assert args.max_demo_volume is False
     assert args.demo_ioc_cross_bps == 5.0
     assert args.exclude_symbols == ""
     assert args.include_symbols == ""
     assert args.demo_zero_fee_only is False
     assert args.allow_demo_fee_accounting is False
+
+
+def test_demo_net_mark_subtracts_both_fees_before_trailing():
+    gross, net, net_bps = _estimated_demo_net_bps(
+        direction=1,
+        entry_price=100.0,
+        exit_price=100.05,
+        qty=1.0,
+        entry_fee_usdt=0.02,
+        exit_fee_rate=0.0002,
+    )
+
+    assert gross == pytest.approx(0.05)
+    assert net == pytest.approx(0.00999)
+    assert net_bps == pytest.approx(0.999)
+
+
+def test_demo_net_mark_is_symmetric_for_short_positions():
+    long_result = _estimated_demo_net_bps(
+        direction=1, entry_price=100.0, exit_price=100.1, qty=2.0,
+        entry_fee_usdt=0.0, exit_fee_rate=0.0,
+    )
+    short_result = _estimated_demo_net_bps(
+        direction=-1, entry_price=100.0, exit_price=99.9, qty=2.0,
+        entry_fee_usdt=0.0, exit_fee_rate=0.0,
+    )
+
+    assert long_result[2] == pytest.approx(short_result[2])
+
+
+def test_convergence_does_not_exit_before_prices_nearly_match():
+    assert not _convergence_exit_allowed(
+        current_edge_bps=40.0,
+        entry_edge_bps=200.0,
+        convergence_bps=0.1,
+        convergence_fraction=0.0,
+        demo_net_bps=100.0,
+        min_exit_profit_bps=0.5,
+    )
+
+
+def test_convergence_does_not_lock_in_negative_demo_net():
+    assert not _convergence_exit_allowed(
+        current_edge_bps=0.05,
+        entry_edge_bps=2.0,
+        convergence_bps=0.1,
+        convergence_fraction=0.0,
+        demo_net_bps=-0.1,
+        min_exit_profit_bps=0.5,
+    )
+    assert _convergence_exit_allowed(
+        current_edge_bps=0.05,
+        entry_edge_bps=2.0,
+        convergence_bps=0.1,
+        convergence_fraction=0.0,
+        demo_net_bps=0.5,
+        min_exit_profit_bps=0.5,
+    )
 
 
 def test_demo_only_fee_gate_still_requires_demo_zero_fee():
