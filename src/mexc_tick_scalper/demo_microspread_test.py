@@ -822,7 +822,8 @@ async def run(args: argparse.Namespace) -> None:
                             hybrid.console.print(
                                 f"MICRO EXIT {position_symbol} reason={reason} LIVEpnl={live_pnl:+.6f}USDT "
                                 f"move={move_bps:+.3f}bps MFE={live_mfe_bps:+.3f} MAE={live_mae_bps:+.3f} "
-                                f"DemoExit={demo_fill.avg_price:g} DemoFee={demo_fill.fee_usdt:g}"
+                                f"hold={age_s * 1000.0:.0f}ms DemoExit={demo_fill.avg_price:g} "
+                                f"DemoFee={demo_fill.fee_usdt:g}"
                             )
                             if demo_fill.fee_usdt != 0.0:
                                 raise MexcWebError(
