@@ -321,6 +321,7 @@ class MexcWebExecutionAdapter:
         qty: float,
         leverage: int,
         client_order_id: str,
+        timing_marks: dict[str, float] | None = None,
     ) -> OrderFill:
         self._require_write()
         if price <= 0 or qty <= 0 or leverage <= 0:
@@ -339,8 +340,14 @@ class MexcWebExecutionAdapter:
             "openType": 1,
             "externalOid": external_id,
         }
+        if timing_marks is not None:
+            timing_marks["ioc_post_start_ms"] = time.time_ns() / 1_000_000.0
         submitted = await self._request("POST", "/private/order/submit", payload=payload)
+        if timing_marks is not None:
+            timing_marks["ioc_post_response_ms"] = time.time_ns() / 1_000_000.0
         order = await self._wait_for_order_result(symbol, external_id)
+        if timing_marks is not None:
+            timing_marks["ioc_confirmed_ms"] = time.time_ns() / 1_000_000.0
         filled_base_qty = await self._from_contract_vol(symbol, float(order.get("dealVol") or 0))
         return OrderFill(
             symbol=symbol,

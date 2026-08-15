@@ -52,6 +52,34 @@ def test_base_qty_is_converted_to_contract_volume():
     asyncio.run(scenario())
 
 
+def test_open_ioc_records_post_and_confirmation_timestamps(monkeypatch):
+    async def fake_request(self, method, path, *, params=None, payload=None):
+        return {"data": "order-1"}
+
+    async def fake_result(self, symbol, external_id, timeout_seconds=1.2):
+        return {"dealVol": 1, "dealAvgPrice": 100.0, "orderId": "order-1"}
+
+    monkeypatch.setattr(MexcWebExecutionAdapter, "_request", fake_request)
+    monkeypatch.setattr(MexcWebExecutionAdapter, "_wait_for_order_result", fake_result)
+    cfg = WebExecutionConfig(
+        auth_token="WEB_test", base_url="https://futures.testnet.mexc.com/api/v1",
+        origin="https://futures.testnet.mexc.com",
+        referer="https://futures.testnet.mexc.com/futures/TEST_USDT",
+        write_enabled=True, environment="demo",
+    )
+    adapter = MexcWebExecutionAdapter(cfg)
+    adapter._contract_cache["TEST_USDT"] = {
+        "symbol": "TEST_USDT", "contractSize": 1, "volUnit": 1, "minVol": 1,
+    }
+    marks = {}
+    asyncio.run(adapter.open_ioc(
+        symbol="TEST_USDT", side=OrderSide.LONG, price=100.0, qty=1.0,
+        leverage=10, client_order_id="timed-entry", timing_marks=marks,
+    ))
+    assert marks["ioc_post_start_ms"] <= marks["ioc_post_response_ms"]
+    assert marks["ioc_post_response_ms"] <= marks["ioc_confirmed_ms"]
+
+
 def test_exact_hedge_leg_close_includes_position_id(monkeypatch):
     payloads = []
 

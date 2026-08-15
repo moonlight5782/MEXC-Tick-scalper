@@ -460,6 +460,17 @@ def test_excursion_csv_preserves_sub_one_bps_residual(tmp_path):
         exit_reason="microspread_converged", hold_ms=125.0,
         demo_entry_fee_usdt=0.002, demo_exit_fee_usdt=0.003,
         demo_gross_pnl_usdt=0.010, demo_net_pnl_usdt=0.005,
+        entry_timing={
+            "signal_detected_ms": 1000.0,
+            "demo_book_lookup_start_ms": 1001.0,
+            "demo_book_lookup_end_ms": 1001.2,
+            "ioc_call_start_ms": 1002.0,
+            "ioc_post_start_ms": 1003.0,
+            "ioc_post_response_ms": 1103.0,
+            "ioc_confirmed_ms": 1903.0,
+            "reconciliation_start_ms": 1904.0,
+            "position_visible_ms": 1914.0,
+        },
     )
 
     with path.open(newline="", encoding="utf-8") as handle:
@@ -474,6 +485,11 @@ def test_excursion_csv_preserves_sub_one_bps_residual(tmp_path):
     assert float(rows[0]["demo_exit_fee_usdt"]) == 0.003
     assert float(rows[0]["demo_gross_pnl_usdt"]) == 0.010
     assert float(rows[0]["demo_net_pnl_usdt"]) == 0.005
+    assert float(rows[0]["signal_to_ioc_post_ms"]) == 3.0
+    assert float(rows[0]["ioc_post_roundtrip_ms"]) == 100.0
+    assert float(rows[0]["ioc_confirmation_ms"]) == 900.0
+    assert float(rows[0]["reconciliation_ms"]) == 10.0
+    assert float(rows[0]["signal_to_position_visible_ms"]) == 914.0
     assert 0.0 < abs(float(rows[0]["residual_bps"])) < 1.0
 
 

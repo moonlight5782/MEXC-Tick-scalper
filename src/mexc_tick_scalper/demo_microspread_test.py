@@ -266,6 +266,11 @@ EXCURSION_FIELDS = (
     "filled_qty", "effective_leverage", "live_notional_usdt",
     "demo_entry_fee_usdt", "demo_exit_fee_usdt", "demo_gross_pnl_usdt", "demo_net_pnl_usdt",
     "exit_residual_bps", "decision_demo_net_bps",
+    "signal_detected_ms", "demo_book_lookup_start_ms", "demo_book_lookup_end_ms",
+    "ioc_call_start_ms", "ioc_post_start_ms", "ioc_post_response_ms", "ioc_confirmed_ms",
+    "reconciliation_start_ms", "position_visible_ms", "signal_to_ioc_post_ms",
+    "ioc_post_roundtrip_ms", "ioc_confirmation_ms", "reconciliation_ms",
+    "signal_to_position_visible_ms",
 )
 
 RESIDUAL_FIELDS = (
@@ -273,6 +278,35 @@ RESIDUAL_FIELDS = (
     "residual_bps", "threshold_bps", "raw_gap_bps", "baseline_gap_bps", "spread_bps",
     "binance_move_bps", "mexc_move_bps", "binance_age_ms", "mexc_age_ms", "demo_book_age_ms",
 )
+
+
+def _entry_timing_csv_values(marks: dict[str, float] | None) -> dict[str, str]:
+    marks = marks or {}
+
+    def value(name: str) -> str:
+        raw = marks.get(name)
+        return "" if raw is None else f"{raw:.3f}"
+
+    def duration(start: str, end: str) -> str:
+        left, right = marks.get(start), marks.get(end)
+        return "" if left is None or right is None else f"{max(0.0, right - left):.3f}"
+
+    return {
+        "signal_detected_ms": value("signal_detected_ms"),
+        "demo_book_lookup_start_ms": value("demo_book_lookup_start_ms"),
+        "demo_book_lookup_end_ms": value("demo_book_lookup_end_ms"),
+        "ioc_call_start_ms": value("ioc_call_start_ms"),
+        "ioc_post_start_ms": value("ioc_post_start_ms"),
+        "ioc_post_response_ms": value("ioc_post_response_ms"),
+        "ioc_confirmed_ms": value("ioc_confirmed_ms"),
+        "reconciliation_start_ms": value("reconciliation_start_ms"),
+        "position_visible_ms": value("position_visible_ms"),
+        "signal_to_ioc_post_ms": duration("signal_detected_ms", "ioc_post_start_ms"),
+        "ioc_post_roundtrip_ms": duration("ioc_post_start_ms", "ioc_post_response_ms"),
+        "ioc_confirmation_ms": duration("ioc_post_start_ms", "ioc_confirmed_ms"),
+        "reconciliation_ms": duration("reconciliation_start_ms", "position_visible_ms"),
+        "signal_to_position_visible_ms": duration("signal_detected_ms", "position_visible_ms"),
+    }
 
 
 def _append_residual_sample(
@@ -337,6 +371,7 @@ def _append_excursion(
     demo_net_pnl_usdt: float | None = None,
     exit_residual_bps: float | None = None,
     decision_demo_net_bps: float | None = None,
+    entry_timing: dict[str, float] | None = None,
 ) -> None:
     """Append one structured row for each hysteresis-consumed LIVE excursion."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -345,7 +380,7 @@ def _append_excursion(
         writer = csv.DictWriter(handle, fieldnames=EXCURSION_FIELDS)
         if needs_header:
             writer.writeheader()
-        writer.writerow({
+        row = {
             "timestamp_ms": int(timestamp_ms),
             "excursion_id": excursion_id,
             "event": event,
@@ -376,7 +411,9 @@ def _append_excursion(
             "demo_net_pnl_usdt": "" if demo_net_pnl_usdt is None else f"{demo_net_pnl_usdt:.9f}",
             "exit_residual_bps": "" if exit_residual_bps is None else f"{exit_residual_bps:.9f}",
             "decision_demo_net_bps": "" if decision_demo_net_bps is None else f"{decision_demo_net_bps:.9f}",
-        })
+        }
+        row.update(_entry_timing_csv_values(entry_timing))
+        writer.writerow(row)
 
 
 async def _discover_live_crosslisted_without_fee_gate() -> list[LiveZeroFeeContract]:
@@ -435,6 +472,7 @@ async def _open_demo_ioc_with_leverage_fallback(
     leverage_cap: int,
     available_margin_usdt: float | None = None,
     max_base_qty: float = math.inf,
+    timing_marks: dict[str, float] | None = None,
 ):
     """Retry only an explicit Testnet risk-tier rejection at lower leverage."""
     leverage = max(1, int(leverage_cap))
@@ -458,7 +496,7 @@ async def _open_demo_ioc_with_leverage_fallback(
             margin * leverage / float(price),
         ))
         try:
-            fill = await adapter.open_ioc(
+            kwargs = dict(
                 symbol=symbol,
                 side=side,
                 price=price,
@@ -466,6 +504,9 @@ async def _open_demo_ioc_with_leverage_fallback(
                 leverage=leverage,
                 client_order_id=f"micro-{leverage}-{uuid.uuid4().hex}",
             )
+            if timing_marks is not None:
+                kwargs["timing_marks"] = timing_marks
+            fill = await adapter.open_ioc(**kwargs)
             return fill, leverage
         except MexcWebError as exc:
             if "code=2005" in str(exc):
@@ -762,6 +803,7 @@ async def run(args: argparse.Namespace) -> None:
     trailing: PositiveTrailing | None = None
     position_candidate: MicroCandidate | None = None
     position_excursion_id = ""
+    position_entry_timing: dict[str, float] | None = None
 
     cycles = signals = wins = losses = 0
     total_live_pnl = 0.0
@@ -910,10 +952,12 @@ async def run(args: argparse.Namespace) -> None:
                         )
                         if consumed is not None:
                             excursion_id = uuid.uuid4().hex
-                            signal_timestamp_ms = int(time.time() * 1000)
+                            signal_timestamp_ms = time.time_ns() / 1_000_000.0
+                            entry_timing = {"signal_detected_ms": signal_timestamp_ms}
                             _append_excursion(
                                 excursion_csv, consumed, timestamp_ms=signal_timestamp_ms,
                                 excursion_id=excursion_id,
+                                entry_timing=entry_timing,
                             )
                             excursion_key = (consumed.symbol, consumed.direction)
                             if excursion_key != last_excursion_key:
@@ -934,7 +978,9 @@ async def run(args: argparse.Namespace) -> None:
                                 # Capture the LIVE executable entry before any Demo REST call.
                                 live_entry = consumed.book.ask if consumed.direction > 0 else consumed.book.bid
 
+                                entry_timing["demo_book_lookup_start_ms"] = time.time_ns() / 1_000_000.0
                                 demo_book = demo_books.books.get(consumed.symbol)
+                                entry_timing["demo_book_lookup_end_ms"] = time.time_ns() / 1_000_000.0
                                 if (
                                     demo_book is None
                                     or signal_timestamp_ms - demo_book.recv_ms < 0
@@ -944,6 +990,7 @@ async def run(args: argparse.Namespace) -> None:
                                         excursion_csv, consumed, timestamp_ms=int(time.time() * 1000),
                                         excursion_id=excursion_id, event="rejected",
                                         reject_reason="demo_book_unavailable",
+                                        entry_timing=entry_timing,
                                     )
                                     continue
                                 demo_ask, demo_bid = demo_book.ask, demo_book.bid
@@ -988,11 +1035,13 @@ async def run(args: argparse.Namespace) -> None:
                                         )
                                         signals += 1
                                         order_request_monotonic = time.monotonic()
-                                        order_request_ms = int(time.time() * 1000)
+                                        order_request_ms = time.time_ns() / 1_000_000.0
+                                        entry_timing["ioc_call_start_ms"] = order_request_ms
                                         _append_excursion(
                                             excursion_csv, fresh, timestamp_ms=order_request_ms,
                                             excursion_id=excursion_id, event="demo_ioc_request",
                                             signal_to_order_latency_ms=order_request_ms - signal_timestamp_ms,
+                                            entry_timing=entry_timing,
                                         )
                                         hybrid.console.print(
                                             f"MICRO SIGNAL {consumed.symbol} {'LONG' if consumed.direction > 0 else 'SHORT'} "
@@ -1012,6 +1061,7 @@ async def run(args: argparse.Namespace) -> None:
                                             leverage_cap=leverage,
                                             available_margin_usdt=(demo_available_usdt if args.max_demo_volume else None),
                                             max_base_qty=max_base_qty,
+                                            timing_marks=entry_timing,
                                         )
                                         if fill is None:
                                             _append_excursion(
@@ -1022,23 +1072,38 @@ async def run(args: argparse.Namespace) -> None:
                                                     if leverage < 0 else "demo_leverage_unavailable"
                                                 ),
                                                 signal_to_order_latency_ms=order_request_ms - signal_timestamp_ms,
+                                                entry_timing=entry_timing,
                                             )
                                             continue
-                                        response_ms = int(time.time() * 1000)
+                                        response_ms = time.time_ns() / 1_000_000.0
                                         _append_excursion(
                                             excursion_csv, fresh, timestamp_ms=response_ms,
                                             excursion_id=excursion_id, event="demo_ioc_response",
                                             signal_to_order_latency_ms=order_request_ms - signal_timestamp_ms,
+                                            entry_timing=entry_timing,
                                         )
+                                        entry_timing["reconciliation_start_ms"] = time.time_ns() / 1_000_000.0
                                         remote = await _find_demo_position(demo_adapter, consumed.symbol, side)
                                         if remote is None and (fill.order_id or fill.position_id or fill.filled_qty > 0):
                                             remote = await _wait_for_demo_position(demo_adapter, consumed.symbol, side)
+                                        if remote is not None:
+                                            entry_timing["position_visible_ms"] = time.time_ns() / 1_000_000.0
+                                            _append_excursion(
+                                                excursion_csv, fresh,
+                                                timestamp_ms=entry_timing["position_visible_ms"],
+                                                excursion_id=excursion_id,
+                                                event="demo_position_visible",
+                                                filled_qty=remote.qty,
+                                                effective_leverage=leverage,
+                                                entry_timing=entry_timing,
+                                            )
                                         if remote is None:
                                             _append_excursion(
                                                 excursion_csv, fresh, timestamp_ms=int(time.time() * 1000),
                                                 excursion_id=excursion_id, event="rejected",
                                                 reject_reason="demo_ioc_unfilled_or_pending",
                                                 signal_to_order_latency_ms=order_request_ms - signal_timestamp_ms,
+                                                entry_timing=entry_timing,
                                             )
                                             stable_flat = await wait_account_flat(
                                                 demo_adapter,
@@ -1061,6 +1126,7 @@ async def run(args: argparse.Namespace) -> None:
                                                     excursion_csv, fresh, timestamp_ms=int(time.time() * 1000),
                                                     excursion_id=excursion_id, event="rejected",
                                                     reject_reason="demo_nonzero_fee_observed",
+                                                    entry_timing=entry_timing,
                                                 )
                                                 raise MexcWebError(
                                                     "strict Demo zero-fee gate violated on entry: "
@@ -1087,6 +1153,7 @@ async def run(args: argparse.Namespace) -> None:
                                             )
                                             position_candidate = fresh
                                             position_excursion_id = excursion_id
+                                            position_entry_timing = dict(entry_timing)
                                             last_entry_ms[position_symbol] = int(time.time() * 1000)
                                             hybrid.console.print(
                                                 f"DEMO ENTRY {position_symbol} {'LONG' if position_direction > 0 else 'SHORT'} "
@@ -1094,7 +1161,10 @@ async def run(args: argparse.Namespace) -> None:
                                                 f"notional={live_entry_notional_usdt:g}USDT leverage={leverage}x "
                                                 f"requested_margin={cycle_margin_usdt:.4f}USDT strategy_equity={strategy_equity_usdt:.4f}USDT "
                                                 f"sizing={('TARGET_NOTIONAL' if args.target_notional_usdt > 0 else ('DYNAMIC' if dynamic_sizing else 'PROBATION'))} "
-                                                f"spread={live_entry_spread_bps:.3f} DemoFeeReported={fill.fee_usdt:g}"
+                                                f"spread={live_entry_spread_bps:.3f} DemoFeeReported={fill.fee_usdt:g} "
+                                                f"signal_to_visible={entry_timing['position_visible_ms'] - entry_timing['signal_detected_ms']:.1f}ms "
+                                                f"IOCconfirm={entry_timing.get('ioc_confirmed_ms', response_ms) - entry_timing.get('ioc_post_start_ms', order_request_ms):.1f}ms "
+                                                f"reconcile={entry_timing['position_visible_ms'] - entry_timing['reconciliation_start_ms']:.1f}ms"
                                             )
 
                     if position is None and now >= next_heartbeat:
@@ -1243,6 +1313,7 @@ async def run(args: argparse.Namespace) -> None:
                                 demo_net_pnl_usdt=demo_net_pnl,
                                 exit_residual_bps=snap.edge_bps,
                                 decision_demo_net_bps=demo_mark_net_bps,
+                                entry_timing=position_entry_timing,
                             )
                             hybrid.console.print(
                                 f"MICRO EXIT {position_symbol} reason={reason} LIVEpnl={live_pnl:+.6f}USDT "
@@ -1269,6 +1340,7 @@ async def run(args: argparse.Namespace) -> None:
                             trailing = None
                             position_candidate = None
                             position_excursion_id = ""
+                            position_entry_timing = None
 
                 if total_live_pnl <= -abs(float(args.max_session_loss_usdt)):
                     hybrid.console.print(
@@ -1311,6 +1383,7 @@ async def run(args: argparse.Namespace) -> None:
                     demo_exit_fee_usdt=demo_fill.fee_usdt,
                     demo_gross_pnl_usdt=demo_gross_pnl,
                     demo_net_pnl_usdt=demo_net_pnl,
+                    entry_timing=position_entry_timing,
                 )
                 hybrid.console.print(
                     f"SESSION FLATTEN {position_symbol} LIVEpnl={live_pnl:+.6f}USDT DemoExit={demo_fill.avg_price:g}"
