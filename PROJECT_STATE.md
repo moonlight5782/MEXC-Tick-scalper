@@ -589,3 +589,16 @@ depth feed retains top-of-book prices but not enough depth levels to prove that
 the full 10,000 USDT IOC would fill. Treat its PnL as a latency/slippage stress
 estimate and add depth-aware partial-fill simulation if the 100-trade result is
 otherwise promising.
+
+The 2026-08-15 zero-delay control completed 100 read-only virtual trades at
++173.2098 USDT, 79 wins / 21 losses and PF 4.126. Its event-loop delay was only
+8ms median / 15ms p95, so it proves a short-lived signal-time edge but not that
+a real order can reach MEXC quickly enough.
+
+The next validation mode is `--live-latency-probe`. It continuously measures
+the current small-response REST RTT to MEXC LIVE from the running process. Each
+virtual entry/exit delay is calculated at decision time as the measured local
+15.5ms signal-to-POST preparation plus half of the current robust median RTT.
+Missing or stale probe data blocks new entries. This is the best safe online
+estimate of order arrival without sending a LIVE order; matching-engine and
+private order-gateway processing remain unknowable in read-only mode.

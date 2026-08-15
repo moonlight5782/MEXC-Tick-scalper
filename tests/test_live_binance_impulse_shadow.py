@@ -1,6 +1,7 @@
 import pytest
 
 from mexc_tick_scalper.live_binance_impulse_shadow import (
+    LiveRttProbe,
     ShadowTrade,
     _entry_price,
     _exit_price,
@@ -73,3 +74,13 @@ def test_demo_latency_trace_replays_only_completed_trade_rows(tmp_path):
     assert samples[0].exit_ms == pytest.approx(363.239)
     assert samples[1].entry_ms == pytest.approx(686.054)
     assert samples[1].exit_ms == pytest.approx(347.172)
+
+
+def test_live_rtt_probe_uses_recent_robust_half_rtt():
+    probe = LiveRttProbe(symbol="LINK_USDT", interval_seconds=1.0)
+    probe.samples_ms.extend([20.0, 30.0, 200.0])
+    probe.last_sample_at = 100.0
+
+    assert probe.median_rtt_ms == 30.0
+    assert probe.current_one_way_ms(now=102.0, max_age_seconds=3.0) == 15.0
+    assert probe.current_one_way_ms(now=104.0, max_age_seconds=3.0) is None

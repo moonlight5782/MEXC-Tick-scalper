@@ -4,10 +4,13 @@ import argparse
 import asyncio
 import csv
 import math
+import statistics
 import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
+import aiohttp
 from dotenv import load_dotenv
 from rich.console import Console
 
@@ -29,6 +32,65 @@ console = Console()
 class LatencySample:
     entry_ms: float
     exit_ms: float
+
+
+class LiveRttProbe:
+    """Continuously measure the current read-only network path to MEXC LIVE."""
+
+    def __init__(self, *, symbol: str, interval_seconds: float, window: int = 60) -> None:
+        self.symbol = symbol
+        self.interval_seconds = max(0.10, float(interval_seconds))
+        self.samples_ms: deque[float] = deque(maxlen=max(3, int(window)))
+        self.last_sample_at = 0.0
+        self.last_error: str | None = None
+        self._stop = asyncio.Event()
+        self._task: asyncio.Task | None = None
+
+    @property
+    def median_rtt_ms(self) -> float | None:
+        return statistics.median(self.samples_ms) if self.samples_ms else None
+
+    def current_one_way_ms(self, *, now: float, max_age_seconds: float) -> float | None:
+        median = self.median_rtt_ms
+        if median is None or now - self.last_sample_at > max(0.1, max_age_seconds):
+            return None
+        return median / 2.0
+
+    async def start(self) -> None:
+        self._stop.clear()
+        self._task = asyncio.create_task(self._run())
+
+    async def close(self) -> None:
+        self._stop.set()
+        if self._task is not None:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            self._task = None
+
+    async def _run(self) -> None:
+        timeout = aiohttp.ClientTimeout(total=5.0)
+        url = "https://contract.mexc.com/api/v1/contract/ticker"
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            while not self._stop.is_set():
+                started = time.perf_counter()
+                try:
+                    async with session.get(url, params={"symbol": self.symbol}) as response:
+                        response.raise_for_status()
+                        await response.read()
+                    self.samples_ms.append((time.perf_counter() - started) * 1000.0)
+                    self.last_sample_at = time.monotonic()
+                    self.last_error = None
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    self.last_error = f"{type(exc).__name__}: {exc}"
+                try:
+                    await asyncio.wait_for(self._stop.wait(), timeout=self.interval_seconds)
+                except TimeoutError:
+                    pass
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,6 +228,8 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
     root = Path(__file__).resolve().parents[2]
     load_dotenv(root / ".env", override=False)
     requested = {item.strip().upper() for item in args.symbols.split(",") if item.strip()}
+    if args.live_latency_probe and args.latency_csv:
+        raise ValueError("--live-latency-probe and --latency-csv are mutually exclusive")
     latency_samples = _load_latency_samples(Path(args.latency_csv)) if args.latency_csv else []
     universe = await discover_live_zero_fee_crosslisted()
     contracts_by_symbol = {row.mexc_symbol: row for row in universe if row.mexc_symbol in requested}
@@ -186,6 +250,16 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
     }
     binance = EventBinanceBookTickerFeed(contracts, models, wake)
     mexc = EventMexcDepthFeed([row.mexc_symbol for row in contracts], models, wake)
+    latency_probe = (
+        LiveRttProbe(
+            symbol=(args.latency_probe_symbol or contracts[0].mexc_symbol),
+            interval_seconds=args.latency_probe_interval_seconds,
+        )
+        if args.live_latency_probe
+        else None
+    )
+    if latency_probe is not None:
+        await latency_probe.start()
     await binance.start()
     await mexc.start()
 
@@ -210,7 +284,7 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
     )
     console.print(
         f"symbols={','.join(sorted(requested))} notional={args.notional_usdt:g}USDT "
-        f"latency={'DemoReplay:'+str(len(latency_samples)) if latency_samples else f'fixed:{args.entry_latency_ms:g}/{args.exit_latency_ms:g}ms'} "
+        f"latency={'LiveRTT' if latency_probe else 'DemoReplay:'+str(len(latency_samples)) if latency_samples else f'fixed:{args.entry_latency_ms:g}/{args.exit_latency_ms:g}ms'} "
         f"slippage_each_side={args.slippage_bps:g}bps"
     )
 
@@ -307,10 +381,25 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
                     if reason is None and now >= deadline:
                         reason = "session_end"
                     if reason is not None:
+                        current_one_way_ms = (
+                            latency_probe.current_one_way_ms(
+                                now=now, max_age_seconds=args.latency_probe_max_age_seconds,
+                            )
+                            if latency_probe is not None
+                            else None
+                        )
+                        if latency_probe is not None and current_one_way_ms is None:
+                            await _yield_market_update(wake, args.idle_timeout_seconds)
+                            continue
+                        exit_latency_ms = (
+                            args.order_build_ms + current_one_way_ms
+                            if current_one_way_ms is not None
+                            else position.exit_latency_ms
+                        )
                         pending_exit = PendingExit(
                             reason=reason,
                             decision_ms=now_ms,
-                            execute_at=now + position.exit_latency_ms / 1000.0,
+                            execute_at=now + exit_latency_ms / 1000.0,
                         )
                 await _yield_market_update(wake, args.idle_timeout_seconds)
                 continue
@@ -358,11 +447,22 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
                         min_net_edge_bps=args.min_net_edge_bps,
                         spread_ratio=args.edge_to_spread_ratio,
                     )
+                    current_one_way_ms = (
+                        latency_probe.current_one_way_ms(
+                            now=now, max_age_seconds=args.latency_probe_max_age_seconds,
+                        )
+                        if latency_probe is not None
+                        else None
+                    )
+                    if latency_probe is not None and current_one_way_ms is None:
+                        continue
                     snap = models[symbol].signal(now_ms=now_ms, threshold_bps=threshold)
                     if not snap.ready:
                         continue
                     latency = (
-                        latency_samples[latency_index % len(latency_samples)]
+                        LatencySample(args.order_build_ms + current_one_way_ms, 0.0)
+                        if current_one_way_ms is not None
+                        else latency_samples[latency_index % len(latency_samples)]
                         if latency_samples
                         else LatencySample(args.entry_latency_ms, args.exit_latency_ms)
                     )
@@ -386,11 +486,23 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
 
             if now >= next_status:
                 stats = _summary(trades)
+                state = (
+                    "EXIT_PENDING" if pending_exit else "OPEN" if position
+                    else "ENTRY_PENDING" if pending_entry else "WATCHING"
+                )
+                latency_status = ""
+                if latency_probe is not None:
+                    current_rtt = latency_probe.median_rtt_ms
+                    latency_status = (
+                        f"live_rtt={current_rtt:.1f}ms "
+                        if current_rtt is not None
+                        else f"live_rtt=PENDING error={latency_probe.last_error or '-'} "
+                    )
                 console.print(
                     f"SHADOW STATUS trades={stats['trades']} W/L/F={stats['wins']}/{stats['losses']}/{stats['flats']} "
                     f"pnl={stats['pnl_usdt']:+.4f}USDT books={len(mexc.books)}/{len(contracts)} "
                     f"Bquotes={binance.quotes} Mdepth={mexc.updates} "
-                    f"state={'EXIT_PENDING' if pending_exit else 'OPEN' if position else 'ENTRY_PENDING' if pending_entry else 'WATCHING'}"
+                    f"{latency_status}state={state}"
                 )
                 next_status = now + args.status_seconds
 
@@ -398,6 +510,8 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
     finally:
         await binance.close()
         await mexc.close()
+        if latency_probe is not None:
+            await latency_probe.close()
         _write_csv(output, trades)
 
     stats = _summary(trades)
@@ -418,6 +532,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--notional-usdt", type=float, default=10_000.0)
     parser.add_argument("--entry-latency-ms", type=float, default=650.0)
     parser.add_argument("--exit-latency-ms", type=float, default=350.0)
+    parser.add_argument("--live-latency-probe", action="store_true")
+    parser.add_argument("--latency-probe-symbol", default="LINK_USDT")
+    parser.add_argument("--latency-probe-interval-seconds", type=float, default=1.0)
+    parser.add_argument("--latency-probe-max-age-seconds", type=float, default=3.0)
+    parser.add_argument(
+        "--order-build-ms",
+        type=float,
+        default=15.5,
+        help="measured local signal-to-IOC-POST preparation time added to current LIVE half-RTT",
+    )
     parser.add_argument(
         "--latency-csv",
         default="",
