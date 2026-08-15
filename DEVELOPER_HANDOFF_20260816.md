@@ -131,6 +131,9 @@ MEXC.
 - Добавлен текущий безопасный latency proxy: `15.5 ms order build + robust
   median(public MEXC REST RTT)/2` отдельно на входе и выходе. Устаревший/missing
   RTT блокирует новые входы.
+- Добавлен opt-in entry latency budget
+  `--max-estimated-entry-latency-ms`: слишком медленный новый вход блокируется и
+  учитывается в `latency_blocks`. Выход этим фильтром никогда не блокируется.
 
 ### Стакан, partial fill и масштабирование
 
@@ -405,6 +408,10 @@ exit:
 7. fixed 10k против equity scaling;
 8. текущие XRP/LINK/DOGE и отдельный liquidity-stress набор из exact 0/0 пар с
    меньшей глубиной, выбранный по свежему edge-after-spread ranking.
+
+Отдельно сравнить одинаковые сессии без latency cap и с начальным treatment
+`--max-estimated-entry-latency-ms 200`. Значение 200 ms пока является только
+экспериментальной границей около наблюдаемого p95, а не доказанным optimum.
 
 Оценивать walk-forward: параметры выбираются на одной сессии, подтверждаются на
 другой. Не оптимизировать и не оценивать на одних и тех же 100 сделках.

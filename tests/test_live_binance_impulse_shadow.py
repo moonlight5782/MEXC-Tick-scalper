@@ -3,6 +3,7 @@ import pytest
 from mexc_tick_scalper.live_binance_impulse_shadow import (
     LiveRttProbe,
     ShadowTrade,
+    _entry_latency_allowed,
     _entry_price,
     _exit_price,
     _load_latency_samples,
@@ -10,6 +11,7 @@ from mexc_tick_scalper.live_binance_impulse_shadow import (
     _simulate_ioc_entry,
     _simulate_market_exit,
     _summary,
+    build_parser,
 )
 from mexc_tick_scalper.microspread_feed import LiveBook
 
@@ -87,6 +89,22 @@ def test_live_rtt_probe_uses_recent_robust_half_rtt():
     assert probe.median_rtt_ms == 30.0
     assert probe.current_one_way_ms(now=102.0, max_age_seconds=3.0) == 15.0
     assert probe.current_one_way_ms(now=104.0, max_age_seconds=3.0) is None
+
+
+def test_entry_latency_gate_blocks_only_above_configured_budget():
+    assert _entry_latency_allowed(estimated_ms=199.9, maximum_ms=200.0)
+    assert _entry_latency_allowed(estimated_ms=200.0, maximum_ms=200.0)
+    assert not _entry_latency_allowed(estimated_ms=200.1, maximum_ms=200.0)
+    assert _entry_latency_allowed(estimated_ms=10_000.0, maximum_ms=0.0)
+
+
+def test_entry_latency_gate_is_opt_in_for_backward_compatible_controls():
+    parser = build_parser()
+
+    assert parser.parse_args([]).max_estimated_entry_latency_ms == 0.0
+    assert parser.parse_args(
+        ["--max-estimated-entry-latency-ms", "200"]
+    ).max_estimated_entry_latency_ms == 200.0
 
 
 def test_depth_ioc_accepts_partial_fill_without_topping_up():

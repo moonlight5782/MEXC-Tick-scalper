@@ -648,3 +648,23 @@ USDT across two levels, and gained 0.5537 USDT. Final smoke equity was 59.5046
 USDT. Both fills had sufficient visible liquidity, so this smoke validates depth
 walking and scaling but does not estimate the live partial-fill distribution;
 that requires the independent 100-trade run.
+
+## 26. Entry latency budget
+
+The LIVE shadow now has an opt-in
+`--max-estimated-entry-latency-ms` safety/economics gate. After a Binance signal
+passes the normal spread-aware threshold, the runner estimates signal-to-fill
+latency from the selected fixed, Demo-replay, or current-LIVE-RTT model. If the
+estimate exceeds the configured budget, the signal is consumed but no virtual
+entry is scheduled. The block is logged as `SHADOW ENTRY BLOCK` and counted in
+the status heartbeat as `latency_blocks`.
+
+The default is `0` (disabled) so historical controls remain reproducible. Use a
+separate next-session treatment such as `--max-estimated-entry-latency-ms 200`
+and compare it against an unchanged control on the same signal stream before
+freezing a value.
+
+This is deliberately an entry-only gate. High latency must never prevent or
+delay the exit of an already-open position; exits continue to use the freshest
+available latency estimate and execute as soon as the simulated network delay
+allows.

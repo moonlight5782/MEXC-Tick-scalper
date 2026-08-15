@@ -56,6 +56,16 @@ class LiveRttProbe:
             return None
         return median / 2.0
 
+
+def _entry_latency_allowed(*, estimated_ms: float, maximum_ms: float) -> bool:
+    """Return whether a new entry may be scheduled under the latency budget.
+
+    A non-positive maximum disables the optional gate. This is deliberately
+    entry-only: an open position must never be prevented from exiting merely
+    because the network path has deteriorated.
+    """
+    return maximum_ms <= 0.0 or estimated_ms <= maximum_ms
+
     async def start(self) -> None:
         self._stop.clear()
         self._task = asyncio.create_task(self._run())
@@ -427,6 +437,7 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
     cumulative_pnl = 0.0
     virtual_equity = max(0.01, float(args.initial_equity_usdt))
     latency_index = 0
+    latency_blocked_entries = 0
 
     console.print(
         "[cyan]LIVE BINANCE IMPULSE SHADOW ONLY[/cyan]: public Binance/MEXC WebSockets and "
@@ -437,6 +448,7 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
         f"depth={'ON:'+str(args.depth_levels) if args.depth_aware else 'OFF'} "
         f"scaling={'equity:'+format(virtual_equity, 'g') if args.scale_notional_with_equity else 'fixed'} "
         f"latency={'LiveRTT' if latency_probe else 'DemoReplay:'+str(len(latency_samples)) if latency_samples else f'fixed:{args.entry_latency_ms:g}/{args.exit_latency_ms:g}ms'} "
+        f"entry_latency_cap={args.max_estimated_entry_latency_ms:g}ms "
         f"slippage_each_side={args.slippage_bps:g}bps"
     )
 
@@ -695,6 +707,17 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
                         else LatencySample(args.entry_latency_ms, args.exit_latency_ms)
                     )
                     latency_index += 1
+                    if not _entry_latency_allowed(
+                        estimated_ms=latency.entry_ms,
+                        maximum_ms=args.max_estimated_entry_latency_ms,
+                    ):
+                        latency_blocked_entries += 1
+                        console.print(
+                            f"SHADOW ENTRY BLOCK {symbol} reason=latency_budget "
+                            f"estimated={latency.entry_ms:.1f}ms "
+                            f"maximum={args.max_estimated_entry_latency_ms:.1f}ms"
+                        )
+                        continue
                     contract = contracts_by_symbol[symbol]
                     leverage = min(max(1, int(args.leverage)), max(1, contract.max_leverage))
                     requested_notional = _scaled_requested_notional(
@@ -744,7 +767,8 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
                     f"SHADOW STATUS trades={stats['trades']} W/L/F={stats['wins']}/{stats['losses']}/{stats['flats']} "
                     f"pnl={stats['pnl_usdt']:+.4f}USDT books={len(mexc.books)}/{len(contracts)} "
                     f"Bquotes={binance.quotes} Mdepth={mexc.updates} "
-                    f"{latency_status}equity={virtual_equity:.4f}USDT state={state}"
+                    f"{latency_status}latency_blocks={latency_blocked_entries} "
+                    f"equity={virtual_equity:.4f}USDT state={state}"
                 )
                 next_status = now + args.status_seconds
 
@@ -799,6 +823,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=15.5,
         help="measured local signal-to-IOC-POST preparation time added to current LIVE half-RTT",
+    )
+    parser.add_argument(
+        "--max-estimated-entry-latency-ms",
+        type=float,
+        default=0.0,
+        help="block new entries above this estimated signal-to-fill latency; 0 disables the gate",
     )
     parser.add_argument(
         "--latency-csv",
