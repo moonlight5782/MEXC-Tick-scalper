@@ -92,6 +92,35 @@ def _profitable_reversal_exit_allowed(
     )
 
 
+def _legacy_convergence_exit_allowed(
+    *,
+    current_edge_bps: float,
+    entry_edge_bps: float,
+    convergence_bps: float,
+    convergence_fraction: float,
+) -> bool:
+    """Reproduce the convergence rule used by commit 54b789e."""
+    convergence = max(
+        max(0.0, convergence_bps),
+        abs(entry_edge_bps) * max(0.0, convergence_fraction),
+    )
+    return abs(current_edge_bps) <= convergence
+
+
+def _legacy_reversal_exit_allowed(
+    *,
+    current_direction: int,
+    position_direction: int,
+    current_edge_bps: float,
+    reversal_edge_bps: float,
+) -> bool:
+    """Reproduce the reversal rule used by commit 54b789e."""
+    return (
+        current_direction == -position_direction
+        and abs(current_edge_bps) >= max(0.0, reversal_edge_bps)
+    )
+
+
 def _confirmed_candidate(
     pending: tuple[str, int, int] | None,
     candidate: MicroCandidate | None,
@@ -764,6 +793,7 @@ async def run(args: argparse.Namespace) -> None:
         + ("Demo exact 0/0 + " if require_demo_zero_fee else "Demo fees measured/subtracted + ")
         + ("LIVE exact 0/0" if require_live_zero_fee else "explicit Demo-only experiment")
     )
+    hybrid.console.print(f"Exit profile: {args.exit_profile}")
     hybrid.console.print(f"Excursion telemetry CSV: {excursion_csv.resolve()}")
     hybrid.console.print(f"Residual telemetry CSV: {residual_csv.resolve()}")
     hybrid.console.print("Symbols: " + ", ".join(symbols))
@@ -1148,7 +1178,9 @@ async def run(args: argparse.Namespace) -> None:
                                             trailing = PositiveTrailing(
                                                 distance_bps=max(
                                                     args.trailing_distance_bps,
-                                                    live_entry_spread_bps * trailing_scale,
+                                                    live_entry_spread_bps
+                                                    if args.exit_profile == "legacy-54b789e"
+                                                    else live_entry_spread_bps * trailing_scale,
                                                 )
                                             )
                                             position_candidate = fresh
@@ -1206,14 +1238,18 @@ async def run(args: argparse.Namespace) -> None:
                         )
                         demo_net_mfe_bps = max(demo_net_mfe_bps, demo_mark_net_bps)
                         demo_net_mae_bps = min(demo_net_mae_bps, demo_mark_net_bps)
-                        trail = _update_leverage_normalized_trailing(
-                            trailing, demo_mark_net_bps, leverage=live_entry_leverage,
-                        )
+                        if args.exit_profile == "legacy-54b789e":
+                            trail = trailing.update(move_bps)
+                        else:
+                            trail = _update_leverage_normalized_trailing(
+                                trailing, demo_mark_net_bps, leverage=live_entry_leverage,
+                            )
                         age_s = now - entry_time
                         snap = models[position_symbol].snapshot(now_ms=now_ms, threshold_bps=0.0)
 
                         reason: str | None = None
-                        if trail is not None and demo_mark_net_bps <= trail and age_s >= args.min_hold_seconds:
+                        exit_mark_bps = move_bps if args.exit_profile == "legacy-54b789e" else demo_mark_net_bps
+                        if trail is not None and exit_mark_bps <= trail and age_s >= args.min_hold_seconds:
                             reason = "positive_trailing_stop"
                         adverse = _adverse_cut_for_leverage(
                             leverage=live_entry_leverage,
@@ -1222,22 +1258,41 @@ async def run(args: argparse.Namespace) -> None:
                             spread_multiple=args.adverse_spread_mult,
                             adverse_roe_pct=args.adverse_cut_roe_pct,
                         )
-                        if reason is None and demo_mark_gross_bps <= -adverse and age_s >= args.min_hold_seconds:
-                            reason = "demo_adverse_cut"
-                        if (
-                            reason is None
-                            and _convergence_exit_allowed(
+                        if args.exit_profile == "legacy-54b789e":
+                            if reason is None and move_bps <= -adverse and age_s >= args.min_hold_seconds:
+                                reason = "live_adverse_cut"
+                            if reason is None and _legacy_convergence_exit_allowed(
                                 current_edge_bps=snap.edge_bps,
                                 entry_edge_bps=live_entry_edge_bps,
                                 convergence_bps=args.convergence_bps,
                                 convergence_fraction=args.convergence_fraction,
-                                demo_net_bps=demo_mark_net_bps,
-                                min_exit_profit_bps=args.min_exit_profit_bps,
-                            )
-                        ):
-                            reason = "microspread_converged"
+                            ):
+                                reason = "microspread_converged"
+                        else:
+                            if reason is None and demo_mark_gross_bps <= -adverse and age_s >= args.min_hold_seconds:
+                                reason = "demo_adverse_cut"
+                            if (
+                                reason is None
+                                and _convergence_exit_allowed(
+                                    current_edge_bps=snap.edge_bps,
+                                    entry_edge_bps=live_entry_edge_bps,
+                                    convergence_bps=args.convergence_bps,
+                                    convergence_fraction=args.convergence_fraction,
+                                    demo_net_bps=demo_mark_net_bps,
+                                    min_exit_profit_bps=args.min_exit_profit_bps,
+                                )
+                            ):
+                                reason = "microspread_converged"
                         assert position_candidate is not None
-                        if reason is None and _profitable_reversal_exit_allowed(
+                        if args.exit_profile == "legacy-54b789e":
+                            if reason is None and _legacy_reversal_exit_allowed(
+                                current_direction=snap.direction,
+                                position_direction=position_direction,
+                                current_edge_bps=snap.edge_bps,
+                                reversal_edge_bps=args.reversal_edge_bps,
+                            ):
+                                reason = "microspread_reversed"
+                        elif reason is None and _profitable_reversal_exit_allowed(
                             current_direction=snap.direction,
                             position_direction=position_direction,
                             current_edge_bps=snap.edge_bps,
@@ -1249,8 +1304,15 @@ async def run(args: argparse.Namespace) -> None:
                             reason = "microspread_reversed"
                         if (
                             reason is None
-                            and args.binance_reversal_exit_bps > 0
-                            and snap.binance_move_bps * position_direction <= -args.binance_reversal_exit_bps
+                            and (
+                                args.exit_profile == "legacy-54b789e"
+                                or args.binance_reversal_exit_bps > 0
+                            )
+                            and snap.binance_move_bps * position_direction <= -(
+                                args.min_binance_move_bps
+                                if args.exit_profile == "legacy-54b789e"
+                                else args.binance_reversal_exit_bps
+                            )
                             and age_s >= args.min_hold_seconds
                         ):
                             reason = "binance_micro_reversal"
@@ -1428,6 +1490,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--signal-mexc-source", choices=("live", "demo"), default="live",
         help="MEXC depth used for residual/convergence; demo aligns signals with Demo execution",
+    )
+    parser.add_argument(
+        "--exit-profile",
+        choices=("protected-demo-net", "legacy-54b789e"),
+        default="protected-demo-net",
+        help="protected current exits or the LIVE-economics exit rules from commit 54b789e",
     )
     parser.add_argument("--warmup-seconds", type=float, default=3.0)
     parser.add_argument("--micro-horizon-ms", type=int, default=100)

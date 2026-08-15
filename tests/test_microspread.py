@@ -18,6 +18,8 @@ from mexc_tick_scalper.demo_microspread_test import (
     _find_demo_position,
     _history_reconciled_fill,
     _estimated_demo_net_bps,
+    _legacy_convergence_exit_allowed,
+    _legacy_reversal_exit_allowed,
     _marketable_demo_price,
     _nonpositive_timeout_allowed,
     _open_demo_ioc_with_leverage_fallback,
@@ -361,6 +363,36 @@ def test_reversal_exit_ignores_noise_and_never_locks_in_negative_net():
     )
     assert _profitable_reversal_exit_allowed(
         current_edge_bps=-2.0, demo_net_bps=0.5, **common,
+    )
+
+
+def test_legacy_convergence_reproduces_54b789e_without_demo_profit_gate():
+    assert _legacy_convergence_exit_allowed(
+        current_edge_bps=0.3,
+        entry_edge_bps=2.0,
+        convergence_bps=0.1,
+        convergence_fraction=0.2,
+    )
+    assert not _legacy_convergence_exit_allowed(
+        current_edge_bps=0.5,
+        entry_edge_bps=2.0,
+        convergence_bps=0.1,
+        convergence_fraction=0.2,
+    )
+
+
+def test_legacy_reversal_reproduces_54b789e_threshold():
+    assert _legacy_reversal_exit_allowed(
+        current_direction=-1,
+        position_direction=1,
+        current_edge_bps=-0.3,
+        reversal_edge_bps=0.2,
+    )
+    assert not _legacy_reversal_exit_allowed(
+        current_direction=1,
+        position_direction=1,
+        current_edge_bps=2.0,
+        reversal_edge_bps=0.2,
     )
 
 
