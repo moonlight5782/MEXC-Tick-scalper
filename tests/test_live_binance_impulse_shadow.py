@@ -1,0 +1,53 @@
+from mexc_tick_scalper.live_binance_impulse_shadow import (
+    ShadowTrade,
+    _entry_price,
+    _exit_price,
+    _summary,
+)
+from mexc_tick_scalper.microspread_feed import LiveBook
+
+
+def test_shadow_prices_cross_spread_and_apply_conservative_slippage():
+    book = LiveBook(bid=99.0, ask=101.0, recv_ms=1, exchange_ts_ms=1)
+
+    assert _entry_price(book, 1, 1.0) == 101.0101
+    assert _exit_price(book, 1, 1.0) == 98.9901
+    assert _entry_price(book, -1, 1.0) == 98.9901
+    assert _exit_price(book, -1, 1.0) == 101.0101
+
+
+def test_shadow_summary_reports_zero_fee_statistics():
+    common = dict(
+        symbol="XRP_USDT",
+        direction=1,
+        signal_ms=1,
+        entry_ms=2,
+        exit_ms=3,
+        entry_price=1.0,
+        exit_price=1.0,
+        impulse_bps=2.0,
+        entry_spread_bps=1.0,
+        mfe_bps=2.0,
+        mae_bps=-1.0,
+        hold_ms=1,
+        signal_to_fill_ms=1,
+        exit_decision_to_fill_ms=1,
+        exit_reason="test",
+    )
+    rows = [
+        ShadowTrade(pnl_bps=2.0, pnl_usdt=2.0, **common),
+        ShadowTrade(pnl_bps=-1.0, pnl_usdt=-1.0, **common),
+        ShadowTrade(pnl_bps=0.0, pnl_usdt=0.0, **common),
+    ]
+
+    stats = _summary(rows)
+
+    assert stats == {
+        "trades": 3,
+        "wins": 1,
+        "losses": 1,
+        "flats": 1,
+        "pnl_usdt": 1.0,
+        "win_rate": 50.0,
+        "profit_factor": 2.0,
+    }

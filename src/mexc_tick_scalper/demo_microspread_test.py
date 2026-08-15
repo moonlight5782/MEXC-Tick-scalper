@@ -60,6 +60,7 @@ ZERO_FEE_GROSS_CANDIDATE_V1 = {
     "entry_confirm_ms": 0,
     "max_hold_seconds": 60.0,
     "min_exit_profit_bps": 0.5,
+    "reversal_edge_bps": 1000.0,
     "binance_reversal_exit_bps": 1000.0,
     "max_session_loss_usdt": 50.0,
 }

@@ -557,3 +557,28 @@ Persistent pending-entry reconciliation has since replaced that failure path.
 Before treating this profile as a product candidate, complete an independent
 100-trade validation against executable LIVE bid/ask shadow prices using the
 measured latency distribution. LIVE writes remain forbidden.
+
+## 24. Read-only LIVE Binance-impulse shadow
+
+`src/mexc_tick_scalper/live_binance_impulse_shadow.py` reproduces the frozen
+Binance-impulse candidate against current executable MEXC LIVE bid/ask without
+constructing an order-capable adapter. It uses public Binance/MEXC WebSockets
+and the MEXC private fee table only through the existing read-only discovery
+path.
+
+Default stress assumptions are deliberately less favorable than signal-time
+paper fills:
+
+- one virtual position globally
+- 10,000 USDT virtual notional
+- 650ms signal-to-entry fill delay
+- 350ms exit-decision-to-fill delay
+- 0.5 bps additional slippage on each side
+- actual MEXC ask/bid at the delayed fill timestamp
+- refreshed exact LIVE maker=0/taker=0 eligibility; unknown/nonzero blocks entry
+
+This shadow validates market economics, not exchange fill quantity. The current
+depth feed retains top-of-book prices but not enough depth levels to prove that
+the full 10,000 USDT IOC would fill. Treat its PnL as a latency/slippage stress
+estimate and add depth-aware partial-fill simulation if the 100-trade result is
+otherwise promising.
