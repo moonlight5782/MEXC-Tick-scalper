@@ -2,6 +2,7 @@ from mexc_tick_scalper.live_binance_impulse_shadow import (
     ShadowTrade,
     _entry_price,
     _exit_price,
+    _load_latency_samples,
     _summary,
 )
 from mexc_tick_scalper.microspread_feed import LiveBook
@@ -51,3 +52,21 @@ def test_shadow_summary_reports_zero_fee_statistics():
         "win_rate": 50.0,
         "profit_factor": 2.0,
     }
+
+
+def test_demo_latency_trace_replays_only_completed_trade_rows(tmp_path):
+    path = tmp_path / "excursions.csv"
+    path.write_text(
+        "event,signal_to_provisional_ms,ioc_post_roundtrip_ms\n"
+        "demo_ioc_request,,\n"
+        "demo_exit,682.365,363.239\n"
+        "demo_exit,687.317,347.172\n",
+        encoding="utf-8",
+    )
+
+    samples = _load_latency_samples(path)
+
+    assert [(row.entry_ms, row.exit_ms) for row in samples] == [
+        (682.365, 363.239),
+        (687.317, 347.172),
+    ]

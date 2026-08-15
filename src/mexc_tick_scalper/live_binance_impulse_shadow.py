@@ -26,6 +26,12 @@ console = Console()
 
 
 @dataclass(frozen=True, slots=True)
+class LatencySample:
+    entry_ms: float
+    exit_ms: float
+
+
+@dataclass(frozen=True, slots=True)
 class PendingEntry:
     symbol: str
     direction: int
@@ -34,6 +40,7 @@ class PendingEntry:
     impulse_bps: float
     signal_spread_bps: float
     target_price: float
+    exit_latency_ms: float
 
 
 @dataclass(slots=True)
@@ -46,6 +53,7 @@ class ShadowPosition:
     impulse_bps: float
     entry_spread_bps: float
     target_price: float
+    exit_latency_ms: float
     trailing: PositiveTrailing
     mfe_bps: float = 0.0
     mae_bps: float = 0.0
@@ -104,6 +112,24 @@ def _write_csv(path: Path, trades: list[ShadowTrade]) -> None:
             writer.writerow(row)
 
 
+def _load_latency_samples(path: Path) -> list[LatencySample]:
+    samples: list[LatencySample] = []
+    with path.open("r", newline="", encoding="utf-8-sig") as handle:
+        for row in csv.DictReader(handle):
+            if row.get("event") != "demo_exit":
+                continue
+            try:
+                entry_ms = float(row.get("signal_to_provisional_ms") or "")
+                exit_ms = float(row.get("ioc_post_roundtrip_ms") or "")
+            except ValueError:
+                continue
+            if entry_ms > 0 and exit_ms > 0 and math.isfinite(entry_ms) and math.isfinite(exit_ms):
+                samples.append(LatencySample(entry_ms=entry_ms, exit_ms=exit_ms))
+    if not samples:
+        raise ValueError(f"no usable Demo latency rows in {path}")
+    return samples
+
+
 def _summary(trades: list[ShadowTrade]) -> dict[str, float | int]:
     wins = [row.pnl_usdt for row in trades if row.pnl_usdt > 0]
     losses = [-row.pnl_usdt for row in trades if row.pnl_usdt < 0]
@@ -134,6 +160,7 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
     root = Path(__file__).resolve().parents[2]
     load_dotenv(root / ".env", override=False)
     requested = {item.strip().upper() for item in args.symbols.split(",") if item.strip()}
+    latency_samples = _load_latency_samples(Path(args.latency_csv)) if args.latency_csv else []
     universe = await discover_live_zero_fee_crosslisted()
     contracts_by_symbol = {row.mexc_symbol: row for row in universe if row.mexc_symbol in requested}
     missing = sorted(requested - set(contracts_by_symbol))
@@ -169,6 +196,7 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
     next_fee_refresh = started + args.fee_refresh_seconds
     eligible = set(requested)
     cumulative_pnl = 0.0
+    latency_index = 0
 
     console.print(
         "[cyan]LIVE BINANCE IMPULSE SHADOW ONLY[/cyan]: public Binance/MEXC WebSockets and "
@@ -176,7 +204,7 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
     )
     console.print(
         f"symbols={','.join(sorted(requested))} notional={args.notional_usdt:g}USDT "
-        f"entry_latency={args.entry_latency_ms:g}ms exit_latency={args.exit_latency_ms:g}ms "
+        f"latency={'DemoReplay:'+str(len(latency_samples)) if latency_samples else f'fixed:{args.entry_latency_ms:g}/{args.exit_latency_ms:g}ms'} "
         f"slippage_each_side={args.slippage_bps:g}bps"
     )
 
@@ -276,7 +304,7 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
                         pending_exit = PendingExit(
                             reason=reason,
                             decision_ms=now_ms,
-                            execute_at=now + args.exit_latency_ms / 1000.0,
+                            execute_at=now + position.exit_latency_ms / 1000.0,
                         )
                 await _yield_market_update(wake, args.idle_timeout_seconds)
                 continue
@@ -298,6 +326,7 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
                             impulse_bps=pending_entry.impulse_bps,
                             entry_spread_bps=book.spread_bps,
                             target_price=pending_entry.target_price,
+                            exit_latency_ms=pending_entry.exit_latency_ms,
                             trailing=PositiveTrailing(distance_bps=max(args.trailing_distance_bps, book.spread_bps)),
                         )
                         console.print(
@@ -326,14 +355,21 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
                     snap = models[symbol].signal(now_ms=now_ms, threshold_bps=threshold)
                     if not snap.ready:
                         continue
+                    latency = (
+                        latency_samples[latency_index % len(latency_samples)]
+                        if latency_samples
+                        else LatencySample(args.entry_latency_ms, args.exit_latency_ms)
+                    )
+                    latency_index += 1
                     pending_entry = PendingEntry(
                         symbol=symbol,
                         direction=snap.direction,
                         signal_ms=now_ms,
-                        execute_at=now + args.entry_latency_ms / 1000.0,
+                        execute_at=now + latency.entry_ms / 1000.0,
                         impulse_bps=snap.binance_move_bps,
                         signal_spread_bps=book.spread_bps,
                         target_price=book.mid * math.exp(snap.binance_move_bps / 10_000.0),
+                        exit_latency_ms=latency.exit_ms,
                     )
                     console.print(
                         f"SHADOW SIGNAL {symbol} {'LONG' if snap.direction > 0 else 'SHORT'} "
@@ -376,6 +412,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--notional-usdt", type=float, default=10_000.0)
     parser.add_argument("--entry-latency-ms", type=float, default=650.0)
     parser.add_argument("--exit-latency-ms", type=float, default=350.0)
+    parser.add_argument(
+        "--latency-csv",
+        default="",
+        help="replay signal_to_provisional and IOC roundtrip rows from Demo excursion telemetry",
+    )
     parser.add_argument("--slippage-bps", type=float, default=0.5)
     parser.add_argument("--warmup-seconds", type=float, default=3.0)
     parser.add_argument("--horizon-ms", type=int, default=100)

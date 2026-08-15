@@ -566,13 +566,18 @@ constructing an order-capable adapter. It uses public Binance/MEXC WebSockets
 and the MEXC private fee table only through the existing read-only discovery
 path.
 
-Default stress assumptions are deliberately less favorable than signal-time
-paper fills:
+The preferred validation mode replays the latency rows measured in the
+2026-08-15 Demo run. Each accepted shadow signal consumes the next completed
+Demo trade's `signal_to_provisional_ms` as entry delay and
+`ioc_post_roundtrip_ms` as the best available close-request delay proxy. Exit
+request timing was not separately recorded in that run, so the latter is an
+explicit measured proxy rather than an invented constant.
+
+Other stress assumptions can be enabled separately and must not be mixed into
+the exact 92-trade-profile control:
 
 - one virtual position globally
 - 10,000 USDT virtual notional
-- 650ms signal-to-entry fill delay
-- 350ms exit-decision-to-fill delay
 - 0.5 bps additional slippage on each side
 - actual MEXC ask/bid at the delayed fill timestamp
 - refreshed exact LIVE maker=0/taker=0 eligibility; unknown/nonzero blocks entry
