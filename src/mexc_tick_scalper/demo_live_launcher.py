@@ -19,8 +19,8 @@ XAUT_ZERO_FEE_ARGS = (
     "--include-symbols", "XAUT_USDT",
     "--demo-zero-fee-only",
     "--signal-mexc-source", "demo",
-    "--min-edge-bps", "0.50",
-    "--min-net-edge-bps", "0.25",
+    "--min-edge-bps", "1.00",
+    "--min-net-edge-bps", "0.60",
     "--entry-confirm-ms", "0",
     "--demo-ioc-cross-bps", "1",
     "--strategy-bankroll-usdt", "60",
@@ -29,8 +29,6 @@ XAUT_ZERO_FEE_ARGS = (
     "--sizing-activation-trades", "20",
     "--sizing-min-profit-factor", "1.2",
     "--adverse-cut-roe-pct", "6",
-    "--max-nonpositive-hold-seconds", "30",
-    "--max-session-loss-usdt", "6",
 )
 
 

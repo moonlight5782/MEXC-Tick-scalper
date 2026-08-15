@@ -73,8 +73,8 @@ def test_launcher_uses_xaut_demo_aligned_zero_fee_profile():
     assert cmd[cmd.index("--include-symbols") + 1] == "XAUT_USDT"
     assert "--demo-zero-fee-only" in cmd
     assert cmd[cmd.index("--signal-mexc-source") + 1] == "demo"
-    assert cmd[cmd.index("--min-edge-bps") + 1] == "0.50"
-    assert cmd[cmd.index("--min-net-edge-bps") + 1] == "0.25"
+    assert cmd[cmd.index("--min-edge-bps") + 1] == "1.00"
+    assert cmd[cmd.index("--min-net-edge-bps") + 1] == "0.60"
     assert cmd[cmd.index("--demo-ioc-cross-bps") + 1] == "1"
     assert cmd[cmd.index("--strategy-bankroll-usdt") + 1] == "60"
     assert cmd[cmd.index("--target-notional-usdt") + 1] == "10000"
@@ -82,7 +82,7 @@ def test_launcher_uses_xaut_demo_aligned_zero_fee_profile():
     assert cmd[cmd.index("--sizing-activation-trades") + 1] == "20"
     assert cmd[cmd.index("--sizing-min-profit-factor") + 1] == "1.2"
     assert cmd[cmd.index("--adverse-cut-roe-pct") + 1] == "6"
-    assert cmd[cmd.index("--max-nonpositive-hold-seconds") + 1] == "30"
-    assert cmd[cmd.index("--max-session-loss-usdt") + 1] == "6"
+    assert "--max-nonpositive-hold-seconds" not in cmd
+    assert "--max-session-loss-usdt" not in cmd
     assert "--allow-demo-fee-accounting" not in cmd
     assert "--max-demo-volume" not in cmd
