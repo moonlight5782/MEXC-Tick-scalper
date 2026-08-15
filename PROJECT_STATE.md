@@ -504,3 +504,51 @@ Use this after opening the repository in Codex:
 > Read AGENTS.md and PROJECT_STATE.md completely. Inspect the current main branch and the current microspread runner/tests before editing anything. Continue the existing reconstruction; do not rebuild it. First verify that `start_demo.bat` now launches the event-driven microspread mode and that the heartbeat exposes enough telemetry to prove whether sub-1-bps residuals are actually occurring. Then run the tests. If telemetry is insufficient, add structured per-excursion logging/CSV and tests while preserving the LIVE-read-only / Demo-write-only safety boundary. Commit the changes and report measured results, remaining uncertainty, and the exact next experiment.
 
 That prompt should be enough for a fresh Codex session to pick up the project without this entire ChatGPT conversation.
+
+## 23. Frozen successful zero-fee-gross candidate
+
+The 2026-08-15 Binance-only impulse experiment is preserved as the named runner
+profile `binance-impulse-zero-fee-gross-v1`.
+
+It is classified as a **successful Demo gross candidate under the zero-fee
+counterfactual**, not as proven LIVE profitability. The frozen strategy uses:
+
+- Binance-only 100ms impulse entry; MEXC LIVE is not an entry-signal input
+- `XRP_USDT`, `LINK_USDT`, and `DOGE_USDT`
+- LIVE-account exact maker=0/taker=0 eligibility gate, read-only
+- MEXC Demo/Testnet IOC writes only, with Demo fees measured separately
+- 10,000 USDT requested IOC notional, isolated margin, up to 200x leverage
+- 1.0 bps minimum Binance impulse plus Demo executable-spread economics
+- asynchronous provisional position reconciliation
+- protected exits, 0.5 bps minimum exit profit, 60s maximum hold
+- fixed -50 USDT gross session-loss halt
+
+Reproduce the strategy parameters while choosing fresh session/telemetry limits:
+
+```powershell
+.\.venv\Scripts\python.exe -m mexc_tick_scalper.demo_microspread_test `
+  --strategy-profile binance-impulse-zero-fee-gross-v1 `
+  --session-seconds 21600 --max-cycles 100 `
+  --excursion-csv <new-excursion.csv> --residual-csv <new-residual.csv>
+```
+
+Measured result from the original run:
+
+- 91 normally logged exits plus one separately reconciled emergency exit
+- zero-fee Demo gross: +232.3418 USDT
+- Demo fees: 367.9385 USDT
+- actual Demo net: -135.5967 USDT
+- gross wins/losses/flats: 68/20/4
+- non-flat gross win rate: 77.27%
+- approximate gross profit factor: 4.89
+- median/p95 hold: 5.37s / 60.00s
+- median/p95 IOC confirmation: 642.9ms / 1766.6ms
+- median/p95 position visibility: 1041.6ms / 5049.5ms
+
+The run stopped before 100 normal exits because a confirmed XRP IOC remained
+temporarily invisible beyond the bounded reconciliation wait. Safety blocked
+additional entries and cleanup later closed the position. Before treating this
+profile as a product candidate, implement a persistent pending-entry state and
+complete an independent 100-trade validation against executable LIVE bid/ask
+shadow prices using the measured latency distribution. LIVE writes remain
+forbidden.

@@ -39,6 +39,41 @@ MAX_VOLUME_DEMO_QUARANTINE = frozenset({"ARB_USDT", "RAVE_USDT", "SEI_USDT"})
 DEMO_ROUND_TRIP_FEE_RATE = 0.0004
 DEMO_BALANCE_SAFETY_FRACTION = 0.98
 
+ZERO_FEE_GROSS_CANDIDATE_V1 = {
+    # Reproduces the 2026-08-15 Binance-impulse Demo run documented in
+    # PROJECT_STATE.md. "Successful" refers only to zero-fee Demo gross PnL.
+    "include_symbols": "XRP_USDT,LINK_USDT,DOGE_USDT",
+    "demo_zero_fee_only": False,
+    "allow_demo_fee_accounting": True,
+    "signal_mexc_source": "demo",
+    "entry_signal_source": "binance-impulse",
+    "provisional_entry": True,
+    "exit_profile": "protected-demo-net",
+    "leverage": 200,
+    "target_margin_usdt": 50.0,
+    "target_notional_usdt": 10_000.0,
+    "demo_ioc_cross_bps": 5.0,
+    "micro_horizon_ms": 100,
+    "min_edge_bps": 1.0,
+    "min_net_edge_bps": 0.20,
+    "edge_to_spread_ratio": 1.05,
+    "entry_confirm_ms": 0,
+    "max_hold_seconds": 60.0,
+    "min_exit_profit_bps": 0.5,
+    "binance_reversal_exit_bps": 1000.0,
+    "max_session_loss_usdt": 50.0,
+}
+
+
+def _apply_strategy_profile(args: argparse.Namespace) -> argparse.Namespace:
+    if args.strategy_profile == "custom":
+        return args
+    if args.strategy_profile != "binance-impulse-zero-fee-gross-v1":
+        raise ValueError(f"unknown strategy profile: {args.strategy_profile}")
+    for name, value in ZERO_FEE_GROSS_CANDIDATE_V1.items():
+        setattr(args, name, value)
+    return args
+
 
 def _estimated_demo_net_bps(
     *,
@@ -1606,6 +1641,12 @@ async def run(args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Event-driven LIVE Binance/MEXC microspread with TESTNET execution")
+    parser.add_argument(
+        "--strategy-profile",
+        choices=("custom", "binance-impulse-zero-fee-gross-v1"),
+        default="custom",
+        help="apply a frozen research profile; profile values override individual strategy flags",
+    )
     parser.add_argument("--session-seconds", type=float, default=1800.0)
     parser.add_argument("--max-cycles", type=int, default=50)
     parser.add_argument("--leverage", type=int, default=50)
@@ -1702,7 +1743,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    args = build_parser().parse_args()
+    args = _apply_strategy_profile(build_parser().parse_args())
     try:
         asyncio.run(run(args))
     except MexcWebError as exc:

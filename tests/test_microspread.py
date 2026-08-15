@@ -7,6 +7,8 @@ import pytest
 
 from mexc_tick_scalper.demo_microspread_test import (
     MicroCandidate,
+    ZERO_FEE_GROSS_CANDIDATE_V1,
+    _apply_strategy_profile,
     _adverse_cut_for_leverage,
     _append_residual_sample,
     _append_excursion,
@@ -36,6 +38,23 @@ import mexc_tick_scalper.demo_microspread_test as runner
 
 def px(base: float, bps: float) -> float:
     return base * math.exp(bps / 10_000.0)
+
+
+def test_zero_fee_gross_candidate_profile_is_frozen_and_reproducible():
+    args = runner.build_parser().parse_args([
+        "--strategy-profile", "binance-impulse-zero-fee-gross-v1",
+        "--include-symbols", "XAUT_USDT",
+        "--leverage", "1",
+    ])
+
+    applied = _apply_strategy_profile(args)
+
+    for name, value in ZERO_FEE_GROSS_CANDIDATE_V1.items():
+        assert getattr(applied, name) == value
+    assert applied.entry_signal_source == "binance-impulse"
+    assert applied.signal_mexc_source == "demo"
+    assert applied.allow_demo_fee_accounting is True
+    assert applied.demo_zero_fee_only is False
 
 
 def seed(model: MicroSpreadModel, *, until_ms: int = 3000, step_ms: int = 100) -> None:
