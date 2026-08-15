@@ -602,3 +602,49 @@ virtual entry/exit delay is calculated at decision time as the measured local
 Missing or stale probe data blocks new entries. This is the best safe online
 estimate of order arrival without sending a LIVE order; matching-engine and
 private order-gateway processing remain unknowable in read-only mode.
+
+## 25. Depth-aware partial-fill and equity-scaling shadow
+
+`live_binance_impulse_shadow.py` now has an opt-in execution realism mode that
+preserves the earlier top-of-book control for direct comparison:
+
+- `--depth-aware` retains the captured MEXC depth levels and walks them in price
+  order instead of assuming that 10,000 USDT fills at the best quote.
+- MEXC depth volume is converted from contracts through the current LIVE
+  `contractSize` metadata.
+- entry uses a marketable IOC limit controlled by `--ioc-limit-offset-bps`;
+  liquidity beyond that price is not filled.
+- a partial entry is accepted and managed as-is; the unfilled remainder is not
+  topped up, matching the historical reconstruction.
+- PnL is calculated from actual simulated base quantity and entry/exit VWAP.
+- CSV telemetry includes requested/filled notional, fill ratio, levels used,
+  entry limit, and virtual equity before/after each trade.
+- `--scale-notional-with-equity` compounds the requested IOC size from
+  `--initial-equity-usdt` (60 USDT by default), while the isolated-margin cap
+  `--max-margin-fraction` prevents the request from exceeding the configured
+  fraction of virtual equity at the contract's allowed leverage.
+
+The new mode is still strictly read-only: it constructs no LIVE or Demo order
+adapter. A representative validation command is:
+
+```powershell
+.\.venv\Scripts\python.exe -m mexc_tick_scalper.live_binance_impulse_shadow `
+  --symbols XRP_USDT,LINK_USDT,DOGE_USDT --seconds 21600 --max-trades 100 `
+  --live-latency-probe --min-edge-bps 1 --slippage-bps 0 `
+  --depth-aware --depth-levels 20 --ioc-limit-offset-bps 5 `
+  --scale-notional-with-equity --initial-equity-usdt 60 `
+  --notional-usdt 10000 --leverage 200 --output <new.csv>
+```
+
+Do not compare its absolute PnL directly with the older fixed-full-fill control;
+compare signal outcomes, fill ratios, actual filled notional, equity curve and
+drawdown separately.
+
+A two-trade LIVE read-only smoke on 2026-08-15/16 verified the real payload and
+contract conversion. The first 10,000 USDT request filled about 9,995 USDT from
+one level and lost 1.0491 USDT; equity fell from 60 to 58.9509 USDT. The next
+compounded request automatically fell to 9,825.15 USDT, filled about 9,820.46
+USDT across two levels, and gained 0.5537 USDT. Final smoke equity was 59.5046
+USDT. Both fills had sufficient visible liquidity, so this smoke validates depth
+walking and scaling but does not estimate the live partial-fill distribution;
+that requires the independent 100-trade run.

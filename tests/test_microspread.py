@@ -546,7 +546,10 @@ def test_full_depth_channel_is_parsed():
         "channel": "push.depth.full",
         "symbol": "BCH_USDT",
         "ts": 1_786_700_000_000,
-        "data": {"bids": [["100.00", "2"]], "asks": [["100.01", "3"]]},
+        "data": {
+            "bids": [["99.99", "4"], ["100.00", "2"]],
+            "asks": [["100.02", "5"], ["100.01", "3"]],
+        },
     }, 1_786_700_000_123)
 
     assert parsed is not None
@@ -554,6 +557,8 @@ def test_full_depth_channel_is_parsed():
     assert symbol == "BCH_USDT"
     assert book.bid == 100.0
     assert book.ask == 100.01
+    assert book.bids == ((100.0, 2.0), (99.99, 4.0))
+    assert book.asks == ((100.01, 3.0), (100.02, 5.0))
 
 
 def test_excursion_csv_preserves_sub_one_bps_residual(tmp_path):

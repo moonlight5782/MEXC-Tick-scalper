@@ -103,6 +103,7 @@ class PendingEntry:
     signal_spread_bps: float
     target_price: float
     exit_latency_ms: float
+    requested_notional_usdt: float
 
 
 @dataclass(slots=True)
@@ -117,6 +118,14 @@ class ShadowPosition:
     target_price: float
     exit_latency_ms: float
     trailing: PositiveTrailing
+    requested_notional_usdt: float
+    filled_notional_usdt: float
+    base_qty: float
+    fill_ratio: float
+    entry_limit_price: float
+    entry_depth_levels: int
+    entry_book_levels: int
+    entry_visible_notional_usdt: float
     mfe_bps: float = 0.0
     mae_bps: float = 0.0
 
@@ -147,6 +156,144 @@ class ShadowTrade:
     signal_to_fill_ms: int
     exit_decision_to_fill_ms: int
     exit_reason: str
+    requested_notional_usdt: float = 0.0
+    filled_notional_usdt: float = 0.0
+    fill_ratio: float = 1.0
+    entry_base_qty: float = 0.0
+    entry_limit_price: float = 0.0
+    entry_depth_levels: int = 0
+    exit_depth_levels: int = 0
+    entry_book_levels: int = 0
+    entry_visible_notional_usdt: float = 0.0
+    equity_before_usdt: float = 0.0
+    equity_after_usdt: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class DepthFill:
+    requested_base_qty: float
+    filled_base_qty: float
+    avg_price: float
+    filled_notional_usdt: float
+    levels_used: int
+    available_base_qty: float
+    available_notional_usdt: float
+
+    @property
+    def fill_ratio(self) -> float:
+        if self.requested_base_qty <= 0:
+            return 0.0
+        return min(1.0, self.filled_base_qty / self.requested_base_qty)
+
+
+def _walk_depth(
+    levels: tuple[tuple[float, float], ...],
+    *,
+    requested_base_qty: float,
+    contract_size: float,
+    buy: bool,
+    limit_price: float | None,
+    slippage_bps: float,
+) -> DepthFill:
+    """Walk one immutable MEXC depth snapshot without inventing liquidity.
+
+    MEXC depth volume is contract count, so each level is converted through
+    ``contract_size`` before it contributes to the simulated IOC fill.
+    """
+    requested = max(0.0, float(requested_base_qty))
+    size = max(0.0, float(contract_size))
+    if requested <= 0 or size <= 0:
+        return DepthFill(requested, 0.0, 0.0, 0.0, 0, 0.0, 0.0)
+    slip = max(0.0, float(slippage_bps)) / 10_000.0
+    remaining = requested
+    filled = cost = 0.0
+    available_base = available_notional = 0.0
+    used = 0
+    for raw_price, contracts in levels:
+        price = float(raw_price)
+        if limit_price is not None and ((buy and price > limit_price) or (not buy and price < limit_price)):
+            break
+        available = max(0.0, float(contracts)) * size
+        execution_price = price * (1.0 + slip if buy else 1.0 - slip)
+        available_base += available
+        available_notional += available * execution_price
+        take = min(remaining, available)
+        if take <= 0:
+            continue
+        filled += take
+        cost += take * execution_price
+        remaining -= take
+        used += 1
+    avg = cost / filled if filled > 0 else 0.0
+    return DepthFill(
+        requested, filled, avg, cost, used, available_base, available_notional,
+    )
+
+
+def _simulate_ioc_entry(
+    book: LiveBook,
+    *,
+    direction: int,
+    requested_notional_usdt: float,
+    contract_size: float,
+    limit_offset_bps: float,
+    slippage_bps: float,
+) -> tuple[DepthFill, float]:
+    best = book.ask if direction > 0 else book.bid
+    offset = max(0.0, float(limit_offset_bps)) / 10_000.0
+    limit_price = best * (1.0 + offset if direction > 0 else 1.0 - offset)
+    requested_base = max(0.0, requested_notional_usdt) / limit_price if limit_price > 0 else 0.0
+    levels = book.asks if direction > 0 else book.bids
+    return _walk_depth(
+        levels,
+        requested_base_qty=requested_base,
+        contract_size=contract_size,
+        buy=direction > 0,
+        limit_price=limit_price,
+        slippage_bps=slippage_bps,
+    ), limit_price
+
+
+def _simulate_market_exit(
+    book: LiveBook,
+    *,
+    position_direction: int,
+    base_qty: float,
+    contract_size: float,
+    slippage_bps: float,
+) -> DepthFill:
+    buy = position_direction < 0
+    return _walk_depth(
+        book.asks if buy else book.bids,
+        requested_base_qty=base_qty,
+        contract_size=contract_size,
+        buy=buy,
+        limit_price=None,
+        slippage_bps=slippage_bps,
+    )
+
+
+def _scaled_requested_notional(
+    *,
+    base_notional_usdt: float,
+    equity_usdt: float,
+    initial_equity_usdt: float,
+    leverage: int,
+    max_margin_fraction: float,
+    max_notional_usdt: float,
+    enabled: bool,
+) -> float:
+    base = max(0.0, float(base_notional_usdt))
+    equity = max(0.0, float(equity_usdt))
+    if not enabled:
+        return base
+    initial = max(0.01, float(initial_equity_usdt))
+    compounded = base * equity / initial
+    affordable = equity * max(1, int(leverage)) * min(1.0, max(0.0, float(max_margin_fraction)))
+    requested = min(compounded, affordable)
+    if max_notional_usdt > 0:
+        requested = min(requested, float(max_notional_usdt))
+    return max(0.0, requested)
 
 
 def _entry_price(book: LiveBook, direction: int, slippage_bps: float) -> float:
@@ -249,7 +396,9 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
         for row in contracts
     }
     binance = EventBinanceBookTickerFeed(contracts, models, wake)
-    mexc = EventMexcDepthFeed([row.mexc_symbol for row in contracts], models, wake)
+    mexc = EventMexcDepthFeed(
+        [row.mexc_symbol for row in contracts], models, wake, depth_limit=args.depth_levels,
+    )
     latency_probe = (
         LiveRttProbe(
             symbol=(args.latency_probe_symbol or contracts[0].mexc_symbol),
@@ -276,6 +425,7 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
     next_fee_refresh = started + args.fee_refresh_seconds
     eligible = set(requested)
     cumulative_pnl = 0.0
+    virtual_equity = max(0.01, float(args.initial_equity_usdt))
     latency_index = 0
 
     console.print(
@@ -284,6 +434,8 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
     )
     console.print(
         f"symbols={','.join(sorted(requested))} notional={args.notional_usdt:g}USDT "
+        f"depth={'ON:'+str(args.depth_levels) if args.depth_aware else 'OFF'} "
+        f"scaling={'equity:'+format(virtual_equity, 'g') if args.scale_notional_with_equity else 'fixed'} "
         f"latency={'LiveRTT' if latency_probe else 'DemoReplay:'+str(len(latency_samples)) if latency_samples else f'fixed:{args.entry_latency_ms:g}/{args.exit_latency_ms:g}ms'} "
         f"slippage_each_side={args.slippage_bps:g}bps"
     )
@@ -306,9 +458,27 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
                 book = mexc.books.get(position.symbol)
                 if _fresh(book, now_ms, args.max_book_age_ms):
                     assert book is not None
-                    price = _exit_price(book, position.direction, args.slippage_bps)
+                    contract = contracts_by_symbol[position.symbol]
+                    exit_levels = 0
+                    if args.depth_aware:
+                        depth_fill = _simulate_market_exit(
+                            book,
+                            position_direction=position.direction,
+                            base_qty=position.base_qty,
+                            contract_size=contract.contract_size,
+                            slippage_bps=args.slippage_bps,
+                        )
+                        if depth_fill.fill_ratio < 1.0 - 1e-9:
+                            await _yield_market_update(wake, args.idle_timeout_seconds)
+                            continue
+                        price = depth_fill.avg_price
+                        exit_levels = depth_fill.levels_used
+                    else:
+                        price = _exit_price(book, position.direction, args.slippage_bps)
                     pnl_bps = _signed_move_bps(position.direction, position.entry_price, price)
-                    pnl_usdt = args.notional_usdt * pnl_bps / 10_000.0
+                    pnl_usdt = position.direction * position.base_qty * (price - position.entry_price)
+                    equity_before = virtual_equity
+                    virtual_equity = max(0.0, virtual_equity + pnl_usdt)
                     trade = ShadowTrade(
                         symbol=position.symbol,
                         direction=position.direction,
@@ -327,13 +497,26 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
                         signal_to_fill_ms=position.entry_ms - position.signal_ms,
                         exit_decision_to_fill_ms=now_ms - pending_exit.decision_ms,
                         exit_reason=pending_exit.reason,
+                        requested_notional_usdt=position.requested_notional_usdt,
+                        filled_notional_usdt=position.filled_notional_usdt,
+                        fill_ratio=position.fill_ratio,
+                        entry_base_qty=position.base_qty,
+                        entry_limit_price=position.entry_limit_price,
+                        entry_depth_levels=position.entry_depth_levels,
+                        exit_depth_levels=exit_levels,
+                        entry_book_levels=position.entry_book_levels,
+                        entry_visible_notional_usdt=position.entry_visible_notional_usdt,
+                        equity_before_usdt=equity_before,
+                        equity_after_usdt=virtual_equity,
                     )
                     trades.append(trade)
                     cumulative_pnl += pnl_usdt
                     console.print(
                         f"SHADOW EXIT {trade.symbol} {'LONG' if trade.direction > 0 else 'SHORT'} "
                         f"reason={trade.exit_reason} pnl={trade.pnl_bps:+.3f}bps/{trade.pnl_usdt:+.4f}USDT "
-                        f"hold={trade.hold_ms}ms"
+                        f"hold={trade.hold_ms}ms fill={trade.filled_notional_usdt:.2f}/"
+                        f"{trade.requested_notional_usdt:.2f}USDT ({trade.fill_ratio:.1%}) "
+                        f"equity={trade.equity_after_usdt:.4f}USDT"
                     )
                     _write_csv(output, trades)
                     position = None
@@ -411,7 +594,41 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
                     book = mexc.books.get(pending_entry.symbol)
                     if _fresh(book, now_ms, args.max_book_age_ms):
                         assert book is not None
-                        price = _entry_price(book, pending_entry.direction, args.slippage_bps)
+                        contract = contracts_by_symbol[pending_entry.symbol]
+                        leverage = min(max(1, int(args.leverage)), max(1, contract.max_leverage))
+                        if args.depth_aware:
+                            fill, entry_limit = _simulate_ioc_entry(
+                                book,
+                                direction=pending_entry.direction,
+                                requested_notional_usdt=pending_entry.requested_notional_usdt,
+                                contract_size=contract.contract_size,
+                                limit_offset_bps=args.ioc_limit_offset_bps,
+                                slippage_bps=args.slippage_bps,
+                            )
+                            if fill.filled_base_qty + 1e-12 < contract.contract_size * contract.min_vol:
+                                console.print(
+                                    f"SHADOW IOC UNFILLED {pending_entry.symbol} requested="
+                                    f"{pending_entry.requested_notional_usdt:.2f}USDT"
+                                )
+                                pending_entry = None
+                                await _yield_market_update(wake, args.idle_timeout_seconds)
+                                continue
+                            price = fill.avg_price
+                            base_qty = fill.filled_base_qty
+                            filled_notional = fill.filled_notional_usdt
+                            fill_ratio = fill.fill_ratio
+                            entry_levels = fill.levels_used
+                            entry_book_levels = len(book.asks if pending_entry.direction > 0 else book.bids)
+                            entry_visible_notional = fill.available_notional_usdt
+                        else:
+                            price = _entry_price(book, pending_entry.direction, args.slippage_bps)
+                            base_qty = pending_entry.requested_notional_usdt / price
+                            filled_notional = pending_entry.requested_notional_usdt
+                            fill_ratio = 1.0
+                            entry_limit = price
+                            entry_levels = 0
+                            entry_book_levels = 0
+                            entry_visible_notional = 0.0
                         position = ShadowPosition(
                             symbol=pending_entry.symbol,
                             direction=pending_entry.direction,
@@ -423,11 +640,22 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
                             target_price=pending_entry.target_price,
                             exit_latency_ms=pending_entry.exit_latency_ms,
                             trailing=PositiveTrailing(distance_bps=max(args.trailing_distance_bps, book.spread_bps)),
+                            requested_notional_usdt=pending_entry.requested_notional_usdt,
+                            filled_notional_usdt=filled_notional,
+                            base_qty=base_qty,
+                            fill_ratio=fill_ratio,
+                            entry_limit_price=entry_limit,
+                            entry_depth_levels=entry_levels,
+                            entry_book_levels=entry_book_levels,
+                            entry_visible_notional_usdt=entry_visible_notional,
                         )
                         console.print(
                             f"SHADOW ENTRY {position.symbol} {'LONG' if position.direction > 0 else 'SHORT'} "
                             f"impulse={position.impulse_bps:+.3f}bps spread={book.spread_bps:.3f} "
-                            f"signal_to_fill={now_ms-position.signal_ms}ms px={price:g}"
+                            f"signal_to_fill={now_ms-position.signal_ms}ms px={price:g} "
+                            f"fill={filled_notional:.2f}/{pending_entry.requested_notional_usdt:.2f}USDT "
+                            f"({fill_ratio:.1%}) levels={entry_levels}/{entry_book_levels} "
+                            f"visible={entry_visible_notional:.2f}USDT lev={leverage}x"
                         )
                         pending_entry = None
                 await _yield_market_update(wake, args.idle_timeout_seconds)
@@ -467,6 +695,19 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
                         else LatencySample(args.entry_latency_ms, args.exit_latency_ms)
                     )
                     latency_index += 1
+                    contract = contracts_by_symbol[symbol]
+                    leverage = min(max(1, int(args.leverage)), max(1, contract.max_leverage))
+                    requested_notional = _scaled_requested_notional(
+                        base_notional_usdt=args.notional_usdt,
+                        equity_usdt=virtual_equity,
+                        initial_equity_usdt=args.initial_equity_usdt,
+                        leverage=leverage,
+                        max_margin_fraction=args.max_margin_fraction,
+                        max_notional_usdt=args.max_notional_usdt,
+                        enabled=args.scale_notional_with_equity,
+                    )
+                    if requested_notional <= 0:
+                        continue
                     pending_entry = PendingEntry(
                         symbol=symbol,
                         direction=snap.direction,
@@ -476,11 +717,12 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
                         signal_spread_bps=book.spread_bps,
                         target_price=book.mid * math.exp(snap.binance_move_bps / 10_000.0),
                         exit_latency_ms=latency.exit_ms,
+                        requested_notional_usdt=requested_notional,
                     )
                     console.print(
                         f"SHADOW SIGNAL {symbol} {'LONG' if snap.direction > 0 else 'SHORT'} "
                         f"impulse={snap.binance_move_bps:+.3f}bps threshold={threshold:.3f} "
-                        f"spread={book.spread_bps:.3f}"
+                        f"spread={book.spread_bps:.3f} requested={requested_notional:.2f}USDT"
                     )
                     break
 
@@ -502,7 +744,7 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
                     f"SHADOW STATUS trades={stats['trades']} W/L/F={stats['wins']}/{stats['losses']}/{stats['flats']} "
                     f"pnl={stats['pnl_usdt']:+.4f}USDT books={len(mexc.books)}/{len(contracts)} "
                     f"Bquotes={binance.quotes} Mdepth={mexc.updates} "
-                    f"{latency_status}state={state}"
+                    f"{latency_status}equity={virtual_equity:.4f}USDT state={state}"
                 )
                 next_status = now + args.status_seconds
 
@@ -530,6 +772,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seconds", type=float, default=21600.0)
     parser.add_argument("--max-trades", type=int, default=100)
     parser.add_argument("--notional-usdt", type=float, default=10_000.0)
+    parser.add_argument(
+        "--depth-aware", action="store_true",
+        help="walk captured MEXC depth for IOC entry and reduce-only exit instead of assuming full top-book fills",
+    )
+    parser.add_argument("--depth-levels", type=int, default=20)
+    parser.add_argument("--ioc-limit-offset-bps", type=float, default=5.0)
+    parser.add_argument(
+        "--scale-notional-with-equity", action="store_true",
+        help="compound requested IOC notional from the virtual equity curve",
+    )
+    parser.add_argument("--initial-equity-usdt", type=float, default=60.0)
+    parser.add_argument("--max-margin-fraction", type=float, default=0.90)
+    parser.add_argument(
+        "--max-notional-usdt", type=float, default=0.0,
+        help="optional cap for compounded requested IOC notional; 0 means only the margin cap applies",
+    )
     parser.add_argument("--entry-latency-ms", type=float, default=650.0)
     parser.add_argument("--exit-latency-ms", type=float, default=350.0)
     parser.add_argument("--live-latency-probe", action="store_true")

@@ -20,6 +20,8 @@ class LiveBook:
     ask: float
     recv_ms: int
     exchange_ts_ms: int
+    bids: tuple[tuple[float, float], ...] = ()
+    asks: tuple[tuple[float, float], ...] = ()
 
     @property
     def mid(self) -> float:
@@ -111,12 +113,14 @@ class EventMexcDepthFeed:
         wake: asyncio.Event,
         *,
         shard_size: int = 20,
+        depth_limit: int = 5,
         ws_url: str = MEXC_FUTURES_WS,
     ) -> None:
         self.symbols = list(symbols)
         self.models = models or {}
         self.wake = wake
         self.shard_size = max(1, int(shard_size))
+        self.depth_limit = max(1, int(depth_limit))
         self.ws_url = str(ws_url)
         self.books: dict[str, LiveBook] = {}
         self._tasks: list[asyncio.Task] = []
@@ -144,24 +148,42 @@ class EventMexcDepthFeed:
         bids = data.get("bids") or []
         asks = data.get("asks") or []
         try:
-            bid = max(
-                float(row[0])
-                for row in bids
-                if isinstance(row, (list, tuple)) and len(row) >= 2 and float(row[1]) > 0
-            )
-            ask = min(
-                float(row[0])
-                for row in asks
-                if isinstance(row, (list, tuple)) and len(row) >= 2 and float(row[1]) > 0
-            )
+            bid_levels = tuple(sorted(
+                (
+                    (float(row[0]), float(row[1]))
+                    for row in bids
+                    if isinstance(row, (list, tuple)) and len(row) >= 2 and float(row[1]) > 0
+                ),
+                key=lambda row: row[0],
+                reverse=True,
+            ))
+            ask_levels = tuple(sorted(
+                (
+                    (float(row[0]), float(row[1]))
+                    for row in asks
+                    if isinstance(row, (list, tuple)) and len(row) >= 2 and float(row[1]) > 0
+                ),
+                key=lambda row: row[0],
+            ))
         except (TypeError, ValueError):
             return None
+        if not bid_levels or not ask_levels:
+            return None
+        bid = bid_levels[0][0]
+        ask = ask_levels[0][0]
         if not (ask > bid > 0):
             return None
         exchange_ts = int(payload.get("ts") or recv_ms)
         if exchange_ts < 10_000_000_000:
             exchange_ts *= 1000
-        return symbol, LiveBook(bid=bid, ask=ask, recv_ms=recv_ms, exchange_ts_ms=exchange_ts)
+        return symbol, LiveBook(
+            bid=bid,
+            ask=ask,
+            recv_ms=recv_ms,
+            exchange_ts_ms=exchange_ts,
+            bids=bid_levels,
+            asks=ask_levels,
+        )
 
     async def start(self) -> None:
         self._stop.clear()
@@ -188,7 +210,7 @@ class EventMexcDepthFeed:
                         for symbol in symbols:
                             await ws.send_json({
                                 "method": "sub.depth.full",
-                                "param": {"symbol": symbol, "limit": 5},
+                                "param": {"symbol": symbol, "limit": self.depth_limit},
                                 "gzip": False,
                             })
                         self.last_errors.pop(shard_id, None)

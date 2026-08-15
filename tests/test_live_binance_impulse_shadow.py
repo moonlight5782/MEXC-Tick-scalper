@@ -6,6 +6,9 @@ from mexc_tick_scalper.live_binance_impulse_shadow import (
     _entry_price,
     _exit_price,
     _load_latency_samples,
+    _scaled_requested_notional,
+    _simulate_ioc_entry,
+    _simulate_market_exit,
     _summary,
 )
 from mexc_tick_scalper.microspread_feed import LiveBook
@@ -84,3 +87,88 @@ def test_live_rtt_probe_uses_recent_robust_half_rtt():
     assert probe.median_rtt_ms == 30.0
     assert probe.current_one_way_ms(now=102.0, max_age_seconds=3.0) == 15.0
     assert probe.current_one_way_ms(now=104.0, max_age_seconds=3.0) is None
+
+
+def test_depth_ioc_accepts_partial_fill_without_topping_up():
+    book = LiveBook(
+        bid=99.9,
+        ask=100.0,
+        recv_ms=1,
+        exchange_ts_ms=1,
+        bids=((99.9, 3.0), (99.8, 4.0)),
+        asks=((100.0, 2.0), (100.02, 3.0), (100.20, 100.0)),
+    )
+
+    fill, limit_price = _simulate_ioc_entry(
+        book,
+        direction=1,
+        requested_notional_usdt=1_000.0,
+        contract_size=1.0,
+        limit_offset_bps=5.0,
+        slippage_bps=0.0,
+    )
+
+    assert limit_price == pytest.approx(100.05)
+    assert fill.requested_base_qty == pytest.approx(1_000.0 / 100.05)
+    assert fill.filled_base_qty == pytest.approx(5.0)
+    assert fill.filled_notional_usdt == pytest.approx(500.06)
+    assert fill.avg_price == pytest.approx(100.012)
+    assert fill.fill_ratio == pytest.approx(0.50025)
+    assert fill.levels_used == 2
+    assert fill.available_base_qty == pytest.approx(5.0)
+    assert fill.available_notional_usdt == pytest.approx(500.06)
+
+
+def test_depth_market_exit_uses_vwap_and_reports_visible_shortfall():
+    book = LiveBook(
+        bid=99.9,
+        ask=100.0,
+        recv_ms=1,
+        exchange_ts_ms=1,
+        bids=((99.9, 2.0), (99.8, 3.0)),
+        asks=((100.0, 10.0),),
+    )
+
+    fill = _simulate_market_exit(
+        book,
+        position_direction=1,
+        base_qty=8.0,
+        contract_size=1.0,
+        slippage_bps=0.0,
+    )
+
+    assert fill.filled_base_qty == pytest.approx(5.0)
+    assert fill.avg_price == pytest.approx(99.84)
+    assert fill.fill_ratio == pytest.approx(0.625)
+    assert fill.levels_used == 2
+    assert fill.available_notional_usdt == pytest.approx(499.2)
+
+
+def test_equity_scaling_compounds_but_respects_isolated_margin_cap():
+    assert _scaled_requested_notional(
+        base_notional_usdt=10_000.0,
+        equity_usdt=60.0,
+        initial_equity_usdt=60.0,
+        leverage=200,
+        max_margin_fraction=0.90,
+        max_notional_usdt=0.0,
+        enabled=True,
+    ) == pytest.approx(10_000.0)
+    assert _scaled_requested_notional(
+        base_notional_usdt=10_000.0,
+        equity_usdt=66.0,
+        initial_equity_usdt=60.0,
+        leverage=200,
+        max_margin_fraction=0.90,
+        max_notional_usdt=10_500.0,
+        enabled=True,
+    ) == pytest.approx(10_500.0)
+    assert _scaled_requested_notional(
+        base_notional_usdt=10_000.0,
+        equity_usdt=10.0,
+        initial_equity_usdt=60.0,
+        leverage=100,
+        max_margin_fraction=0.50,
+        max_notional_usdt=0.0,
+        enabled=True,
+    ) == pytest.approx(500.0)
