@@ -725,15 +725,27 @@ async def _find_demo_position(adapter, symbol: str, side: OrderSide) -> Position
 
 
 async def _wait_for_demo_position(
-    adapter, symbol: str, side: OrderSide, *, timeout_seconds: float = 5.0,
+    adapter,
+    symbol: str,
+    side: OrderSide,
+    *,
+    timeout_seconds: float | None = 5.0,
+    poll_seconds: float = 0.08,
 ) -> PositionSnapshot | None:
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() < deadline:
+    deadline = None if timeout_seconds is None else time.monotonic() + timeout_seconds
+    while deadline is None or time.monotonic() < deadline:
         position = await _find_demo_position(adapter, symbol, side)
         if position is not None:
             return position
-        await asyncio.sleep(0.08)
+        await asyncio.sleep(poll_seconds)
     return None
+
+
+def _run_window_open(
+    *, now: float, deadline: float, cycles: int, max_cycles: int, pending_entry: bool,
+) -> bool:
+    """Never abandon a confirmed IOC merely because the normal run limit elapsed."""
+    return pending_entry or (now < deadline and cycles < max_cycles)
 
 
 async def run(args: argparse.Namespace) -> None:
@@ -938,7 +950,13 @@ async def run(args: argparse.Namespace) -> None:
                 fee_checked_ms = int(time.time() * 1000)
                 next_fee_refresh = time.monotonic() + FEE_REFRESH_SECONDS
 
-            while time.monotonic() < deadline and cycles < int(args.max_cycles):
+            while _run_window_open(
+                now=time.monotonic(),
+                deadline=deadline,
+                cycles=cycles,
+                max_cycles=int(args.max_cycles),
+                pending_entry=position_is_provisional,
+            ):
                 now = time.monotonic()
                 now_ms = int(time.time() * 1000)
 
@@ -1183,7 +1201,12 @@ async def run(args: argparse.Namespace) -> None:
                                                 position_id=fill.position_id,
                                             )
                                             position_visibility_task = asyncio.create_task(
-                                                _wait_for_demo_position(demo_adapter, consumed.symbol, side)
+                                                _wait_for_demo_position(
+                                                    demo_adapter,
+                                                    consumed.symbol,
+                                                    side,
+                                                    timeout_seconds=None,
+                                                )
                                             )
                                         else:
                                             remote = await _find_demo_position(demo_adapter, consumed.symbol, side)
@@ -1487,7 +1510,8 @@ async def run(args: argparse.Namespace) -> None:
                                 f"MAE={live_mae_bps:+.3f} DemoNetMark={demo_mark_net:+.6f}USDT "
                                 f"DemoNet={demo_mark_net_bps:+.3f}bps DemoMFE={demo_net_mfe_bps:+.3f} "
                                 f"DemoMAE={demo_net_mae_bps:+.3f} TRAIL={trail_txt} residual={snap.edge_bps:+.3f}bps "
-                                f"B100={snap.binance_move_bps:+.3f}"
+                                f"B100={snap.binance_move_bps:+.3f} "
+                                f"reconcile={'PENDING' if position_is_provisional else 'VISIBLE'}"
                             )
                             next_heartbeat = now + float(args.heartbeat_seconds)
 

@@ -276,11 +276,17 @@ MEXC Testnet has shown a behavior where an IOC request reports a positive fill b
 Earlier this caused a fatal error:
 `IOC fill reported but position did not appear after reconciliation`
 
-The adapter now contains bounded visibility waiting and a late-position reconciliation path. If the remote position appears later, it can be recovered rather than immediately killing the session.
+The adapter contains bounded visibility waiting and the microspread runner now
+adds a persistent pending-entry state for confirmed IOC fills. While the remote
+position remains invisible, the locally confirmed fill is managed provisionally,
+all new entries stay blocked, and reconciliation continues past the old five-second
+limit and past normal session/trade-count limits. Once visible, the exact remote
+position replaces the provisional snapshot and any already-triggered exit is sent
+reduce-only.
 
-Do not remove this protection casually.
-
-There is still a theoretical uncertainty window if Testnet hides the position for unusually long periods. If logs show that, implement an explicit persistent pending-entry state that blocks any new entry until remote state is resolved.
+Do not remove this protection casually. A manually interrupted process still
+depends on startup/shutdown Demo flattening, so Demo must be confirmed flat before
+and after every experiment.
 
 ## 13. Exit logic
 
@@ -545,10 +551,9 @@ Measured result from the original run:
 - median/p95 IOC confirmation: 642.9ms / 1766.6ms
 - median/p95 position visibility: 1041.6ms / 5049.5ms
 
-The run stopped before 100 normal exits because a confirmed XRP IOC remained
-temporarily invisible beyond the bounded reconciliation wait. Safety blocked
-additional entries and cleanup later closed the position. Before treating this
-profile as a product candidate, implement a persistent pending-entry state and
-complete an independent 100-trade validation against executable LIVE bid/ask
-shadow prices using the measured latency distribution. LIVE writes remain
-forbidden.
+The original run stopped before 100 normal exits because a confirmed XRP IOC
+remained temporarily invisible beyond the old bounded reconciliation wait.
+Persistent pending-entry reconciliation has since replaced that failure path.
+Before treating this profile as a product candidate, complete an independent
+100-trade validation against executable LIVE bid/ask shadow prices using the
+measured latency distribution. LIVE writes remain forbidden.

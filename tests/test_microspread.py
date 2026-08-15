@@ -28,6 +28,8 @@ from mexc_tick_scalper.demo_microspread_test import (
     _profitable_reversal_exit_allowed,
     _read_fee_pair_fail_closed,
     _required_edge,
+    _run_window_open,
+    _wait_for_demo_position,
 )
 from mexc_tick_scalper.microspread import BinanceImpulseModel, MicroSpreadModel, MicroSpreadSnapshot
 from mexc_tick_scalper.microspread_feed import EventMexcDepthFeed, LiveBook
@@ -55,6 +57,47 @@ def test_zero_fee_gross_candidate_profile_is_frozen_and_reproducible():
     assert applied.signal_mexc_source == "demo"
     assert applied.allow_demo_fee_accounting is True
     assert applied.demo_zero_fee_only is False
+
+
+def test_pending_entry_keeps_run_window_open_after_normal_limits():
+    assert _run_window_open(
+        now=101.0, deadline=100.0, cycles=100, max_cycles=100, pending_entry=True,
+    )
+    assert not _run_window_open(
+        now=101.0, deadline=100.0, cycles=100, max_cycles=100, pending_entry=False,
+    )
+
+
+def test_persistent_position_reconciliation_waits_until_visible():
+    expected = PositionSnapshot(
+        symbol="XRP_USDT",
+        side=OrderSide.LONG,
+        qty=10.0,
+        entry_price=1.0,
+        leverage=200,
+        isolated=True,
+        position_id="late-position",
+    )
+
+    class LateAdapter:
+        def __init__(self):
+            self.calls = 0
+
+        async def get_positions(self, symbol):
+            self.calls += 1
+            return [expected] if self.calls == 8 else []
+
+    adapter = LateAdapter()
+    visible = asyncio.run(_wait_for_demo_position(
+        adapter,
+        "XRP_USDT",
+        OrderSide.LONG,
+        timeout_seconds=None,
+        poll_seconds=0.0,
+    ))
+
+    assert visible is expected
+    assert adapter.calls == 8
 
 
 def seed(model: MicroSpreadModel, *, until_ms: int = 3000, step_ms: int = 100) -> None:
