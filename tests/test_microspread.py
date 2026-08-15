@@ -19,6 +19,7 @@ from mexc_tick_scalper.demo_microspread_test import (
     _history_reconciled_fill,
     _estimated_demo_net_bps,
     _marketable_demo_price,
+    _nonpositive_timeout_allowed,
     _open_demo_ioc_with_leverage_fallback,
     _profitable_reversal_exit_allowed,
     _read_fee_pair_fail_closed,
@@ -157,6 +158,7 @@ def test_microspread_runner_imports():
     assert args.sizing_activation_trades == 0
     assert args.sizing_min_profit_factor == 1.2
     assert args.adverse_cut_roe_pct == 0.0
+    assert args.max_nonpositive_hold_seconds == 0.0
     assert args.residual_sample_ms == 100
 
 
@@ -255,6 +257,18 @@ def test_adverse_cut_is_normalized_to_margin_roe_but_covers_spread():
         leverage=1000, spread_bps=0.60, fixed_cut_bps=1.5,
         spread_multiple=1.25, adverse_roe_pct=6.0,
     ) == pytest.approx(0.75)
+
+
+def test_nonpositive_timeout_never_cuts_a_profitable_position():
+    assert not _nonpositive_timeout_allowed(
+        age_seconds=120.0, timeout_seconds=30.0, demo_net_bps=0.01,
+    )
+    assert _nonpositive_timeout_allowed(
+        age_seconds=30.0, timeout_seconds=30.0, demo_net_bps=0.0,
+    )
+    assert not _nonpositive_timeout_allowed(
+        age_seconds=29.9, timeout_seconds=30.0, demo_net_bps=-1.0,
+    )
 
 
 def test_old_bot_sizing_activates_only_after_positive_probation_pf():

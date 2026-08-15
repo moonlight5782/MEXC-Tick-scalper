@@ -139,6 +139,10 @@ def _adverse_cut_for_leverage(
     return max(leverage_cut, spread_bps * spread_multiple)
 
 
+def _nonpositive_timeout_allowed(*, age_seconds: float, timeout_seconds: float, demo_net_bps: float) -> bool:
+    return timeout_seconds > 0 and age_seconds >= timeout_seconds and demo_net_bps <= 0
+
+
 def _update_leverage_normalized_trailing(
     trailing: PositiveTrailing, move_bps: float, *, leverage: int, reference_leverage: int = 200,
 ) -> float | None:
@@ -1182,6 +1186,12 @@ async def run(args: argparse.Namespace) -> None:
                             reason = "binance_micro_reversal"
                         if reason is None and args.max_hold_seconds > 0 and age_s >= args.max_hold_seconds:
                             reason = "microspread_timeout"
+                        if reason is None and _nonpositive_timeout_allowed(
+                            age_seconds=age_s,
+                            timeout_seconds=args.max_nonpositive_hold_seconds,
+                            demo_net_bps=demo_mark_net_bps,
+                        ):
+                            reason = "nonpositive_timeout"
 
                         if now >= next_heartbeat:
                             trail_txt = "OFF" if trail is None else f"+{trail:.3f}bps"
@@ -1369,6 +1379,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-hold-seconds", type=float, default=0.0,
         help="hard position timeout; 0 disables it so convergence/protective exits control the hold",
+    )
+    parser.add_argument(
+        "--max-nonpositive-hold-seconds", type=float, default=0.0,
+        help="close after this age only when executable Demo net PnL is nonpositive; 0 disables it",
     )
     parser.add_argument("--adverse-cut-bps", type=float, default=1.5)
     parser.add_argument("--adverse-spread-mult", type=float, default=1.25)

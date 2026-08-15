@@ -82,5 +82,7 @@ def test_launcher_uses_xaut_demo_aligned_zero_fee_profile():
     assert cmd[cmd.index("--sizing-activation-trades") + 1] == "20"
     assert cmd[cmd.index("--sizing-min-profit-factor") + 1] == "1.2"
     assert cmd[cmd.index("--adverse-cut-roe-pct") + 1] == "6"
+    assert cmd[cmd.index("--max-nonpositive-hold-seconds") + 1] == "30"
+    assert cmd[cmd.index("--max-session-loss-usdt") + 1] == "6"
     assert "--allow-demo-fee-accounting" not in cmd
     assert "--max-demo-volume" not in cmd
