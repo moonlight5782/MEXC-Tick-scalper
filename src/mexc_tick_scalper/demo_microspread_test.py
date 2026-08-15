@@ -147,6 +147,16 @@ def _update_leverage_normalized_trailing(
     return None if normalized_stop is None else normalized_stop / scale
 
 
+async def _read_fee_pair_fail_closed(live_adapter, demo_adapter):
+    """Return both fee snapshots atomically; network failure must never enable entries."""
+    try:
+        live = await read_web_fee_provider(live_adapter)
+        demo = await read_web_fee_provider(demo_adapter)
+    except Exception as exc:
+        return None, None, type(exc).__name__
+    return live, demo, ""
+
+
 @dataclass(frozen=True, slots=True)
 class DemoLiveContract:
     live: LiveZeroFeeContract
@@ -724,6 +734,7 @@ async def run(args: argparse.Namespace) -> None:
     demo_fee_provider = None
     fee_checked_ms = 0
     next_fee_refresh = 0.0
+    next_fee_warning = 0.0
     next_heartbeat = 0.0
     warmup_until = time.monotonic() + float(args.warmup_seconds)
     deadline = time.monotonic() + float(args.session_seconds)
@@ -785,20 +796,42 @@ async def run(args: argparse.Namespace) -> None:
                 f"Demo sizing: available={demo_available_usdt:g}USDT mode={sizing_label}"
             )
 
-            live_fee_provider = await read_web_fee_provider(live_fee_adapter)
-            demo_fee_provider = await read_web_fee_provider(demo_adapter)
-            fee_checked_ms = int(time.time() * 1000)
-            next_fee_refresh = time.monotonic() + FEE_REFRESH_SECONDS
+            live_fee_provider, demo_fee_provider, fee_error = await _read_fee_pair_fail_closed(
+                live_fee_adapter, demo_adapter,
+            )
+            if fee_error:
+                fee_checked_ms = 0
+                next_fee_refresh = time.monotonic() + 1.0
+                hybrid.console.print(
+                    f"[yellow]Fee refresh unavailable ({fee_error}); new entries blocked, retrying.[/yellow]"
+                )
+            else:
+                fee_checked_ms = int(time.time() * 1000)
+                next_fee_refresh = time.monotonic() + FEE_REFRESH_SECONDS
 
             while time.monotonic() < deadline and cycles < int(args.max_cycles):
                 now = time.monotonic()
                 now_ms = int(time.time() * 1000)
 
                 if now >= next_fee_refresh:
-                    live_fee_provider = await read_web_fee_provider(live_fee_adapter)
-                    demo_fee_provider = await read_web_fee_provider(demo_adapter)
-                    fee_checked_ms = int(time.time() * 1000)
-                    next_fee_refresh = time.monotonic() + FEE_REFRESH_SECONDS
+                    refreshed_live, refreshed_demo, fee_error = await _read_fee_pair_fail_closed(
+                        live_fee_adapter, demo_adapter,
+                    )
+                    if fee_error:
+                        # Retain the last snapshot for an existing position's accounting,
+                        # but mark it stale so no new entry can pass the fee gate.
+                        fee_checked_ms = 0
+                        next_fee_refresh = now + 1.0
+                        if now >= next_fee_warning:
+                            hybrid.console.print(
+                                f"[yellow]Fee refresh unavailable ({fee_error}); new entries blocked, retrying.[/yellow]"
+                            )
+                            next_fee_warning = now + 15.0
+                    else:
+                        live_fee_provider = refreshed_live
+                        demo_fee_provider = refreshed_demo
+                        fee_checked_ms = int(time.time() * 1000)
+                        next_fee_refresh = now + FEE_REFRESH_SECONDS
 
                 if position is None:
                     candidates: list[MicroCandidate] = []

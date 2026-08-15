@@ -21,6 +21,7 @@ from mexc_tick_scalper.demo_microspread_test import (
     _marketable_demo_price,
     _open_demo_ioc_with_leverage_fallback,
     _profitable_reversal_exit_allowed,
+    _read_fee_pair_fail_closed,
     _required_edge,
 )
 from mexc_tick_scalper.microspread import MicroSpreadModel, MicroSpreadSnapshot
@@ -226,6 +227,23 @@ def test_explicit_target_notional_overrides_probation_and_equity_sizing():
         fixed_margin_usdt=0.1, strategy_equity_usdt=60.0,
         target_exposure_multiple=10.6, leverage=200, target_notional_usdt=10_000.0,
     ) == pytest.approx(50.0)
+
+
+def test_fee_pair_network_failure_is_fail_closed(monkeypatch):
+    calls = 0
+
+    async def failing_provider(adapter):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("temporary DNS failure")
+        return object()
+
+    monkeypatch.setattr(runner, "read_web_fee_provider", failing_provider)
+    live, demo, error = asyncio.run(_read_fee_pair_fail_closed(object(), object()))
+    assert live is None
+    assert demo is None
+    assert error == "OSError"
 
 
 def test_adverse_cut_is_normalized_to_margin_roe_but_covers_spread():
