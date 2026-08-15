@@ -38,6 +38,7 @@ class _FastLeadLagDemoAdapter(_GuardedDemoAdapter):
         return await MexcWebExecutionAdapter.get_best_price(self, symbol, side)
 
     async def open_ioc(self, *args, **kwargs):
+        wait_for_visibility = bool(kwargs.pop("wait_for_visibility", True))
         symbol = str(kwargs.get("symbol") or "").upper()
         side = kwargs.get("side")
         if not symbol or side not in (OrderSide.LONG, OrderSide.SHORT):
@@ -45,7 +46,7 @@ class _FastLeadLagDemoAdapter(_GuardedDemoAdapter):
 
         self._entry_started = True
         fill = await MexcWebExecutionAdapter.open_ioc(self, *args, **kwargs)
-        if fill.filled_qty > 0:
+        if fill.filled_qty > 0 and wait_for_visibility:
             visible = await self._wait_position_visible(symbol, side)
             if visible is None:
                 hybrid.console.print(

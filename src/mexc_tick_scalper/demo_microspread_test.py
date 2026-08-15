@@ -25,7 +25,7 @@ from .live_zero_fee_universe import (
     discover_live_zero_fee_crosslisted,
 )
 from .market import MexcPublicMarket
-from .microspread import MicroSpreadModel, MicroSpreadSnapshot
+from .microspread import BinanceImpulseModel, MicroSpreadModel, MicroSpreadSnapshot
 from .microspread_feed import EventBinanceBookTickerFeed, EventMexcDepthFeed, LiveBook
 from .web_execution import MexcWebError, MexcWebExecutionAdapter, WebExecutionConfig
 from .web_fee import read_web_fee_provider
@@ -297,9 +297,9 @@ EXCURSION_FIELDS = (
     "exit_residual_bps", "decision_demo_net_bps",
     "signal_detected_ms", "demo_book_lookup_start_ms", "demo_book_lookup_end_ms",
     "ioc_call_start_ms", "ioc_post_start_ms", "ioc_post_response_ms", "ioc_confirmed_ms",
-    "reconciliation_start_ms", "position_visible_ms", "signal_to_ioc_post_ms",
+    "reconciliation_start_ms", "provisional_started_ms", "position_visible_ms", "signal_to_ioc_post_ms",
     "ioc_post_roundtrip_ms", "ioc_confirmation_ms", "reconciliation_ms",
-    "signal_to_position_visible_ms",
+    "signal_to_provisional_ms", "signal_to_position_visible_ms",
 )
 
 RESIDUAL_FIELDS = (
@@ -329,11 +329,13 @@ def _entry_timing_csv_values(marks: dict[str, float] | None) -> dict[str, str]:
         "ioc_post_response_ms": value("ioc_post_response_ms"),
         "ioc_confirmed_ms": value("ioc_confirmed_ms"),
         "reconciliation_start_ms": value("reconciliation_start_ms"),
+        "provisional_started_ms": value("provisional_started_ms"),
         "position_visible_ms": value("position_visible_ms"),
         "signal_to_ioc_post_ms": duration("signal_detected_ms", "ioc_post_start_ms"),
         "ioc_post_roundtrip_ms": duration("ioc_post_start_ms", "ioc_post_response_ms"),
         "ioc_confirmation_ms": duration("ioc_post_start_ms", "ioc_confirmed_ms"),
         "reconciliation_ms": duration("reconciliation_start_ms", "position_visible_ms"),
+        "signal_to_provisional_ms": duration("signal_detected_ms", "provisional_started_ms"),
         "signal_to_position_visible_ms": duration("signal_detected_ms", "position_visible_ms"),
     }
 
@@ -502,6 +504,7 @@ async def _open_demo_ioc_with_leverage_fallback(
     available_margin_usdt: float | None = None,
     max_base_qty: float = math.inf,
     timing_marks: dict[str, float] | None = None,
+    wait_for_visibility: bool = True,
 ):
     """Retry only an explicit Testnet risk-tier rejection at lower leverage."""
     leverage = max(1, int(leverage_cap))
@@ -535,6 +538,7 @@ async def _open_demo_ioc_with_leverage_fallback(
             )
             if timing_marks is not None:
                 kwargs["timing_marks"] = timing_marks
+            kwargs["wait_for_visibility"] = wait_for_visibility
             fill = await adapter.open_ioc(**kwargs)
             return fill, leverage
         except MexcWebError as exc:
@@ -699,6 +703,8 @@ async def _wait_for_demo_position(
 
 async def run(args: argparse.Namespace) -> None:
     hybrid._load_project_env()
+    if args.entry_signal_source == "binance-impulse" and args.signal_mexc_source != "demo":
+        raise MexcWebError("Binance-only entry requires --signal-mexc-source demo; MEXC LIVE cannot feed the signal")
     if args.demo_zero_fee_only and args.allow_demo_fee_accounting:
         raise MexcWebError("--demo-zero-fee-only and --allow-demo-fee-accounting are mutually exclusive")
     require_live_zero_fee = not args.demo_zero_fee_only
@@ -750,8 +756,9 @@ async def run(args: argparse.Namespace) -> None:
     if not symbols:
         raise MexcWebError("all Demo/LIVE intersection symbols were excluded")
     wake = asyncio.Event()
+    model_type = BinanceImpulseModel if args.entry_signal_source == "binance-impulse" else MicroSpreadModel
     models = {
-        symbol: MicroSpreadModel(
+        symbol: model_type(
             horizon_ms=args.micro_horizon_ms,
             baseline_seconds=args.baseline_seconds,
             baseline_exclusion_ms=args.baseline_exclusion_ms,
@@ -794,14 +801,21 @@ async def run(args: argparse.Namespace) -> None:
         + ("LIVE exact 0/0" if require_live_zero_fee else "explicit Demo-only experiment")
     )
     hybrid.console.print(f"Exit profile: {args.exit_profile}")
+    hybrid.console.print(f"Entry signal: {args.entry_signal_source}")
     hybrid.console.print(f"Excursion telemetry CSV: {excursion_csv.resolve()}")
     hybrid.console.print(f"Residual telemetry CSV: {residual_csv.resolve()}")
     hybrid.console.print("Symbols: " + ", ".join(symbols))
-    hybrid.console.print(
-        f"Micro gate: residual >= max({args.min_edge_bps:.2f}bps, LIVE spread+{args.min_net_edge_bps:.2f}bps, "
-        f"spread*{args.edge_to_spread_ratio:.2f}); Binance micro-move >= {args.min_binance_move_bps:.3f}bps; "
-        f"basis baseline={args.baseline_seconds:g}s excluding newest {args.baseline_exclusion_ms}ms."
-    )
+    if args.entry_signal_source == "binance-impulse":
+        hybrid.console.print(
+            f"Impulse gate: Binance {args.micro_horizon_ms}ms move >= Demo spread economics and "
+            f"{args.min_edge_bps:.2f}bps; MEXC LIVE is not an entry-signal input."
+        )
+    else:
+        hybrid.console.print(
+            f"Micro gate: residual >= max({args.min_edge_bps:.2f}bps, LIVE spread+{args.min_net_edge_bps:.2f}bps, "
+            f"spread*{args.edge_to_spread_ratio:.2f}); Binance micro-move >= {args.min_binance_move_bps:.3f}bps; "
+            f"basis baseline={args.baseline_seconds:g}s excluding newest {args.baseline_exclusion_ms}ms."
+        )
 
     demo_meta: dict[str, tuple[float, int, float, float]] = {}
     demo_available_usdt = 0.0
@@ -834,6 +848,10 @@ async def run(args: argparse.Namespace) -> None:
     position_candidate: MicroCandidate | None = None
     position_excursion_id = ""
     position_entry_timing: dict[str, float] | None = None
+    binance_target_price = 0.0
+    position_visibility_task: asyncio.Task[PositionSnapshot | None] | None = None
+    position_is_provisional = False
+    pending_exit_reason: str | None = None
 
     cycles = signals = wins = losses = 0
     total_live_pnl = 0.0
@@ -1092,6 +1110,7 @@ async def run(args: argparse.Namespace) -> None:
                                             available_margin_usdt=(demo_available_usdt if args.max_demo_volume else None),
                                             max_base_qty=max_base_qty,
                                             timing_marks=entry_timing,
+                                            wait_for_visibility=not args.provisional_entry,
                                         )
                                         if fill is None:
                                             _append_excursion(
@@ -1113,10 +1132,29 @@ async def run(args: argparse.Namespace) -> None:
                                             entry_timing=entry_timing,
                                         )
                                         entry_timing["reconciliation_start_ms"] = time.time_ns() / 1_000_000.0
-                                        remote = await _find_demo_position(demo_adapter, consumed.symbol, side)
-                                        if remote is None and (fill.order_id or fill.position_id or fill.filled_qty > 0):
-                                            remote = await _wait_for_demo_position(demo_adapter, consumed.symbol, side)
-                                        if remote is not None:
+                                        provisional = bool(
+                                            args.provisional_entry
+                                            and fill.filled_qty > 0
+                                        )
+                                        if provisional:
+                                            entry_timing["provisional_started_ms"] = time.time_ns() / 1_000_000.0
+                                            remote = PositionSnapshot(
+                                                symbol=fill.symbol,
+                                                side=fill.side,
+                                                qty=fill.filled_qty,
+                                                entry_price=fill.avg_price,
+                                                leverage=leverage,
+                                                isolated=True,
+                                                position_id=fill.position_id,
+                                            )
+                                            position_visibility_task = asyncio.create_task(
+                                                _wait_for_demo_position(demo_adapter, consumed.symbol, side)
+                                            )
+                                        else:
+                                            remote = await _find_demo_position(demo_adapter, consumed.symbol, side)
+                                            if remote is None and (fill.order_id or fill.position_id or fill.filled_qty > 0):
+                                                remote = await _wait_for_demo_position(demo_adapter, consumed.symbol, side)
+                                        if remote is not None and not provisional:
                                             entry_timing["position_visible_ms"] = time.time_ns() / 1_000_000.0
                                             _append_excursion(
                                                 excursion_csv, fresh,
@@ -1186,7 +1224,24 @@ async def run(args: argparse.Namespace) -> None:
                                             position_candidate = fresh
                                             position_excursion_id = excursion_id
                                             position_entry_timing = dict(entry_timing)
+                                            binance_target_price = (
+                                                fresh.book.mid * math.exp(fresh.binance_move_bps / 10_000.0)
+                                                if args.entry_signal_source == "binance-impulse"
+                                                else 0.0
+                                            )
                                             last_entry_ms[position_symbol] = int(time.time() * 1000)
+                                            position_is_provisional = provisional
+                                            pending_exit_reason = None
+                                            visible_latency = (
+                                                f"{entry_timing['position_visible_ms'] - entry_timing['signal_detected_ms']:.1f}ms"
+                                                if "position_visible_ms" in entry_timing
+                                                else "PENDING"
+                                            )
+                                            reconcile_latency = (
+                                                f"{entry_timing['position_visible_ms'] - entry_timing['reconciliation_start_ms']:.1f}ms"
+                                                if "position_visible_ms" in entry_timing
+                                                else "ASYNC"
+                                            )
                                             hybrid.console.print(
                                                 f"DEMO ENTRY {position_symbol} {'LONG' if position_direction > 0 else 'SHORT'} "
                                                 f"qty={remote.qty:g} LIVEEntry={live_entry_price:g} residual={live_entry_edge_bps:+.3f} "
@@ -1194,9 +1249,9 @@ async def run(args: argparse.Namespace) -> None:
                                                 f"requested_margin={cycle_margin_usdt:.4f}USDT strategy_equity={strategy_equity_usdt:.4f}USDT "
                                                 f"sizing={('TARGET_NOTIONAL' if args.target_notional_usdt > 0 else ('DYNAMIC' if dynamic_sizing else 'PROBATION'))} "
                                                 f"spread={live_entry_spread_bps:.3f} DemoFeeReported={fill.fee_usdt:g} "
-                                                f"signal_to_visible={entry_timing['position_visible_ms'] - entry_timing['signal_detected_ms']:.1f}ms "
+                                                f"signal_to_visible={visible_latency} "
                                                 f"IOCconfirm={entry_timing.get('ioc_confirmed_ms', response_ms) - entry_timing.get('ioc_post_start_ms', order_request_ms):.1f}ms "
-                                                f"reconcile={entry_timing['position_visible_ms'] - entry_timing['reconciliation_start_ms']:.1f}ms"
+                                                f"reconcile={reconcile_latency}"
                                             )
 
                     if position is None and now >= next_heartbeat:
@@ -1213,6 +1268,40 @@ async def run(args: argparse.Namespace) -> None:
 
                 else:
                     assert position_symbol and position_direction in (-1, 1) and trailing is not None
+                    if position_is_provisional and position_visibility_task is not None and position_visibility_task.done():
+                        visible = position_visibility_task.result()
+                        position_visibility_task = None
+                        if visible is None:
+                            raise MexcWebError(
+                                f"confirmed IOC position never became visible for {position_symbol}; "
+                                "new entries remain blocked"
+                            )
+                        if (
+                            visible.side is not position.side
+                            or (
+                                position.position_id is not None
+                                and visible.position_id != position.position_id
+                            )
+                        ):
+                            raise MexcWebError("provisional Demo position reconciliation mismatch")
+                        position = visible
+                        position_is_provisional = False
+                        assert position_candidate is not None and position_entry_timing is not None
+                        position_entry_timing["position_visible_ms"] = time.time_ns() / 1_000_000.0
+                        _append_excursion(
+                            excursion_csv,
+                            position_candidate,
+                            timestamp_ms=position_entry_timing["position_visible_ms"],
+                            excursion_id=position_excursion_id,
+                            event="demo_position_visible",
+                            filled_qty=position.qty,
+                            effective_leverage=live_entry_leverage,
+                            entry_timing=position_entry_timing,
+                        )
+                        hybrid.console.print(
+                            f"DEMO POSITION VISIBLE {position_symbol} "
+                            f"signal_to_visible={position_entry_timing['position_visible_ms'] - position_entry_timing['signal_detected_ms']:.1f}ms"
+                        )
                     book = signal_books.books.get(position_symbol)
                     demo_book = demo_books.books.get(position_symbol)
                     if book is not None and demo_book is not None:
@@ -1238,7 +1327,11 @@ async def run(args: argparse.Namespace) -> None:
                         )
                         demo_net_mfe_bps = max(demo_net_mfe_bps, demo_mark_net_bps)
                         demo_net_mae_bps = min(demo_net_mae_bps, demo_mark_net_bps)
-                        if args.exit_profile == "legacy-54b789e":
+                        if args.entry_signal_source == "binance-impulse":
+                            trail = _update_leverage_normalized_trailing(
+                                trailing, demo_mark_gross_bps, leverage=live_entry_leverage,
+                            )
+                        elif args.exit_profile == "legacy-54b789e":
                             trail = trailing.update(move_bps)
                         else:
                             trail = _update_leverage_normalized_trailing(
@@ -1248,7 +1341,11 @@ async def run(args: argparse.Namespace) -> None:
                         snap = models[position_symbol].snapshot(now_ms=now_ms, threshold_bps=0.0)
 
                         reason: str | None = None
-                        exit_mark_bps = move_bps if args.exit_profile == "legacy-54b789e" else demo_mark_net_bps
+                        exit_mark_bps = (
+                            demo_mark_gross_bps
+                            if args.entry_signal_source == "binance-impulse"
+                            else move_bps if args.exit_profile == "legacy-54b789e" else demo_mark_net_bps
+                        )
                         if trail is not None and exit_mark_bps <= trail and age_s >= args.min_hold_seconds:
                             reason = "positive_trailing_stop"
                         adverse = _adverse_cut_for_leverage(
@@ -1258,7 +1355,28 @@ async def run(args: argparse.Namespace) -> None:
                             spread_multiple=args.adverse_spread_mult,
                             adverse_roe_pct=args.adverse_cut_roe_pct,
                         )
-                        if args.exit_profile == "legacy-54b789e":
+                        if args.entry_signal_source == "binance-impulse":
+                            if reason is None and demo_mark_gross_bps <= -adverse and age_s >= args.min_hold_seconds:
+                                reason = "demo_adverse_cut"
+                            target_caught = (
+                                live_exit >= binance_target_price
+                                if position_direction > 0
+                                else live_exit <= binance_target_price
+                            )
+                            if (
+                                reason is None
+                                and target_caught
+                                and demo_mark_gross_bps >= args.min_exit_profit_bps
+                                and age_s >= args.min_hold_seconds
+                            ):
+                                reason = "binance_target_caught"
+                            if (
+                                reason is None
+                                and snap.binance_move_bps * position_direction <= -args.reversal_edge_bps
+                                and age_s >= args.min_hold_seconds
+                            ):
+                                reason = "binance_impulse_reversed"
+                        elif args.exit_profile == "legacy-54b789e":
                             if reason is None and move_bps <= -adverse and age_s >= args.min_hold_seconds:
                                 reason = "live_adverse_cut"
                             if reason is None and _legacy_convergence_exit_allowed(
@@ -1284,7 +1402,9 @@ async def run(args: argparse.Namespace) -> None:
                             ):
                                 reason = "microspread_converged"
                         assert position_candidate is not None
-                        if args.exit_profile == "legacy-54b789e":
+                        if args.entry_signal_source == "binance-impulse":
+                            pass
+                        elif args.exit_profile == "legacy-54b789e":
                             if reason is None and _legacy_reversal_exit_allowed(
                                 current_direction=snap.direction,
                                 position_direction=position_direction,
@@ -1335,6 +1455,13 @@ async def run(args: argparse.Namespace) -> None:
                                 f"B100={snap.binance_move_bps:+.3f}"
                             )
                             next_heartbeat = now + float(args.heartbeat_seconds)
+
+                        if position_is_provisional:
+                            if reason is not None:
+                                pending_exit_reason = pending_exit_reason or reason
+                            reason = None
+                        elif pending_exit_reason is not None:
+                            reason = pending_exit_reason
 
                         if reason is not None:
                             demo_fill = await _flatten_exact_demo_position(
@@ -1403,6 +1530,10 @@ async def run(args: argparse.Namespace) -> None:
                             position_candidate = None
                             position_excursion_id = ""
                             position_entry_timing = None
+                            binance_target_price = 0.0
+                            position_visibility_task = None
+                            position_is_provisional = False
+                            pending_exit_reason = None
 
                 if total_live_pnl <= -abs(float(args.max_session_loss_usdt)):
                     hybrid.console.print(
@@ -1421,6 +1552,15 @@ async def run(args: argparse.Namespace) -> None:
                 wake.clear()
 
             if position is not None:
+                if position_is_provisional and position_visibility_task is not None:
+                    visible = await position_visibility_task
+                    position_visibility_task = None
+                    if visible is None:
+                        raise MexcWebError(
+                            f"session ended while confirmed IOC remained invisible for {position_symbol}"
+                        )
+                    position = visible
+                    position_is_provisional = False
                 book = signal_books.books.get(position_symbol)
                 live_exit = (book.bid if position_direction > 0 else book.ask) if book else live_entry_price
                 move_bps = _signed_move_bps(position_direction, live_entry_price, live_exit)
@@ -1490,6 +1630,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--signal-mexc-source", choices=("live", "demo"), default="live",
         help="MEXC depth used for residual/convergence; demo aligns signals with Demo execution",
+    )
+    parser.add_argument(
+        "--entry-signal-source",
+        choices=("cross-residual", "binance-impulse"),
+        default="cross-residual",
+        help="cross-exchange residual or Binance-only impulse entry trigger",
+    )
+    parser.add_argument(
+        "--provisional-entry",
+        action="store_true",
+        help="manage a confirmed IOC fill locally while position visibility reconciles asynchronously",
     )
     parser.add_argument(
         "--exit-profile",

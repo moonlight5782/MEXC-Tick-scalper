@@ -27,7 +27,7 @@ from mexc_tick_scalper.demo_microspread_test import (
     _read_fee_pair_fail_closed,
     _required_edge,
 )
-from mexc_tick_scalper.microspread import MicroSpreadModel, MicroSpreadSnapshot
+from mexc_tick_scalper.microspread import BinanceImpulseModel, MicroSpreadModel, MicroSpreadSnapshot
 from mexc_tick_scalper.microspread_feed import EventMexcDepthFeed, LiveBook
 from mexc_tick_scalper.execution import OrderSide, PositionSnapshot
 from mexc_tick_scalper.web_execution import MexcWebError
@@ -42,6 +42,30 @@ def seed(model: MicroSpreadModel, *, until_ms: int = 3000, step_ms: int = 100) -
     for ts in range(0, until_ms + 1, step_ms):
         model.update_binance(bid=99.99, ask=100.01, ts_ms=ts)
         model.update_mexc(bid=99.99, ask=100.01, ts_ms=ts)
+
+
+def test_binance_impulse_entry_ignores_mexc_direction():
+    model = BinanceImpulseModel(horizon_ms=100, min_edge_bps=1.0)
+    model.update_binance(bid=99.99, ask=100.01, ts_ms=0)
+    model.update_mexc(bid=199.9, ask=200.1, ts_ms=0)
+    model.update_binance(bid=100.01, ask=100.03, ts_ms=100)
+    model.update_mexc(bid=149.9, ask=150.1, ts_ms=100)
+
+    snap = model.signal(now_ms=100, threshold_bps=1.0)
+
+    assert snap.ready
+    assert snap.direction == 1
+    assert snap.binance_move_bps > 1.0
+    assert snap.reason == "binance_impulse_confirmed"
+
+
+def test_binance_impulse_hysteresis_blocks_duplicate_signal():
+    model = BinanceImpulseModel(horizon_ms=100, min_edge_bps=1.0)
+    model.update_binance(bid=99.99, ask=100.01, ts_ms=0)
+    model.update_binance(bid=100.01, ask=100.03, ts_ms=100)
+
+    assert model.signal(now_ms=100, threshold_bps=1.0).ready
+    assert not model.signal(now_ms=100, threshold_bps=1.0).ready
 
 
 def test_sub_one_bps_microspread_can_signal():
@@ -501,6 +525,7 @@ def test_excursion_csv_preserves_sub_one_bps_residual(tmp_path):
             "ioc_post_response_ms": 1103.0,
             "ioc_confirmed_ms": 1903.0,
             "reconciliation_start_ms": 1904.0,
+            "provisional_started_ms": 1903.5,
             "position_visible_ms": 1914.0,
         },
     )
@@ -521,6 +546,7 @@ def test_excursion_csv_preserves_sub_one_bps_residual(tmp_path):
     assert float(rows[0]["ioc_post_roundtrip_ms"]) == 100.0
     assert float(rows[0]["ioc_confirmation_ms"]) == 900.0
     assert float(rows[0]["reconciliation_ms"]) == 10.0
+    assert float(rows[0]["signal_to_provisional_ms"]) == 903.5
     assert float(rows[0]["signal_to_position_visible_ms"]) == 914.0
     assert 0.0 < abs(float(rows[0]["residual_bps"])) < 1.0
 
@@ -589,6 +615,22 @@ def test_max_demo_volume_reserves_round_trip_testnet_fees():
     assert leverage == 300
     assert fill == adapter.order["qty"]
     assert required_with_round_trip_fees <= 9_800.0 + 1e-9
+
+
+def test_demo_ioc_can_skip_synchronous_position_visibility_wait():
+    class RecordingAdapter:
+        async def open_ioc(self, **kwargs):
+            self.order = kwargs
+            return kwargs["qty"]
+
+    adapter = RecordingAdapter()
+    asyncio.run(_open_demo_ioc_with_leverage_fallback(
+        adapter, symbol="LINK_USDT", side=OrderSide.LONG,
+        price=10.0, min_base_qty=1.0, target_margin_usdt=1.0,
+        leverage_cap=10, wait_for_visibility=False,
+    ))
+
+    assert adapter.order["wait_for_visibility"] is False
 
 
 def test_demo_ioc_classifies_insufficient_balance_without_retrying():

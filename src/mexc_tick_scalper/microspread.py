@@ -217,3 +217,98 @@ class MicroSpreadModel:
         self._armed = False
         self._last_signal_direction = snap.direction
         return snap
+
+
+class BinanceImpulseModel:
+    """Emit hysteretic entry signals from Binance bookTicker movement alone.
+
+    MEXC/Demo quotes may still be cached for execution and telemetry, but they
+    never participate in the entry direction or readiness decision.
+    """
+
+    def __init__(
+        self,
+        *,
+        horizon_ms: int = 100,
+        min_edge_bps: float = 1.0,
+        max_binance_age_ms: float = 300.0,
+        rearm_fraction: float = 0.35,
+        **_: object,
+    ) -> None:
+        self.horizon_ms = max(20, int(horizon_ms))
+        self.min_edge_bps = max(0.0, float(min_edge_bps))
+        self.max_binance_age_ms = max(20.0, float(max_binance_age_ms))
+        self.rearm_fraction = min(0.8, max(0.05, float(rearm_fraction)))
+        self.binance: deque[tuple[int, float]] = deque(maxlen=20_000)
+        self.mexc: deque[tuple[int, float]] = deque(maxlen=2)
+        self._armed = True
+        self._last_signal_direction = 0
+
+    def update_binance(self, *, bid: float, ask: float, ts_ms: int | None = None) -> None:
+        mid = MicroSpreadModel._mid(float(bid), float(ask))
+        if mid <= 0:
+            return
+        ts = int(ts_ms if ts_ms is not None else time.time() * 1000)
+        self.binance.append((ts, mid))
+        MicroSpreadModel._trim(self.binance, ts - self.horizon_ms * 4)
+
+    def update_mexc(self, *, bid: float, ask: float, ts_ms: int | None = None) -> None:
+        mid = MicroSpreadModel._mid(float(bid), float(ask))
+        if mid <= 0:
+            return
+        ts = int(ts_ms if ts_ms is not None else time.time() * 1000)
+        self.mexc.append((ts, mid))
+
+    def snapshot(self, *, now_ms: int | None = None, threshold_bps: float | None = None) -> MicroSpreadSnapshot:
+        now = int(now_ms if now_ms is not None else time.time() * 1000)
+        threshold = max(self.min_edge_bps, float(threshold_bps or 0.0))
+        if not self.binance:
+            return MicroSpreadSnapshot(
+                False, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                math.inf, math.inf, math.inf, threshold, "warming_up",
+            )
+        b_ts, b_mid = self.binance[-1]
+        b_age = float(now - b_ts)
+        mexc_mid = self.mexc[-1][1] if self.mexc else 0.0
+        mexc_age = float(now - self.mexc[-1][0]) if self.mexc else math.inf
+        if b_age < 0 or b_age > self.max_binance_age_ms:
+            return MicroSpreadSnapshot(
+                False, 0, 0.0, 0.0, 0.0, 0.0, 0.0, b_mid, mexc_mid,
+                b_age, b_age, mexc_age, threshold, "stale_binance",
+            )
+        old = MicroSpreadModel._past_price(self.binance, now - self.horizon_ms)
+        if not old or old == b_mid and len(self.binance) < 2:
+            return MicroSpreadSnapshot(
+                False, 0, 0.0, 0.0, 0.0, 0.0, 0.0, b_mid, mexc_mid,
+                b_age, b_age, mexc_age, threshold, "warming_horizon",
+            )
+        move = math.log(b_mid / old) * 10_000.0
+        direction = 1 if move > 0 else -1 if move < 0 else 0
+        ready = direction != 0 and abs(move) >= threshold
+        reason = "binance_impulse_confirmed" if ready else "binance_impulse_below_threshold"
+        raw_gap = math.log(b_mid / mexc_mid) * 10_000.0 if mexc_mid > 0 else 0.0
+        return MicroSpreadSnapshot(
+            ready, direction, move, raw_gap, 0.0, move, 0.0, b_mid, mexc_mid,
+            max(b_age, mexc_age), b_age, mexc_age, threshold, reason,
+        )
+
+    def signal(self, *, now_ms: int | None = None, threshold_bps: float | None = None) -> MicroSpreadSnapshot:
+        snap = self.snapshot(now_ms=now_ms, threshold_bps=threshold_bps)
+        rearm_level = max(0.05, snap.threshold_bps * self.rearm_fraction)
+        if not self._armed and (
+            abs(snap.binance_move_bps) <= rearm_level
+            or (snap.direction and snap.direction != self._last_signal_direction)
+        ):
+            self._armed = True
+        if not snap.ready or not self._armed:
+            if snap.ready and not self._armed:
+                return MicroSpreadSnapshot(
+                    False, snap.direction, snap.edge_bps, snap.raw_gap_bps,
+                    snap.baseline_gap_bps, snap.binance_move_bps, snap.mexc_move_bps,
+                    snap.binance_mid, snap.mexc_mid, snap.age_ms, snap.binance_age_ms,
+                    snap.mexc_age_ms, snap.threshold_bps, "binance_impulse_not_rearmed",
+                )
+            return snap
+        self._armed = False
+        self._last_signal_direction = snap.direction
+        return snap
