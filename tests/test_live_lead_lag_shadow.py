@@ -5,6 +5,7 @@ from mexc_tick_scalper.live_lead_lag_shadow import (
     PositiveTrailing,
     _candidate_score,
     _signed_move_bps,
+    build_parser,
 )
 
 
@@ -54,3 +55,8 @@ def test_depth_full_payload_parses_best_executable_prices():
 
 def test_depth_payload_ignores_non_depth_messages():
     assert MexcBestBookFeed.parse_payload({"channel": "pong", "data": 1}) is None
+
+
+def test_shadow_parser_accepts_measured_execution_latency():
+    args = build_parser().parse_args(["--execution-latency-ms", "939.5"])
+    assert args.execution_latency_ms == 939.5

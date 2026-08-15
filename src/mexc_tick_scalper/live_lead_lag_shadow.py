@@ -67,8 +67,19 @@ class ShadowPosition:
     entry_spread_bps: float
     entry_ts: float
     trailing: PositiveTrailing
+    execution_latency_ms: float = 0.0
     mfe_bps: float = 0.0
     mae_bps: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class PendingShadowEntry:
+    symbol: str
+    direction: int
+    signal_edge_bps: float
+    signal_spread_bps: float
+    signal_ts: float
+    execute_at: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,6 +97,7 @@ class ShadowTrade:
     duration_s: float
     exit_reason: str
     exit_trail_bps: float | None
+    execution_latency_ms: float
 
 
 @dataclass(slots=True)
@@ -281,6 +293,7 @@ def _write_trades(path: Path, trades: list[ShadowTrade]) -> None:
             "symbol", "direction", "entry_price", "exit_price", "entry_edge_bps",
             "entry_spread_bps", "pnl_bps", "pnl_usdt", "mfe_bps", "mae_bps",
             "duration_s", "exit_reason", "exit_trail_bps",
+            "execution_latency_ms",
         ])
         for row in trades:
             writer.writerow([
@@ -297,6 +310,7 @@ def _write_trades(path: Path, trades: list[ShadowTrade]) -> None:
                 f"{row.duration_s:.6f}",
                 row.exit_reason,
                 "" if row.exit_trail_bps is None else f"{row.exit_trail_bps:.6f}",
+                f"{row.execution_latency_ms:.3f}",
             ])
 
 
@@ -358,6 +372,7 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
     await books.start()
 
     positions: dict[str, ShadowPosition] = {}
+    pending_entries: dict[str, PendingShadowEntry] = {}
     closed: list[ShadowTrade] = []
     stats = {symbol: SymbolShadowStats(symbol) for symbol in symbols}
     last_entry_ms = {symbol: -10**18 for symbol in symbols}
@@ -383,6 +398,7 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
             duration_s=now - pos.entry_ts,
             exit_reason=reason,
             exit_trail_bps=pos.trailing.stop_bps,
+            execution_latency_ms=pos.execution_latency_ms,
         )
         closed.append(trade)
         stats[symbol].add(trade)
@@ -412,6 +428,33 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
 
                 pos = positions.get(symbol)
                 if pos is None:
+                    pending = pending_entries.get(symbol)
+                    if pending is not None:
+                        if now < pending.execute_at:
+                            continue
+                        direction = pending.direction
+                        entry_price = book.ask if direction > 0 else book.bid
+                        actual_latency_ms = (now - pending.signal_ts) * 1000.0
+                        positions[symbol] = ShadowPosition(
+                            symbol=symbol,
+                            direction=direction,
+                            entry_price=entry_price,
+                            entry_edge_bps=pending.signal_edge_bps,
+                            entry_spread_bps=book.spread_bps,
+                            entry_ts=now,
+                            trailing=PositiveTrailing(
+                                distance_bps=max(args.trailing_distance_bps, book.spread_bps)
+                            ),
+                            execution_latency_ms=actual_latency_ms,
+                        )
+                        pending_entries.pop(symbol, None)
+                        console.print(
+                            f"SHADOW ENTRY {symbol} {'LONG' if direction > 0 else 'SHORT'} "
+                            f"signal_edge={pending.signal_edge_bps:+.3f}bps "
+                            f"signal_spread={pending.signal_spread_bps:.3f} execution_spread={book.spread_bps:.3f} "
+                            f"latency={actual_latency_ms:.1f}ms px={entry_price:g}"
+                        )
+                        continue
                     if now < warmup_until or not snap.ready:
                         continue
                     if now_ms - last_entry_ms[symbol] < args.entry_cooldown_ms:
@@ -421,21 +464,20 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
                     if abs(snap.edge_bps) < required_edge:
                         continue
                     direction = snap.direction
-                    entry_price = book.ask if direction > 0 else book.bid
-                    positions[symbol] = ShadowPosition(
+                    delay_seconds = max(0.0, args.execution_latency_ms) / 1000.0
+                    pending_entries[symbol] = PendingShadowEntry(
                         symbol=symbol,
                         direction=direction,
-                        entry_price=entry_price,
-                        entry_edge_bps=abs(snap.edge_bps),
-                        entry_spread_bps=spread_bps,
-                        entry_ts=now,
-                        trailing=PositiveTrailing(distance_bps=max(args.trailing_distance_bps, spread_bps)),
+                        signal_edge_bps=abs(snap.edge_bps),
+                        signal_spread_bps=spread_bps,
+                        signal_ts=now,
+                        execute_at=now + delay_seconds,
                     )
                     console.print(
-                        f"SHADOW ENTRY {symbol} {'LONG' if direction > 0 else 'SHORT'} "
+                        f"SHADOW SIGNAL {symbol} {'LONG' if direction > 0 else 'SHORT'} "
                         f"edge={snap.edge_bps:+.3f}bps required={required_edge:.3f} "
                         f"spread={spread_bps:.3f} Bmove={snap.binance_move_bps:+.3f} "
-                        f"Mmove={snap.mexc_move_bps:+.3f} px={entry_price:g}"
+                        f"Mmove={snap.mexc_move_bps:+.3f} delay={args.execution_latency_ms:.1f}ms"
                     )
                     continue
 
@@ -514,7 +556,7 @@ async def run(args: argparse.Namespace) -> list[ShadowTrade]:
     result.add_column("W/L", justify="right")
     result.add_column("Win%", justify="right")
     result.add_column("PnL bps", justify="right")
-    result.add_column("PnL $100", justify="right")
+    result.add_column(f"PnL ${args.notional_usdt:g}", justify="right")
     result.add_column("PF", justify="right")
     result.add_column("Avg hold", justify="right")
     for idx, row in enumerate(summary, 1):
@@ -547,6 +589,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--loop-seconds", type=float, default=0.05)
     parser.add_argument("--status-seconds", type=float, default=5.0)
     parser.add_argument("--notional-usdt", type=float, default=100.0)
+    parser.add_argument("--execution-latency-ms", type=float, default=0.0)
     parser.add_argument("--min-hold-seconds", type=float, default=0.15)
     parser.add_argument("--max-hold-seconds", type=float, default=60.0)
     parser.add_argument("--adverse-cut-bps", type=float, default=4.0)
