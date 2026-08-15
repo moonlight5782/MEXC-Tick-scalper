@@ -1,3 +1,5 @@
+import pytest
+
 from mexc_tick_scalper.live_binance_impulse_shadow import (
     ShadowTrade,
     _entry_price,
@@ -57,16 +59,17 @@ def test_shadow_summary_reports_zero_fee_statistics():
 def test_demo_latency_trace_replays_only_completed_trade_rows(tmp_path):
     path = tmp_path / "excursions.csv"
     path.write_text(
-        "event,signal_to_provisional_ms,ioc_post_roundtrip_ms\n"
-        "demo_ioc_request,,\n"
-        "demo_exit,682.365,363.239\n"
-        "demo_exit,687.317,347.172\n",
+        "event,signal_to_provisional_ms,signal_to_ioc_post_ms,ioc_confirmation_ms,ioc_post_roundtrip_ms\n"
+        "demo_ioc_request,,,,\n"
+        "demo_exit,682.365,,,363.239\n"
+        "demo_exit,,19.022,667.032,347.172\n",
         encoding="utf-8",
     )
 
     samples = _load_latency_samples(path)
 
-    assert [(row.entry_ms, row.exit_ms) for row in samples] == [
-        (682.365, 363.239),
-        (687.317, 347.172),
-    ]
+    assert len(samples) == 2
+    assert samples[0].entry_ms == pytest.approx(682.365)
+    assert samples[0].exit_ms == pytest.approx(363.239)
+    assert samples[1].entry_ms == pytest.approx(686.054)
+    assert samples[1].exit_ms == pytest.approx(347.172)

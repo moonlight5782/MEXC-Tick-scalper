@@ -568,8 +568,10 @@ path.
 
 The preferred validation mode replays the latency rows measured in the
 2026-08-15 Demo run. Each accepted shadow signal consumes the next completed
-Demo trade's `signal_to_provisional_ms` as entry delay and
-`ioc_post_roundtrip_ms` as the best available close-request delay proxy. Exit
+Demo trade's `signal_to_provisional_ms` as entry delay. When that derived field
+is absent, the equivalent measured
+`signal_to_ioc_post_ms + ioc_confirmation_ms` is used, retaining all 91 exits.
+The runner uses `ioc_post_roundtrip_ms` as the best available close-request delay proxy. Exit
 request timing was not separately recorded in that run, so the latter is an
 explicit measured proxy rather than an invented constant.
 

@@ -119,7 +119,13 @@ def _load_latency_samples(path: Path) -> list[LatencySample]:
             if row.get("event") != "demo_exit":
                 continue
             try:
-                entry_ms = float(row.get("signal_to_provisional_ms") or "")
+                provisional = row.get("signal_to_provisional_ms") or ""
+                entry_ms = (
+                    float(provisional)
+                    if provisional
+                    else float(row.get("signal_to_ioc_post_ms") or "")
+                    + float(row.get("ioc_confirmation_ms") or "")
+                )
                 exit_ms = float(row.get("ioc_post_roundtrip_ms") or "")
             except ValueError:
                 continue
@@ -415,7 +421,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--latency-csv",
         default="",
-        help="replay signal_to_provisional and IOC roundtrip rows from Demo excursion telemetry",
+        help="replay measured signal-to-fill and IOC roundtrip rows from Demo excursion telemetry",
     )
     parser.add_argument("--slippage-bps", type=float, default=0.5)
     parser.add_argument("--warmup-seconds", type=float, default=3.0)
