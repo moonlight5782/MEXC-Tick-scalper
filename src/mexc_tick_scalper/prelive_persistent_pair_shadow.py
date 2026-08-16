@@ -7,7 +7,9 @@ from pathlib import Path
 from rich.console import Console
 
 from .persistent_lag_profile import build_profiles, latest_lifetime_csv, select_profiles
+from .persistent_delayed_gate import PersistentDelayedEntryGate
 from .prelive_measured_rtt_diagnostic import build_parser as build_measured_parser, run as run_measured
+from . import prelive_latency_diagnostic_v2 as v2_module
 
 console = Console()
 
@@ -77,8 +79,18 @@ async def run(args: argparse.Namespace) -> None:
         f"min_lead={args.min_leader_advantage_bps:.2f}bps "
         f"spread_ratio={args.edge_to_spread_ratio:.2f}."
     )
+    console.print(
+        "Delayed checkpoint semantics: the initial signal must prove Binance leads MEXC; "
+        "at measured RTT we require only same-direction residual that still clears spread economics."
+    )
     console.print("Read-only only: no MEXC order endpoint is used.")
-    await run_measured(args)
+
+    original_gate = v2_module.LeadLagGate
+    v2_module.LeadLagGate = PersistentDelayedEntryGate
+    try:
+        await run_measured(args)
+    finally:
+        v2_module.LeadLagGate = original_gate
 
 
 def main() -> None:
