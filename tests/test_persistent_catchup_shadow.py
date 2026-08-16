@@ -1,3 +1,4 @@
+from mexc_tick_scalper.microspread import MicroSpreadSnapshot
 from mexc_tick_scalper.prelive_persistent_catchup_shadow import (
     Signal,
     delayed_catchup_entry_ok,
@@ -23,6 +24,27 @@ def _signal(**overrides):
     )
     base.update(overrides)
     return Signal(**base)
+
+
+def test_snapshot_price_aliases_match_mid_fields():
+    snap = MicroSpreadSnapshot(
+        ready=True,
+        direction=1,
+        edge_bps=1.0,
+        raw_gap_bps=1.0,
+        baseline_gap_bps=0.0,
+        binance_move_bps=2.0,
+        mexc_move_bps=0.0,
+        binance_mid=101.25,
+        mexc_mid=100.75,
+        age_ms=1.0,
+        binance_age_ms=1.0,
+        mexc_age_ms=1.0,
+        threshold_bps=0.5,
+        reason="test",
+    )
+    assert snap.binance_price == snap.binance_mid == 101.25
+    assert snap.mexc_price == snap.mexc_mid == 100.75
 
 
 def test_impulse_retention_rejects_leader_retrace():
