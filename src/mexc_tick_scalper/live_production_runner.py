@@ -15,9 +15,9 @@ from urllib.parse import urlparse
 from dotenv import load_dotenv
 from rich.console import Console
 
-from .execution import OrderSide, PositionSnapshot
+from .execution import OrderFill, OrderSide, PositionSnapshot
 from .live_lead_lag_shadow import PositiveTrailing
-from .live_zero_fee_universe import LiveZeroFeeContract, discover_live_zero_fee_crosslisted
+from .live_zero_fee_universe import discover_live_zero_fee_crosslisted
 from .microspread import MicroSpreadModel
 from .microspread_feed import EventBinanceBookTickerFeed, EventMexcDepthFeed, LiveBook
 from .web_execution import LIVE_FUTURES_HOST, MexcWebError, MexcWebExecutionAdapter, WebExecutionConfig
@@ -59,6 +59,8 @@ class LivePosition:
     entry_edge_bps: float
     entry_spread_bps: float
     opened_monotonic: float
+    entry_ms: int
+    entry_fill: OrderFill
     trailing: PositiveTrailing
     mfe_bps: float = 0.0
     mae_bps: float = 0.0
@@ -94,7 +96,8 @@ def _marketable_ioc_price(side: OrderSide, book: LiveBook, cross_bps: float, pri
     if best <= 0 or price_unit <= 0:
         raise MexcWebError("invalid live book or priceUnit")
     cross = Decimal(str(max(0.0, cross_bps))) / Decimal("10000")
-    raw = Decimal(str(best)) * (Decimal("1") + cross if side is OrderSide.LONG else Decimal("1") - cross)
+    factor = Decimal("1") + cross if side is OrderSide.LONG else Decimal("1") - cross
+    raw = Decimal(str(best)) * factor
     tick = Decimal(str(price_unit))
     rounding = ROUND_CEILING if side is OrderSide.LONG else ROUND_FLOOR
     return float((raw / tick).to_integral_value(rounding=rounding) * tick)
@@ -106,10 +109,19 @@ def _signed_move_bps(direction: int, entry: float, current: float) -> float:
     return direction * (current - entry) / entry * 10_000.0
 
 
-def _candidate(symbol: str, model: MicroSpreadModel, book: LiveBook, args: argparse.Namespace, now_ms: int, *, consume: bool) -> Candidate | None:
+def _candidate(
+    symbol: str,
+    model: MicroSpreadModel,
+    book: LiveBook,
+    args: argparse.Namespace,
+    now_ms: int,
+    *,
+    consume: bool,
+) -> Candidate | None:
     threshold = _required_edge(book.spread_bps, args)
     snap = model.signal(now_ms=now_ms, threshold_bps=threshold) if consume else model.snapshot(
-        now_ms=now_ms, threshold_bps=threshold
+        now_ms=now_ms,
+        threshold_bps=threshold,
     )
     if not snap.ready:
         return None
@@ -134,8 +146,8 @@ def _choose_best(rows: list[Candidate]) -> Candidate | None:
 def _append_trade(path: Path, row: dict[str, object]) -> None:
     fields = [
         "entry_ms", "exit_ms", "symbol", "direction", "qty", "leverage", "entry_price", "exit_price",
-        "entry_edge_bps", "entry_spread_bps", "pnl_bps", "mfe_bps", "mae_bps", "hold_ms", "exit_reason",
-        "entry_fee_usdt", "exit_fee_usdt", "entry_order_id", "exit_order_id",
+        "entry_edge_bps", "entry_spread_bps", "pnl_bps", "pnl_usdt", "mfe_bps", "mae_bps", "hold_ms",
+        "exit_reason", "entry_fee_usdt", "exit_fee_usdt", "entry_order_id", "exit_order_id",
     ]
     exists = path.exists()
     with path.open("a", newline="", encoding="utf-8") as handle:
@@ -164,7 +176,13 @@ async def _fee_loop(cache: FeeCache, stop: asyncio.Event) -> None:
                 pass
 
 
-async def _resolve_remote_position(adapter: MexcWebExecutionAdapter, symbol: str, side: OrderSide, fill, leverage: int) -> PositionSnapshot:
+async def _resolve_remote_position(
+    adapter: MexcWebExecutionAdapter,
+    symbol: str,
+    side: OrderSide,
+    fill: OrderFill,
+    leverage: int,
+) -> PositionSnapshot:
     if fill.filled_qty <= 0:
         raise MexcWebError("IOC returned no fill")
     provisional = PositionSnapshot(
@@ -176,17 +194,17 @@ async def _resolve_remote_position(adapter: MexcWebExecutionAdapter, symbol: str
         isolated=True,
         position_id=fill.position_id,
     )
-    deadline = time.monotonic() + 1.0
+    deadline = time.monotonic() + 0.75
     while time.monotonic() < deadline:
         rows = await adapter.get_positions(symbol)
         matching = next((row for row in rows if row.side is side), None)
         if matching is not None:
             return matching
-        await asyncio.sleep(0.03)
+        await asyncio.sleep(0.025)
     return provisional
 
 
-async def _close_position(adapter: MexcWebExecutionAdapter, position: PositionSnapshot):
+async def _submit_close(adapter: MexcWebExecutionAdapter, position: PositionSnapshot) -> OrderFill:
     client_id = f"live-exit-{uuid.uuid4().hex}"[:32]
     if position.position_id:
         return await adapter.close_position_snapshot_reduce_only(position, client_order_id=client_id)
@@ -195,6 +213,52 @@ async def _close_position(adapter: MexcWebExecutionAdapter, position: PositionSn
         qty=position.qty,
         side=OrderSide.SHORT if position.side is OrderSide.LONG else OrderSide.LONG,
         client_order_id=client_id,
+    )
+
+
+async def _find_same_position(
+    adapter: MexcWebExecutionAdapter,
+    position: PositionSnapshot,
+) -> PositionSnapshot | None:
+    rows = await adapter.get_positions(position.symbol)
+    if position.position_id is not None:
+        return next((row for row in rows if row.position_id == position.position_id), None)
+    return next((row for row in rows if row.side is position.side), None)
+
+
+async def _close_position_fully(
+    adapter: MexcWebExecutionAdapter,
+    position: PositionSnapshot,
+    *,
+    attempts: int = 4,
+) -> OrderFill:
+    current = position
+    last_fill: OrderFill | None = None
+    for _ in range(max(1, attempts)):
+        last_fill = await _submit_close(adapter, current)
+        deadline = time.monotonic() + 0.75
+        while time.monotonic() < deadline:
+            residual = await _find_same_position(adapter, current)
+            if residual is None:
+                return last_fill
+            current = residual
+            await asyncio.sleep(0.04)
+    residual = await _find_same_position(adapter, current)
+    if residual is not None:
+        raise MexcWebError(
+            f"LIVE reduce-only close left residual position {residual.symbol} "
+            f"positionId={residual.position_id} qty={residual.qty:g}"
+        )
+    if last_fill is None:
+        raise MexcWebError("LIVE close did not submit")
+    return last_fill
+
+
+async def _emergency_close(adapter: MexcWebExecutionAdapter, position: LivePosition, reason: str) -> None:
+    console.print(f"[bold red]EMERGENCY LIVE CLOSE[/bold red] {position.remote.symbol} reason={reason}")
+    await asyncio.wait_for(
+        asyncio.shield(_close_position_fully(adapter, position.remote)),
+        timeout=8.0,
     )
 
 
@@ -244,8 +308,9 @@ async def run(args: argparse.Namespace) -> None:
     position: LivePosition | None = None
     cycles = 0
     realized_pnl_bps = 0.0
-    peak_realized_bps = 0.0
-    max_drawdown_bps = 0.0
+    realized_pnl_usdt = 0.0
+    peak_realized_usdt = 0.0
+    max_drawdown_usdt = 0.0
     next_heartbeat = 0.0
     warmup_until = time.monotonic() + args.warmup_seconds
     deadline = time.monotonic() + args.session_seconds
@@ -281,112 +346,133 @@ async def run(args: argparse.Namespace) -> None:
             )
             console.print(f"Trade log: {log_path.resolve()}")
 
-            while time.monotonic() < deadline and cycles < args.max_cycles:
-                now = time.monotonic()
-                now_ms = int(time.time() * 1000)
+            try:
+                while time.monotonic() < deadline and cycles < args.max_cycles:
+                    now = time.monotonic()
+                    now_ms = int(time.time() * 1000)
 
-                if position is None:
-                    candidates: list[Candidate] = []
-                    if now >= warmup_until:
-                        for symbol in symbols:
-                            if not fee_cache.fresh_zero(symbol, now_ms):
-                                continue
-                            book = mexc.books.get(symbol)
-                            if book is None:
-                                continue
-                            book_age = now_ms - book.recv_ms
-                            if book_age < 0 or book_age > args.max_book_age_ms:
-                                continue
-                            if now_ms - last_entry_ms[symbol] < args.entry_cooldown_ms:
-                                continue
-                            row = _candidate(symbol, models[symbol], book, args, now_ms, consume=False)
-                            if row is not None:
-                                candidates.append(row)
+                    if position is None:
+                        candidates: list[Candidate] = []
+                        if now >= warmup_until:
+                            for symbol in symbols:
+                                if not fee_cache.fresh_zero(symbol, now_ms):
+                                    continue
+                                book = mexc.books.get(symbol)
+                                if book is None:
+                                    continue
+                                book_age = now_ms - book.recv_ms
+                                if book_age < 0 or book_age > args.max_book_age_ms:
+                                    continue
+                                if now_ms - last_entry_ms[symbol] < args.entry_cooldown_ms:
+                                    continue
+                                row = _candidate(symbol, models[symbol], book, args, now_ms, consume=False)
+                                if row is not None:
+                                    candidates.append(row)
 
-                    best = _choose_best(candidates)
-                    if best is not None:
-                        # Re-evaluate immediately from the newest local WS state; no REST market-data call here.
-                        fresh_book = mexc.books.get(best.symbol)
-                        if fresh_book is not None and fee_cache.fresh_zero(best.symbol, int(time.time() * 1000)):
-                            fresh = _candidate(best.symbol, models[best.symbol], fresh_book, args, int(time.time() * 1000), consume=True)
-                        else:
-                            fresh = None
-                        if fresh is not None and fresh.direction == best.direction:
-                            min_qty, max_lev, max_qty, price_unit = contract_by_symbol[fresh.symbol]
-                            side = OrderSide.LONG if fresh.direction > 0 else OrderSide.SHORT
-                            leverage = min(max(1, int(args.leverage)), max_lev)
-                            limit_price = _marketable_ioc_price(side, fresh.book, args.ioc_cross_bps, price_unit)
-                            requested_qty = min(max_qty, max(min_qty, args.target_notional_usdt / limit_price))
-                            signal_ms = time.time_ns() / 1_000_000.0
-                            fill = await adapter.open_ioc(
-                                symbol=fresh.symbol,
-                                side=side,
-                                price=limit_price,
-                                qty=requested_qty,
-                                leverage=leverage,
-                                client_order_id=f"live-entry-{uuid.uuid4().hex}"[:32],
+                        best = _choose_best(candidates)
+                        if best is not None:
+                            fresh_now_ms = int(time.time() * 1000)
+                            fresh_book = mexc.books.get(best.symbol)
+                            fresh = (
+                                _candidate(best.symbol, models[best.symbol], fresh_book, args, fresh_now_ms, consume=True)
+                                if fresh_book is not None and fee_cache.fresh_zero(best.symbol, fresh_now_ms)
+                                else None
                             )
-                            post_ms = time.time_ns() / 1_000_000.0
-                            if fill.filled_qty > 0:
-                                remote = await _resolve_remote_position(adapter, fresh.symbol, side, fill, leverage)
-                                trailing = PositiveTrailing(distance_bps=max(args.trailing_distance_bps, fresh.spread_bps))
-                                position = LivePosition(
-                                    remote=remote,
-                                    direction=fresh.direction,
-                                    entry_edge_bps=fresh.edge_bps,
-                                    entry_spread_bps=fresh.spread_bps,
-                                    opened_monotonic=time.monotonic(),
-                                    trailing=trailing,
+                            if fresh is not None and fresh.direction == best.direction:
+                                min_qty, max_lev, max_qty, price_unit = contract_by_symbol[fresh.symbol]
+                                side = OrderSide.LONG if fresh.direction > 0 else OrderSide.SHORT
+                                leverage = min(max(1, int(args.leverage)), max_lev)
+                                limit_price = _marketable_ioc_price(side, fresh.book, args.ioc_cross_bps, price_unit)
+                                requested_qty = min(max_qty, max(min_qty, args.target_notional_usdt / limit_price))
+                                signal_ms = time.time_ns() / 1_000_000.0
+                                fill = await adapter.open_ioc(
+                                    symbol=fresh.symbol,
+                                    side=side,
+                                    price=limit_price,
+                                    qty=requested_qty,
+                                    leverage=leverage,
+                                    client_order_id=f"live-entry-{uuid.uuid4().hex}"[:32],
                                 )
-                                last_entry_ms[fresh.symbol] = int(time.time() * 1000)
-                                console.print(
-                                    f"[green]LIVE ENTRY[/green] {fresh.symbol} {'LONG' if fresh.direction > 0 else 'SHORT'} "
-                                    f"qty={remote.qty:g} fill={remote.entry_price:g} lev={leverage}x "
-                                    f"residual={fresh.edge_bps:+.3f}bps spread={fresh.spread_bps:.3f}bps "
-                                    f"signal_to_ioc_result={post_ms-signal_ms:.1f}ms fee={fill.fee_usdt:g}"
-                                )
-                                if fill.fee_usdt != 0.0:
-                                    console.print("[red]Unexpected non-zero entry fee observed; closing immediately and stopping.[/red]")
-                                    exit_fill = await _close_position(adapter, remote)
-                                    raise MexcWebError(
-                                        f"LIVE zero-fee invariant violated: entry_fee={fill.fee_usdt:g}, exit_fee={exit_fill.fee_usdt:g}"
+                                result_ms = time.time_ns() / 1_000_000.0
+                                if fill.filled_qty > 0:
+                                    remote = await _resolve_remote_position(adapter, fresh.symbol, side, fill, leverage)
+                                    position = LivePosition(
+                                        remote=remote,
+                                        direction=fresh.direction,
+                                        entry_edge_bps=fresh.edge_bps,
+                                        entry_spread_bps=fresh.spread_bps,
+                                        opened_monotonic=time.monotonic(),
+                                        entry_ms=int(time.time() * 1000),
+                                        entry_fill=fill,
+                                        trailing=PositiveTrailing(
+                                            distance_bps=max(args.trailing_distance_bps, fresh.spread_bps)
+                                        ),
                                     )
+                                    last_entry_ms[fresh.symbol] = int(time.time() * 1000)
+                                    console.print(
+                                        f"[green]LIVE ENTRY[/green] {fresh.symbol} {'LONG' if fresh.direction > 0 else 'SHORT'} "
+                                        f"qty={remote.qty:g} fill={remote.entry_price:g} lev={leverage}x "
+                                        f"residual={fresh.edge_bps:+.3f}bps spread={fresh.spread_bps:.3f}bps "
+                                        f"signal_to_ioc_result={result_ms-signal_ms:.1f}ms fee={fill.fee_usdt:g}"
+                                    )
+                                    if fill.fee_usdt != 0.0:
+                                        await _emergency_close(adapter, position, "entry_fee_nonzero")
+                                        position = None
+                                        raise MexcWebError(f"LIVE zero-fee invariant violated on entry: fee={fill.fee_usdt:g}")
 
-                else:
-                    symbol = position.remote.symbol
-                    book = mexc.books.get(symbol)
-                    if book is not None:
-                        executable_exit = book.bid if position.direction > 0 else book.ask
-                        move_bps = _signed_move_bps(position.direction, position.remote.entry_price, executable_exit)
-                        position.mfe_bps = max(position.mfe_bps, move_bps)
-                        position.mae_bps = min(position.mae_bps, move_bps)
-                        trail = position.trailing.update(move_bps)
+                    else:
+                        symbol = position.remote.symbol
+                        book = mexc.books.get(symbol)
+                        reason: str | None = None
                         snap = models[symbol].snapshot(now_ms=now_ms, threshold_bps=0.0)
                         age_s = now - position.opened_monotonic
-                        reason: str | None = None
 
-                        if trail is not None and move_bps <= trail and age_s >= args.min_hold_seconds:
-                            reason = "positive_trailing_stop"
-                        elif move_bps <= -args.adverse_cut_bps and age_s >= args.min_hold_seconds:
-                            reason = "adverse_cut"
-                        elif abs(snap.edge_bps) <= max(args.convergence_bps, abs(position.entry_edge_bps) * args.convergence_fraction) and age_s >= args.min_hold_seconds:
-                            reason = "convergence"
-                        elif snap.direction == -position.direction and abs(snap.edge_bps) >= args.reversal_edge_bps and age_s >= args.min_hold_seconds:
-                            reason = "residual_reversal"
-                        elif age_s >= args.max_hold_seconds:
-                            reason = "timeout"
+                        if not fee_cache.fresh_zero(symbol, now_ms):
+                            reason = "fee_gate_lost"
+                        elif book is None or now_ms - book.recv_ms > args.position_data_stale_ms:
+                            reason = "mexc_book_stale"
+                        elif snap.binance_age_ms > args.position_data_stale_ms:
+                            reason = "binance_book_stale"
+                        else:
+                            executable_exit = book.bid if position.direction > 0 else book.ask
+                            move_bps = _signed_move_bps(position.direction, position.remote.entry_price, executable_exit)
+                            position.mfe_bps = max(position.mfe_bps, move_bps)
+                            position.mae_bps = min(position.mae_bps, move_bps)
+                            trail = position.trailing.update(move_bps)
+                            if trail is not None and move_bps <= trail and age_s >= args.min_hold_seconds:
+                                reason = "positive_trailing_stop"
+                            elif move_bps <= -args.adverse_cut_bps and age_s >= args.min_hold_seconds:
+                                reason = "adverse_cut"
+                            elif (
+                                abs(snap.edge_bps)
+                                <= max(args.convergence_bps, abs(position.entry_edge_bps) * args.convergence_fraction)
+                                and age_s >= args.min_hold_seconds
+                            ):
+                                reason = "convergence"
+                            elif (
+                                snap.direction == -position.direction
+                                and abs(snap.edge_bps) >= args.reversal_edge_bps
+                                and age_s >= args.min_hold_seconds
+                            ):
+                                reason = "residual_reversal"
+                            elif age_s >= args.max_hold_seconds:
+                                reason = "timeout"
 
                         if reason is not None:
-                            entry_ms = int((time.time() - age_s) * 1000)
-                            exit_fill = await _close_position(adapter, position.remote)
+                            exit_fill = await _close_position_fully(adapter, position.remote)
                             exit_ms = int(time.time() * 1000)
-                            exit_price = float(exit_fill.avg_price or executable_exit)
+                            exit_price = float(exit_fill.avg_price or position.remote.entry_price)
                             pnl_bps = _signed_move_bps(position.direction, position.remote.entry_price, exit_price)
+                            gross_pnl_usdt = (
+                                position.direction * (exit_price - position.remote.entry_price) * position.remote.qty
+                            )
+                            pnl_usdt = gross_pnl_usdt - position.entry_fill.fee_usdt - exit_fill.fee_usdt
                             realized_pnl_bps += pnl_bps
-                            peak_realized_bps = max(peak_realized_bps, realized_pnl_bps)
-                            max_drawdown_bps = max(max_drawdown_bps, peak_realized_bps - realized_pnl_bps)
+                            realized_pnl_usdt += pnl_usdt
+                            peak_realized_usdt = max(peak_realized_usdt, realized_pnl_usdt)
+                            max_drawdown_usdt = max(max_drawdown_usdt, peak_realized_usdt - realized_pnl_usdt)
                             _append_trade(log_path, {
-                                "entry_ms": entry_ms,
+                                "entry_ms": position.entry_ms,
                                 "exit_ms": exit_ms,
                                 "symbol": symbol,
                                 "direction": "LONG" if position.direction > 0 else "SHORT",
@@ -397,49 +483,64 @@ async def run(args: argparse.Namespace) -> None:
                                 "entry_edge_bps": position.entry_edge_bps,
                                 "entry_spread_bps": position.entry_spread_bps,
                                 "pnl_bps": pnl_bps,
+                                "pnl_usdt": pnl_usdt,
                                 "mfe_bps": position.mfe_bps,
                                 "mae_bps": position.mae_bps,
                                 "hold_ms": int(age_s * 1000),
                                 "exit_reason": reason,
-                                "entry_fee_usdt": "",
+                                "entry_fee_usdt": position.entry_fill.fee_usdt,
                                 "exit_fee_usdt": exit_fill.fee_usdt,
-                                "entry_order_id": "",
+                                "entry_order_id": position.entry_fill.order_id,
                                 "exit_order_id": exit_fill.order_id,
                             })
                             console.print(
-                                f"[cyan]LIVE EXIT[/cyan] {symbol} reason={reason} pnl={pnl_bps:+.3f}bps "
-                                f"MFE={position.mfe_bps:+.3f} MAE={position.mae_bps:+.3f} "
-                                f"hold={age_s:.3f}s exit_fee={exit_fill.fee_usdt:g}"
+                                f"[cyan]LIVE EXIT[/cyan] {symbol} reason={reason} pnl={pnl_bps:+.3f}bps/{pnl_usdt:+.6f}USDT "
+                                f"MFE={position.mfe_bps:+.3f} MAE={position.mae_bps:+.3f} hold={age_s:.3f}s "
+                                f"fees={position.entry_fill.fee_usdt + exit_fill.fee_usdt:g}"
                             )
-                            if exit_fill.fee_usdt != 0.0:
-                                raise MexcWebError(f"LIVE zero-fee invariant violated on exit: fee={exit_fill.fee_usdt:g}")
                             position = None
                             cycles += 1
-                            if realized_pnl_bps <= -abs(args.max_session_loss_bps):
+                            if realized_pnl_usdt <= -abs(args.max_session_loss_usdt):
                                 raise MexcWebError(
-                                    f"session loss kill-switch hit: {realized_pnl_bps:.3f}bps <= -{abs(args.max_session_loss_bps):.3f}bps"
+                                    f"session loss kill-switch hit: {realized_pnl_usdt:.6f}USDT "
+                                    f"<= -{abs(args.max_session_loss_usdt):.6f}USDT"
                                 )
 
-                if now >= next_heartbeat:
-                    fee_age = now_ms - fee_cache.checked_ms if fee_cache.checked_ms else math.inf
-                    console.print(
-                        f"LIVE HEARTBEAT state={'POSITION' if position else ('WARMUP' if now < warmup_until else 'WATCHING')} "
-                        f"cycles={cycles}/{args.max_cycles} books={len(mexc.books)}/{len(symbols)} "
-                        f"Bquotes={binance.quotes} Mdepth={mexc.updates} fee_age={fee_age:.0f}ms "
-                        f"pnl={realized_pnl_bps:+.3f}bps dd={max_drawdown_bps:.3f}bps"
-                    )
-                    next_heartbeat = now + args.heartbeat_seconds
+                    if now >= next_heartbeat:
+                        fee_age = now_ms - fee_cache.checked_ms if fee_cache.checked_ms else math.inf
+                        console.print(
+                            f"LIVE HEARTBEAT state={'POSITION' if position else ('WARMUP' if now < warmup_until else 'WATCHING')} "
+                            f"cycles={cycles}/{args.max_cycles} books={len(mexc.books)}/{len(symbols)} "
+                            f"Bquotes={binance.quotes} Mdepth={mexc.updates} fee_age={fee_age:.0f}ms "
+                            f"pnl={realized_pnl_usdt:+.6f}USDT ({realized_pnl_bps:+.3f}bps-sum) "
+                            f"dd={max_drawdown_usdt:.6f}USDT"
+                        )
+                        next_heartbeat = now + args.heartbeat_seconds
 
-                wake.clear()
-                try:
-                    await asyncio.wait_for(wake.wait(), timeout=0.25 if position else args.heartbeat_seconds)
-                except TimeoutError:
-                    pass
-
-            if position is not None:
-                console.print("[yellow]Session ending with bot-owned LIVE position; closing it before exit.[/yellow]")
-                await _close_position(adapter, position.remote)
-                position = None
+                    wake.clear()
+                    try:
+                        await asyncio.wait_for(
+                            wake.wait(),
+                            timeout=0.10 if position is not None else args.heartbeat_seconds,
+                        )
+                    except TimeoutError:
+                        pass
+            except asyncio.CancelledError:
+                if position is not None:
+                    try:
+                        await _emergency_close(adapter, position, "task_cancelled")
+                        position = None
+                    except Exception as close_exc:
+                        console.print(f"[bold red]EMERGENCY CLOSE FAILED[/bold red]: {close_exc}")
+                raise
+            finally:
+                if position is not None:
+                    try:
+                        await _emergency_close(adapter, position, "runner_shutdown")
+                        position = None
+                    except Exception as close_exc:
+                        console.print(f"[bold red]SHUTDOWN CLOSE FAILED[/bold red]: {close_exc}")
+                        raise
     finally:
         fee_stop.set()
         fee_task.cancel()
@@ -452,7 +553,9 @@ async def run(args: argparse.Namespace) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Real-money Binance->MEXC microspread runner using the existing MEXC web-session execution adapter.")
+    parser = argparse.ArgumentParser(
+        description="Real-money Binance->MEXC microspread runner using the existing MEXC web-session execution adapter."
+    )
     parser.add_argument("--confirm-live", default="")
     parser.add_argument("--include-symbols", default="")
     parser.add_argument("--exclude-symbols", default="")
@@ -472,6 +575,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-binance-age-ms", type=float, default=300.0)
     parser.add_argument("--max-mexc-age-ms", type=float, default=2000.0)
     parser.add_argument("--max-book-age-ms", type=float, default=1000.0)
+    parser.add_argument("--position-data-stale-ms", type=float, default=3000.0)
     parser.add_argument("--rearm-fraction", type=float, default=0.35)
     parser.add_argument("--entry-cooldown-ms", type=int, default=250)
     parser.add_argument("--ioc-cross-bps", type=float, default=1.0)
@@ -482,7 +586,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--reversal-edge-bps", type=float, default=0.35)
     parser.add_argument("--adverse-cut-bps", type=float, default=1.5)
     parser.add_argument("--trailing-distance-bps", type=float, default=1.5)
-    parser.add_argument("--max-session-loss-bps", type=float, default=20.0)
+    parser.add_argument("--max-session-loss-usdt", type=float, default=2.0)
     parser.add_argument("--heartbeat-seconds", type=float, default=5.0)
     parser.add_argument("--trade-csv", default="")
     return parser
@@ -492,6 +596,8 @@ def main() -> None:
     args = build_parser().parse_args()
     if args.target_notional_usdt <= 0:
         raise SystemExit("--target-notional-usdt must be positive")
+    if args.max_session_loss_usdt <= 0:
+        raise SystemExit("--max-session-loss-usdt must be positive")
     try:
         asyncio.run(run(args))
     except KeyboardInterrupt:
