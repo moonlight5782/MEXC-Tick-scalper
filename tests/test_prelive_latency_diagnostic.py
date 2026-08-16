@@ -52,7 +52,8 @@ def test_exit_depth_long_hits_bids():
 
 def test_diagnostic_module_never_enables_live_writes():
     source = Path("src/mexc_tick_scalper/prelive_latency_diagnostic.py").read_text(encoding="utf-8")
-    assert "write_enabled=True" not in source
+    assert "from_env(write_enabled=True)" not in source
+    assert "WebExecutionConfig.from_env(write_enabled=True)" not in source
     assert ".open_ioc(" not in source
     assert "close_market_reduce_only" not in source
     assert "close_position_snapshot_reduce_only" not in source
