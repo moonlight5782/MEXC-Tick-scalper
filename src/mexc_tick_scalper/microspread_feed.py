@@ -104,7 +104,13 @@ class EventBinanceBookTickerFeed:
 
 
 class EventMexcDepthFeed:
-    """MEXC full-depth feed using local arrival timestamps for latency comparison."""
+    """MEXC full-depth feed using local arrival timestamps for latency comparison.
+
+    ``books`` contains the latest snapshot and ``previous_books`` the immediately
+    preceding distinct snapshot. Paper execution can therefore require displayed
+    IOC liquidity to survive more than one real LIVE depth update instead of
+    assuming a single snapshot is fillable.
+    """
 
     def __init__(
         self,
@@ -123,6 +129,7 @@ class EventMexcDepthFeed:
         self.depth_limit = max(1, int(depth_limit))
         self.ws_url = str(ws_url)
         self.books: dict[str, LiveBook] = {}
+        self.previous_books: dict[str, LiveBook] = {}
         self._tasks: list[asyncio.Task] = []
         self._stop = asyncio.Event()
         self.last_errors: dict[int, str] = {}
@@ -135,10 +142,6 @@ class EventMexcDepthFeed:
 
     @staticmethod
     def _parse_book(payload: dict, recv_ms: int) -> tuple[str, LiveBook] | None:
-        # A ``sub.depth.full`` subscription currently answers on
-        # ``push.depth.full``.  MEXC has also used ``push.depth`` for the same
-        # payload shape, so accept the channel family rather than silently
-        # discarding every full-depth update.
         if not str(payload.get("channel") or "").startswith("push.depth"):
             return None
         symbol = str(payload.get("symbol") or "").upper()
@@ -149,20 +152,13 @@ class EventMexcDepthFeed:
         asks = data.get("asks") or []
         try:
             bid_levels = tuple(sorted(
-                (
-                    (float(row[0]), float(row[1]))
-                    for row in bids
-                    if isinstance(row, (list, tuple)) and len(row) >= 2 and float(row[1]) > 0
-                ),
-                key=lambda row: row[0],
-                reverse=True,
+                ((float(row[0]), float(row[1])) for row in bids
+                 if isinstance(row, (list, tuple)) and len(row) >= 2 and float(row[1]) > 0),
+                key=lambda row: row[0], reverse=True,
             ))
             ask_levels = tuple(sorted(
-                (
-                    (float(row[0]), float(row[1]))
-                    for row in asks
-                    if isinstance(row, (list, tuple)) and len(row) >= 2 and float(row[1]) > 0
-                ),
+                ((float(row[0]), float(row[1])) for row in asks
+                 if isinstance(row, (list, tuple)) and len(row) >= 2 and float(row[1]) > 0),
                 key=lambda row: row[0],
             ))
         except (TypeError, ValueError):
@@ -177,12 +173,8 @@ class EventMexcDepthFeed:
         if exchange_ts < 10_000_000_000:
             exchange_ts *= 1000
         return symbol, LiveBook(
-            bid=bid,
-            ask=ask,
-            recv_ms=recv_ms,
-            exchange_ts_ms=exchange_ts,
-            bids=bid_levels,
-            asks=ask_levels,
+            bid=bid, ask=ask, recv_ms=recv_ms, exchange_ts_ms=exchange_ts,
+            bids=bid_levels, asks=ask_levels,
         )
 
     async def start(self) -> None:
@@ -243,6 +235,9 @@ class EventMexcDepthFeed:
                             symbol, book = parsed
                             if symbol not in self.symbols:
                                 continue
+                            old = self.books.get(symbol)
+                            if old is not None and old.recv_ms != book.recv_ms:
+                                self.previous_books[symbol] = old
                             self.books[symbol] = book
                             model = self.models.get(symbol)
                             if model is not None:
