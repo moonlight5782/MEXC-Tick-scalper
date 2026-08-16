@@ -11,19 +11,11 @@ if not exist ".venv\Scripts\python.exe" (
 
 call .venv\Scripts\activate.bat
 
-if /I not "%MEXC_LIVE_WRITE%"=="YES" (
-  echo.
-  echo LIVE trading is LOCKED.
-  echo Set MEXC_LIVE_WRITE=YES only when you intentionally want REAL MEXC orders.
-  echo.
-  pause
-  exit /b 2
-)
-
 echo.
 echo ==============================================================
 echo REAL MONEY MODE - MEXC WEB SESSION EXECUTION
 echo LIVE Binance + LIVE MEXC signal. Orders go to REAL MEXC.
+echo The Python runner also requires MEXC_LIVE_WRITE=YES from .env/env.
 echo ==============================================================
 echo.
 set /p CONFIRM=Type LIVE to continue: 
