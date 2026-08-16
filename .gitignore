@@ -1,13 +1,36 @@
 .venv/
 __pycache__/
 *.py[cod]
+.pytest_cache/
+
+# Secrets / local runtime config
 .env
 .env.*
+!.env.example
 config.yaml
 *.sqlite3
+
+# Build / packaging outputs
+build/
+dist/
+*.egg-info/
+
+# Runtime and research outputs (curated datasets may be force-added deliberately)
 logs/
 data/
-microspread_excursions_*.csv
-microspread_*.log
+*.log
+*.err.log
+*.tmp
+*.patch
+*_residuals_*.csv
+*_excursions_*.csv
+live_lead_lag_*.csv
+live_shadow_trades_*.csv
+xaut_*_residuals_*.csv
+xaut_*_excursions_*.csv
+
+# Local Codex/test scratch
 .codex-test-*
+.codex-report-test-tmp/
+
 .DS_Store

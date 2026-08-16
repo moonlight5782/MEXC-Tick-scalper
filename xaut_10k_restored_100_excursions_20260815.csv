@@ -1,4 +1,0 @@
-timestamp_ms,excursion_id,event,symbol,direction,residual_bps,threshold_bps,net_margin_bps,spread_bps,binance_move_bps,mexc_move_bps,binance_age_ms,mexc_age_ms,reject_reason,signal_to_order_latency_ms,live_pnl_usdt,move_bps,mfe_bps,mae_bps,exit_reason,hold_ms,filled_qty,effective_leverage,live_notional_usdt,demo_entry_fee_usdt,demo_exit_fee_usdt,demo_gross_pnl_usdt,demo_net_pnl_usdt,exit_residual_bps,decision_demo_net_bps
-1786792179547,4775d02a7c5743708f3b33b74beb0ab2,crossing,XAUT_USDT,-1,-1.101312743,1.000000000,0.101312743,0.229423573,-1.101312743,0.000000000,0.000,45.000,,,,,,,,,,,,,,,,,
-1786792179548,4775d02a7c5743708f3b33b74beb0ab2,demo_ioc_request,XAUT_USDT,-1,-1.101312743,1.000000000,0.101312743,0.229423573,-1.101312743,0.000000000,2.000,47.000,,1.000,,,,,,,,,,,,,,,
-1786792180495,4775d02a7c5743708f3b33b74beb0ab2,demo_ioc_response,XAUT_USDT,-1,-1.101312743,1.000000000,0.101312743,0.229423573,-1.101312743,0.000000000,2.000,47.000,,1.000,,,,,,,,,,,,,,,

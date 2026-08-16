@@ -1,2 +1,0 @@
-symbol,direction,signal_ms,entry_ms,exit_ms,entry_price,exit_price,impulse_bps,entry_spread_bps,pnl_bps,pnl_usdt,mfe_bps,mae_bps,hold_ms,signal_to_fill_ms,exit_decision_to_fill_ms,exit_reason
-LINK_USDT,LONG,1786830613848,1786830614033,1786830678793,9.577,9.577,2.088663784940414,1.04422283715287,0.0,0.0,0.0,-1.0441683199325946,64760,185,2466,timeout
