@@ -13,9 +13,10 @@ call .venv\Scripts\activate.bat
 
 echo.
 echo ==============================================================
-echo REAL MONEY MODE V2 - BINANCE LEAD / MEXC LAG
-echo Adaptive noise filter + confirmed lag + convergence exit.
-echo Orders go to REAL MEXC web-session only after exact 0/0 fee gate.
+echo REAL MONEY MODE - PERSISTENT BINANCE LEAD / MEXC LAG
+echo Trades only historically persistent lag pairs from latest lifetime CSV.
+echo Strong live-event gate + exact 0/0 fee gate + convergence exit.
+echo Orders use the existing REAL MEXC web-session execution path.
 echo The Python runner also requires MEXC_LIVE_WRITE=YES from .env/env.
 echo ==============================================================
 echo.
@@ -26,7 +27,7 @@ if /I not "%CONFIRM%"=="LIVE" (
   exit /b 3
 )
 
-python -m mexc_tick_scalper.live_production_runner_v2 --confirm-live LIVE
+python -m mexc_tick_scalper.live_production_persistent --confirm-live LIVE
 
 echo.
 pause
