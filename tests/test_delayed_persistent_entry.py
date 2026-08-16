@@ -1,4 +1,4 @@
-from mexc_tick_scalper.prelive_latency_diagnostic_v2 import delayed_entry_is_exploitable
+from mexc_tick_scalper.persistent_delayed_gate import delayed_entry_is_exploitable
 
 
 def test_delayed_entry_does_not_require_fresh_binance_impulse():
