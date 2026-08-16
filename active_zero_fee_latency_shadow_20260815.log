@@ -1,0 +1,485 @@
+      Shadow candidates from live_lead_lag_1786779651.csv       
++--------------------------------------------------------------+
+| # | MEXC        | Events | Avg edge | Spread |   Net | Score |
+|---+-------------+--------+----------+--------+-------+-------|
+| 1 | AKE_USDT    |     18 |    6.925 |  1.077 | 5.848 | 24.81 |
+| 2 | VELVET_USDT |     19 |    8.670 |  4.998 | 3.672 | 16.01 |
+| 3 | XLM_USDT    |      6 |    2.227 |  0.631 | 1.596 |  3.91 |
++--------------------------------------------------------------+
+LIVE SHADOW ONLY: exact 0/0-fee universe, LIVE market data, executable MEXC 
+bid/ask; no LIVE order adapter is constructed and no order endpoint can be 
+called.
+SHADOW STATUS books=0/3 depth_updates=0 BinanceQuotes=0 MEXCTrades=0 open=0 
+closed=0 pnl=+0.000bps book_error=-
+SHADOW SIGNAL VELVET_USDT LONG edge=+9.638bps required=8.935 spread=7.935 
+Bmove=+0.441 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY VELVET_USDT LONG signal_edge=+9.638bps signal_spread=7.935 
+execution_spread=4.409 latency=952.4ms px=1.1344
+SHADOW EXIT VELVET_USDT LONG reason=binance_reversal pnl=+1.763bps MFE=+1.763 
+MAE=-4.408 trail=OFF hold=2.16s
+SHADOW STATUS books=3/3 depth_updates=97 BinanceQuotes=1030 MEXCTrades=19 
+open=0 closed=1 pnl=+1.763bps book_error=-
+SHADOW SIGNAL AKE_USDT LONG edge=+4.758bps required=3.926 spread=2.926 
+Bmove=+4.388 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT LONG signal_edge=+4.758bps signal_spread=2.926 
+execution_spread=0.975 latency=963.3ms px=0.010257
+SHADOW EXIT AKE_USDT LONG reason=adverse_cut pnl=-5.850bps MFE=+0.000 
+MAE=-5.850 trail=OFF hold=0.40s
+SHADOW SIGNAL AKE_USDT SHORT edge=-5.021bps required=1.975 spread=0.975 
+Bmove=-3.415 Mmove=-2.928 delay=939.5ms
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+5.021bps signal_spread=0.975 
+execution_spread=5.854 latency=968.3ms px=0.010246
+SHADOW EXIT AKE_USDT SHORT reason=adverse_cut pnl=-8.784bps MFE=+0.000 
+MAE=-8.784 trail=OFF hold=1.28s
+SHADOW STATUS books=3/3 depth_updates=201 BinanceQuotes=1934 MEXCTrades=89 
+open=0 closed=3 pnl=-12.871bps book_error=-
+SHADOW SIGNAL AKE_USDT LONG edge=+3.563bps required=1.975 spread=0.975 
+Bmove=+6.626 Mmove=+5.851 delay=939.5ms
+SHADOW ENTRY AKE_USDT LONG signal_edge=+3.563bps signal_spread=0.975 
+execution_spread=0.975 latency=984.3ms px=0.010261
+SHADOW EXIT AKE_USDT LONG reason=lead_lag_reversed pnl=+10.720bps MFE=+10.720 
+MAE=-0.975 trail=+9.220bps hold=0.40s
+SHADOW SIGNAL VELVET_USDT LONG edge=+8.230bps required=8.057 spread=7.057 
+Bmove=+2.202 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY VELVET_USDT LONG signal_edge=+8.230bps signal_spread=7.057 
+execution_spread=0.882 latency=969.8ms px=1.134
+SHADOW EXIT VELVET_USDT LONG reason=lead_lag_converged pnl=+3.527bps MFE=+3.527
+MAE=-0.882 trail=+0.500bps hold=0.78s
+SHADOW SIGNAL AKE_USDT SHORT edge=-4.085bps required=3.918 spread=2.918 
+Bmove=-0.486 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+4.085bps signal_spread=2.918 
+execution_spread=0.970 latency=939.9ms px=0.010306
+SHADOW EXIT AKE_USDT SHORT reason=binance_reversal pnl=-0.970bps MFE=+0.000 
+MAE=-0.970 trail=OFF hold=0.66s
+SHADOW SIGNAL AKE_USDT SHORT edge=-8.406bps required=3.908 spread=2.908 
+Bmove=-0.485 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+8.406bps signal_spread=2.908 
+execution_spread=13.567 latency=949.5ms px=0.010312
+SHADOW EXIT AKE_USDT SHORT reason=binance_reversal pnl=-7.758bps MFE=+0.000 
+MAE=-10.667 trail=OFF hold=0.49s
+SHADOW SIGNAL AKE_USDT SHORT edge=-16.740bps required=5.848 spread=4.848 
+Bmove=-0.485 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+16.740bps signal_spread=4.848 
+execution_spread=3.881 latency=958.1ms px=0.010305
+SHADOW EXIT AKE_USDT SHORT reason=binance_reversal pnl=-3.882bps MFE=+0.000 
+MAE=-3.882 trail=OFF hold=0.06s
+SHADOW STATUS books=3/3 depth_updates=308 BinanceQuotes=3668 MEXCTrades=151 
+open=0 closed=8 pnl=-11.233bps book_error=-
+SHADOW SIGNAL AKE_USDT SHORT edge=-2.406bps required=1.970 spread=0.970 
+Bmove=-3.880 Mmove=+0.000 delay=939.5ms
+SHADOW SIGNAL VELVET_USDT SHORT edge=-7.079bps required=6.283 spread=5.283 
+Bmove=-5.714 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+2.406bps signal_spread=0.970 
+execution_spread=1.943 latency=966.7ms px=0.010291
+SHADOW ENTRY VELVET_USDT SHORT signal_edge=+7.079bps signal_spread=5.283 
+execution_spread=2.643 latency=978.0ms px=1.1348
+SHADOW EXIT AKE_USDT SHORT reason=adverse_cut pnl=-4.859bps MFE=+0.000 
+MAE=-4.859 trail=OFF hold=0.84s
+SHADOW EXIT VELVET_USDT SHORT reason=binance_reversal pnl=-0.000bps MFE=+0.000 
+MAE=-2.644 trail=OFF hold=1.06s
+SHADOW STATUS books=3/3 depth_updates=391 BinanceQuotes=5019 MEXCTrades=183 
+open=0 closed=10 pnl=-16.091bps book_error=-
+SHADOW SIGNAL AKE_USDT SHORT edge=-4.753bps required=1.972 spread=0.972 
+Bmove=-1.457 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+4.753bps signal_spread=0.972 
+execution_spread=1.943 latency=964.3ms px=0.010294
+SHADOW EXIT AKE_USDT SHORT reason=adverse_cut pnl=-3.886bps MFE=+0.000 
+MAE=-3.886 trail=OFF hold=0.29s
+SHADOW SIGNAL VELVET_USDT LONG edge=+9.407bps required=7.181 spread=6.181 
+Bmove=+2.645 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY VELVET_USDT LONG signal_edge=+9.407bps signal_spread=6.181 
+execution_spread=5.298 latency=977.6ms px=1.1327
+SHADOW STATUS books=3/3 depth_updates=487 BinanceQuotes=6053 MEXCTrades=202 
+open=1 closed=11 pnl=-19.977bps book_error=-
+  VELVET_USDT MFE=+0.000 MAE=-5.297 TRAIL=OFF edge_entry=9.407bps
+SHADOW SIGNAL AKE_USDT SHORT edge=-11.331bps required=2.939 spread=1.939 
+Bmove=-1.454 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+11.331bps signal_spread=1.939 
+execution_spread=2.909 latency=948.7ms px=0.010313
+SHADOW EXIT VELVET_USDT LONG reason=binance_reversal pnl=+1.766bps MFE=+1.766 
+MAE=-5.297 trail=OFF hold=10.13s
+SHADOW EXIT AKE_USDT SHORT reason=binance_reversal pnl=+10.666bps MFE=+12.605 
+MAE=-2.909 trail=+9.697bps hold=2.38s
+SHADOW SIGNAL VELVET_USDT SHORT edge=-15.705bps required=1.883 spread=0.883 
+Bmove=-3.532 Mmove=-2.648 delay=939.5ms
+SHADOW ENTRY VELVET_USDT SHORT signal_edge=+15.705bps signal_spread=0.883 
+execution_spread=7.948 latency=988.0ms px=1.1319
+SHADOW EXIT VELVET_USDT SHORT reason=adverse_cut pnl=-15.019bps MFE=+0.000 
+MAE=-15.019 trail=OFF hold=2.99s
+SHADOW STATUS books=3/3 depth_updates=591 BinanceQuotes=7440 MEXCTrades=221 
+open=0 closed=14 pnl=-22.564bps book_error=-
+SHADOW SIGNAL VELVET_USDT LONG edge=+23.715bps required=8.071 spread=7.071 
+Bmove=+12.347 Mmove=+0.000 delay=939.5ms
+SHADOW SIGNAL AKE_USDT SHORT edge=-3.787bps required=1.971 spread=0.971 
+Bmove=-0.971 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY VELVET_USDT LONG signal_edge=+23.715bps signal_spread=7.071 
+execution_spread=7.947 latency=978.0ms px=1.1329
+SHADOW EXIT VELVET_USDT LONG reason=adverse_cut pnl=-12.358bps MFE=+0.000 
+MAE=-12.358 trail=OFF hold=0.07s
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+3.787bps signal_spread=0.971 
+execution_spread=3.887 latency=982.7ms px=0.010288
+SHADOW EXIT AKE_USDT SHORT reason=adverse_cut pnl=-4.860bps MFE=+0.000 
+MAE=-4.860 trail=OFF hold=0.45s
+SHADOW SIGNAL VELVET_USDT SHORT edge=-8.048bps required=1.884 spread=0.884 
+Bmove=-0.442 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY VELVET_USDT SHORT signal_edge=+8.048bps signal_spread=0.884 
+execution_spread=0.885 latency=973.3ms px=1.1304
+SHADOW EXIT VELVET_USDT SHORT reason=binance_reversal pnl=-0.885bps MFE=+0.000 
+MAE=-0.885 trail=OFF hold=0.06s
+SHADOW SIGNAL VELVET_USDT SHORT edge=-5.091bps required=1.885 spread=0.885 
+Bmove=-0.442 Mmove=+0.000 delay=939.5ms
+SHADOW STATUS books=3/3 depth_updates=681 BinanceQuotes=8747 MEXCTrades=248 
+open=0 closed=17 pnl=-40.667bps book_error=-
+SHADOW ENTRY VELVET_USDT SHORT signal_edge=+5.091bps signal_spread=0.885 
+execution_spread=4.427 latency=975.7ms px=1.1293
+SHADOW EXIT VELVET_USDT SHORT reason=adverse_cut pnl=-7.970bps MFE=+0.000 
+MAE=-7.970 trail=OFF hold=0.40s
+SHADOW SIGNAL AKE_USDT LONG edge=+8.181bps required=1.970 spread=0.970 
+Bmove=+3.380 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT LONG signal_edge=+8.181bps signal_spread=0.970 
+execution_spread=5.796 latency=979.9ms px=0.010355
+SHADOW EXIT AKE_USDT LONG reason=lead_lag_reversed pnl=+0.966bps MFE=+0.966 
+MAE=-5.794 trail=OFF hold=0.49s
+SHADOW SIGNAL AKE_USDT SHORT edge=-50.640bps required=6.789 spread=5.789 
+Bmove=-1.932 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+50.640bps signal_spread=5.789 
+execution_spread=2.895 latency=972.5ms px=0.010362
+SHADOW EXIT AKE_USDT SHORT reason=binance_reversal pnl=-2.895bps MFE=+0.000 
+MAE=-2.895 trail=OFF hold=0.23s
+SHADOW SIGNAL AKE_USDT SHORT edge=-28.911bps required=1.964 spread=0.964 
+Bmove=-5.305 Mmove=+0.000 delay=939.5ms
+SHADOW STATUS books=3/3 depth_updates=779 BinanceQuotes=11151 MEXCTrades=302 
+open=0 closed=20 pnl=-50.566bps book_error=-
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+28.911bps signal_spread=0.964 
+execution_spread=0.966 latency=962.1ms px=0.010354
+SHADOW EXIT AKE_USDT SHORT reason=binance_reversal pnl=-0.966bps MFE=+0.000 
+MAE=-0.966 trail=OFF hold=0.18s
+SHADOW SIGNAL AKE_USDT SHORT edge=-22.676bps required=3.896 spread=2.896 
+Bmove=-0.965 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+22.676bps signal_spread=2.896 
+execution_spread=4.828 latency=972.8ms px=0.010353
+SHADOW EXIT AKE_USDT SHORT reason=positive_trailing_stop pnl=+10.625bps 
+MFE=+15.454 MAE=-4.830 trail=+10.626bps hold=2.47s
+SHADOW SIGNAL AKE_USDT LONG edge=+4.487bps required=3.905 spread=2.905 
+Bmove=+0.484 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT LONG signal_edge=+4.487bps signal_spread=2.905 
+execution_spread=4.843 latency=980.0ms px=0.010327
+SHADOW STATUS books=3/3 depth_updates=872 BinanceQuotes=13036 MEXCTrades=341 
+open=1 closed=22 pnl=-40.907bps book_error=-
+  AKE_USDT MFE=+16.462 MAE=-4.842 TRAIL=+11.619bps edge_entry=4.487bps
+SHADOW EXIT AKE_USDT LONG reason=positive_trailing_stop pnl=+29.050bps 
+MFE=+39.702 MAE=-4.842 trail=+34.859bps hold=6.54s
+SHADOW SIGNAL VELVET_USDT SHORT edge=-16.234bps required=9.828 spread=8.828 
+Bmove=-2.203 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY VELVET_USDT SHORT signal_edge=+16.234bps signal_spread=8.828 
+execution_spread=7.065 latency=981.9ms px=1.132
+SHADOW EXIT VELVET_USDT SHORT reason=lead_lag_reversed pnl=+0.883bps MFE=+0.883
+MAE=-7.067 trail=OFF hold=1.13s
+SHADOW STATUS books=3/3 depth_updates=973 BinanceQuotes=14331 MEXCTrades=366 
+open=0 closed=24 pnl=-10.973bps book_error=-
+SHADOW SIGNAL AKE_USDT LONG edge=+11.965bps required=1.965 spread=0.965 
+Bmove=+0.241 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT LONG signal_edge=+11.965bps signal_spread=0.965 
+execution_spread=4.819 latency=945.1ms px=0.010378
+SHADOW EXIT AKE_USDT LONG reason=binance_reversal pnl=-4.818bps MFE=+0.000 
+MAE=-4.818 trail=OFF hold=0.24s
+SHADOW SIGNAL AKE_USDT LONG edge=+6.825bps required=2.927 spread=1.927 
+Bmove=+7.702 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT LONG signal_edge=+6.825bps signal_spread=1.927 
+execution_spread=1.924 latency=963.5ms px=0.010394
+SHADOW EXIT AKE_USDT LONG reason=lead_lag_reversed pnl=-1.924bps MFE=+0.000 
+MAE=-1.924 trail=OFF hold=0.06s
+SHADOW SIGNAL AKE_USDT SHORT edge=-3.281bps required=1.961 spread=0.961 
+Bmove=-4.328 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+3.281bps signal_spread=0.961 
+execution_spread=1.923 latency=981.4ms px=0.010401
+SHADOW STATUS books=3/3 depth_updates=1073 BinanceQuotes=15711 MEXCTrades=425 
+open=1 closed=26 pnl=-17.715bps book_error=-
+  AKE_USDT MFE=+0.000 MAE=-1.923 TRAIL=OFF edge_entry=3.281bps
+SHADOW EXIT AKE_USDT SHORT reason=adverse_cut pnl=-2.884bps MFE=+0.000 
+MAE=-2.884 trail=OFF hold=2.22s
+SHADOW SIGNAL VELVET_USDT SHORT edge=-8.088bps required=7.158 spread=6.158 
+Bmove=-1.758 Mmove=+0.000 delay=939.5ms
+SHADOW SIGNAL AKE_USDT SHORT edge=-6.127bps required=1.961 spread=0.961 
+Bmove=-2.885 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY VELVET_USDT SHORT signal_edge=+8.088bps signal_spread=6.158 
+execution_spread=6.158 latency=957.7ms px=1.1363
+SHADOW EXIT VELVET_USDT SHORT reason=adverse_cut pnl=-14.961bps MFE=+0.000 
+MAE=-14.961 trail=OFF hold=0.27s
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+6.127bps signal_spread=0.961 
+execution_spread=8.658 latency=952.2ms px=0.01039
+SHADOW SIGNAL VELVET_USDT SHORT edge=-10.542bps required=7.152 spread=6.152 
+Bmove=-2.635 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY VELVET_USDT SHORT signal_edge=+10.542bps signal_spread=6.152 
+execution_spread=4.397 latency=954.4ms px=1.1369
+SHADOW EXIT VELVET_USDT SHORT reason=adverse_cut pnl=-11.435bps MFE=+0.000 
+MAE=-11.435 trail=OFF hold=1.63s
+SHADOW EXIT AKE_USDT SHORT reason=lead_lag_reversed pnl=-5.775bps MFE=+0.000 
+MAE=-8.662 trail=OFF hold=4.08s
+SHADOW SIGNAL AKE_USDT LONG edge=+8.274bps required=5.821 spread=4.821 
+Bmove=+3.375 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT LONG signal_edge=+8.274bps signal_spread=4.821 
+execution_spread=3.860 latency=953.7ms px=0.010365
+SHADOW STATUS books=3/3 depth_updates=1173 BinanceQuotes=17686 MEXCTrades=460 
+open=1 closed=30 pnl=-52.770bps book_error=-
+  AKE_USDT MFE=+0.000 MAE=-3.859 TRAIL=OFF edge_entry=8.274bps
+SHADOW EXIT AKE_USDT LONG reason=positive_trailing_stop pnl=+0.000bps 
+MFE=+3.859 MAE=-3.859 trail=+0.500bps hold=3.33s
+SHADOW SIGNAL AKE_USDT LONG edge=+21.781bps required=4.858 spread=3.858 
+Bmove=+15.422 Mmove=-0.965 delay=939.5ms
+SHADOW ENTRY AKE_USDT LONG signal_edge=+21.781bps signal_spread=3.858 
+execution_spread=8.673 latency=958.9ms px=0.010381
+SHADOW SIGNAL VELVET_USDT SHORT edge=-13.994bps required=5.388 spread=4.388 
+Bmove=-0.438 Mmove=+0.000 delay=939.5ms
+SHADOW EXIT AKE_USDT LONG reason=lead_lag_reversed pnl=+5.780bps MFE=+10.596 
+MAE=-10.596 trail=+2.000bps hold=6.03s
+SHADOW ENTRY VELVET_USDT SHORT signal_edge=+13.994bps signal_spread=4.388 
+execution_spread=16.632 latency=975.7ms px=1.1414
+SHADOW EXIT VELVET_USDT SHORT reason=binance_reversal pnl=-20.151bps MFE=+0.000
+MAE=-20.151 trail=OFF hold=0.18s
+SHADOW SIGNAL AKE_USDT SHORT edge=-8.663bps required=5.811 spread=4.811 
+Bmove=-0.481 Mmove=+0.000 delay=939.5ms
+SHADOW SIGNAL VELVET_USDT SHORT edge=-21.425bps required=17.635 spread=16.635 
+Bmove=-1.315 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+8.663bps signal_spread=4.811 
+execution_spread=2.886 latency=981.6ms px=0.010392
+SHADOW ENTRY VELVET_USDT SHORT signal_edge=+21.425bps signal_spread=16.635 
+execution_spread=11.393 latency=985.1ms px=1.1404
+SHADOW EXIT AKE_USDT SHORT reason=binance_reversal pnl=-0.000bps MFE=+0.000 
+MAE=-2.887 trail=OFF hold=0.62s
+SHADOW EXIT VELVET_USDT SHORT reason=adverse_cut pnl=-14.907bps MFE=+0.000 
+MAE=-14.907 trail=OFF hold=1.14s
+SHADOW SIGNAL VELVET_USDT SHORT edge=-17.710bps required=14.111 spread=13.111 
+Bmove=-0.437 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY VELVET_USDT SHORT signal_edge=+17.710bps signal_spread=13.111 
+execution_spread=14.866 latency=986.8ms px=1.1427
+SHADOW EXIT VELVET_USDT SHORT reason=binance_reversal pnl=-14.877bps MFE=+0.000
+MAE=-14.877 trail=OFF hold=0.06s
+SHADOW STATUS books=3/3 depth_updates=1278 BinanceQuotes=19967 MEXCTrades=596 
+open=0 closed=36 pnl=-96.925bps book_error=-
+SHADOW SIGNAL VELVET_USDT SHORT edge=-13.716bps required=8.873 spread=7.873 
+Bmove=-6.130 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY VELVET_USDT SHORT signal_edge=+13.716bps signal_spread=7.873 
+execution_spread=7.007 latency=1001.2ms px=1.1413
+SHADOW EXIT VELVET_USDT SHORT reason=binance_reversal pnl=-5.257bps MFE=+0.000 
+MAE=-7.010 trail=OFF hold=0.51s
+SHADOW SIGNAL VELVET_USDT LONG edge=+12.310bps required=8.011 spread=7.011 
+Bmove=+0.876 Mmove=+0.000 delay=939.5ms
+SHADOW SIGNAL AKE_USDT LONG edge=+5.445bps required=4.854 spread=3.854 
+Bmove=+7.225 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY VELVET_USDT LONG signal_edge=+12.310bps signal_spread=7.011 
+execution_spread=6.134 latency=980.0ms px=1.1415
+SHADOW ENTRY AKE_USDT LONG signal_edge=+5.445bps signal_spread=3.854 
+execution_spread=1.926 latency=983.8ms px=0.010386
+SHADOW EXIT AKE_USDT LONG reason=adverse_cut pnl=-7.703bps MFE=+0.000 
+MAE=-7.703 trail=OFF hold=0.06s
+SHADOW EXIT VELVET_USDT LONG reason=binance_reversal pnl=-6.132bps MFE=+0.000 
+MAE=-6.132 trail=OFF hold=0.36s
+SHADOW SIGNAL AKE_USDT SHORT edge=-3.553bps required=1.964 spread=0.964 
+Bmove=-0.964 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+3.553bps signal_spread=0.964 
+execution_spread=0.964 latency=942.2ms px=0.010376
+SHADOW EXIT AKE_USDT SHORT reason=adverse_cut pnl=-2.891bps MFE=+0.000 
+MAE=-2.891 trail=OFF hold=0.06s
+SHADOW SIGNAL AKE_USDT LONG edge=+9.383bps required=4.854 spread=3.854 
+Bmove=+0.481 Mmove=+0.000 delay=939.5ms
+SHADOW SIGNAL VELVET_USDT LONG edge=+9.192bps required=5.387 spread=4.387 
+Bmove=+3.068 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT LONG signal_edge=+9.383bps signal_spread=3.854 
+execution_spread=1.925 latency=987.7ms px=0.01039
+SHADOW ENTRY VELVET_USDT LONG signal_edge=+9.192bps signal_spread=4.387 
+execution_spread=6.139 latency=1004.4ms px=1.1406
+SHADOW EXIT VELVET_USDT LONG reason=adverse_cut pnl=-7.891bps MFE=+0.000 
+MAE=-7.891 trail=OFF hold=0.11s
+SHADOW EXIT AKE_USDT LONG reason=positive_trailing_stop pnl=-2.887bps 
+MFE=+3.850 MAE=-2.887 trail=+0.500bps hold=1.05s
+SHADOW STATUS books=3/3 depth_updates=1381 BinanceQuotes=22145 MEXCTrades=679 
+open=0 closed=42 pnl=-129.686bps book_error=-
+SHADOW SIGNAL VELVET_USDT LONG edge=+9.284bps required=8.897 spread=7.897 
+Bmove=+2.192 Mmove=+0.000 delay=939.5ms
+SHADOW SIGNAL AKE_USDT SHORT edge=-10.985bps required=7.715 spread=6.715 
+Bmove=-4.317 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY VELVET_USDT LONG signal_edge=+9.284bps signal_spread=7.897 
+execution_spread=13.170 latency=987.7ms px=1.1397
+SHADOW EXIT VELVET_USDT LONG reason=lead_lag_reversed pnl=-13.161bps MFE=+0.000
+MAE=-13.161 trail=OFF hold=0.07s
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+10.985bps signal_spread=6.715 
+execution_spread=0.961 latency=990.2ms px=0.010406
+SHADOW EXIT AKE_USDT SHORT reason=positive_trailing_stop pnl=+7.688bps 
+MFE=+10.571 MAE=-0.961 trail=+9.071bps hold=1.41s
+SHADOW SIGNAL AKE_USDT SHORT edge=-8.385bps required=5.814 spread=4.814 
+Bmove=-0.482 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+8.385bps signal_spread=4.814 
+execution_spread=1.925 latency=948.8ms px=0.010388
+SHADOW EXIT AKE_USDT SHORT reason=adverse_cut pnl=-3.851bps MFE=+0.000 
+MAE=-3.851 trail=OFF hold=0.06s
+SHADOW SIGNAL VELVET_USDT SHORT edge=-15.142bps required=5.392 spread=4.392 
+Bmove=-3.522 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY VELVET_USDT SHORT signal_edge=+15.142bps signal_spread=4.392 
+execution_spread=9.682 latency=973.1ms px=1.1356
+SHADOW SIGNAL AKE_USDT LONG edge=+18.820bps required=1.963 spread=0.963 
+Bmove=+4.815 Mmove=+0.963 delay=939.5ms
+SHADOW EXIT VELVET_USDT SHORT reason=adverse_cut pnl=-13.209bps MFE=+0.000 
+MAE=-13.209 trail=OFF hold=0.85s
+SHADOW ENTRY AKE_USDT LONG signal_edge=+18.820bps signal_spread=0.963 
+execution_spread=3.851 latency=1388.3ms px=0.010389
+SHADOW EXIT AKE_USDT LONG reason=adverse_cut pnl=-8.663bps MFE=+0.963 
+MAE=-8.663 trail=OFF hold=2.72s
+SHADOW STATUS books=3/3 depth_updates=1484 BinanceQuotes=23669 MEXCTrades=712 
+open=0 closed=47 pnl=-160.882bps book_error=-
+SHADOW SIGNAL AKE_USDT SHORT edge=-13.674bps required=2.925 spread=1.925 
+Bmove=-32.774 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+13.674bps signal_spread=1.925 
+execution_spread=3.806 latency=940.3ms px=0.010508
+SHADOW EXIT AKE_USDT SHORT reason=binance_reversal pnl=-3.807bps MFE=+0.000 
+MAE=-3.807 trail=OFF hold=0.29s
+SHADOW SIGNAL AKE_USDT SHORT edge=-77.568bps required=1.949 spread=0.949 
+Bmove=-0.475 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+77.568bps signal_spread=0.949 
+execution_spread=8.563 latency=986.0ms px=0.010506
+SHADOW EXIT AKE_USDT SHORT reason=binance_reversal pnl=-0.000bps MFE=+0.000 
+MAE=-8.567 trail=OFF hold=0.39s
+SHADOW SIGNAL AKE_USDT SHORT edge=-84.413bps required=9.570 spread=8.570 
+Bmove=-2.381 Mmove=+0.952 delay=939.5ms
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+84.413bps signal_spread=8.570 
+execution_spread=2.858 latency=986.5ms px=0.010495
+SHADOW EXIT AKE_USDT SHORT reason=binance_reversal pnl=+1.906bps MFE=+1.906 
+MAE=-2.859 trail=OFF hold=0.39s
+SHADOW SIGNAL AKE_USDT SHORT edge=-61.853bps required=4.812 spread=3.812 
+Bmove=-2.857 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+61.853bps signal_spread=3.812 
+execution_spread=1.908 latency=955.0ms px=0.010481
+SHADOW EXIT AKE_USDT SHORT reason=lead_lag_reversed pnl=+0.954bps MFE=+0.954 
+MAE=-1.908 trail=OFF hold=0.75s
+SHADOW SIGNAL VELVET_USDT LONG edge=+5.604bps required=3.630 spread=2.630 
+Bmove=+1.315 Mmove=+0.000 delay=939.5ms
+SHADOW SIGNAL AKE_USDT LONG edge=+3.198bps required=1.954 spread=0.954 
+Bmove=+0.477 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY VELVET_USDT LONG signal_edge=+5.604bps signal_spread=2.630 
+execution_spread=2.630 latency=983.5ms px=1.1408
+SHADOW EXIT VELVET_USDT LONG reason=adverse_cut pnl=-3.506bps MFE=+0.000 
+MAE=-3.506 trail=OFF hold=0.07s
+SHADOW ENTRY AKE_USDT LONG signal_edge=+3.198bps signal_spread=0.954 
+execution_spread=5.725 latency=986.4ms px=0.010484
+SHADOW STATUS books=3/3 depth_updates=1589 BinanceQuotes=29193 MEXCTrades=855 
+open=1 closed=52 pnl=-165.335bps book_error=-
+  AKE_USDT MFE=+0.000 MAE=-0.954 TRAIL=OFF edge_entry=3.198bps
+SHADOW EXIT AKE_USDT LONG reason=lead_lag_reversed pnl=-6.677bps MFE=+0.000 
+MAE=-6.677 trail=OFF hold=1.92s
+SHADOW SIGNAL AKE_USDT LONG edge=+15.098bps required=5.773 spread=4.773 
+Bmove=+10.970 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT LONG signal_edge=+15.098bps signal_spread=4.773 
+execution_spread=5.728 latency=946.6ms px=0.010477
+SHADOW EXIT AKE_USDT LONG reason=lead_lag_reversed pnl=-4.772bps MFE=+0.000 
+MAE=-5.727 trail=OFF hold=0.34s
+SHADOW STATUS books=3/3 depth_updates=1694 BinanceQuotes=31814 MEXCTrades=881 
+open=0 closed=54 pnl=-176.785bps book_error=-
+SHADOW SIGNAL AKE_USDT SHORT edge=-23.821bps required=7.650 spread=6.650 
+Bmove=-9.519 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+23.821bps signal_spread=6.650 
+execution_spread=5.715 latency=960.5ms px=0.010496
+SHADOW EXIT AKE_USDT SHORT reason=adverse_cut pnl=-8.575bps MFE=+0.000 
+MAE=-8.575 trail=OFF hold=0.85s
+SHADOW SIGNAL AKE_USDT SHORT edge=-2.821bps required=1.952 spread=0.952 
+Bmove=-6.667 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+2.821bps signal_spread=0.952 
+execution_spread=3.813 latency=975.4ms px=0.010489
+SHADOW EXIT AKE_USDT SHORT reason=lead_lag_reversed pnl=-3.814bps MFE=+0.000 
+MAE=-3.814 trail=OFF hold=0.06s
+SHADOW SIGNAL AKE_USDT SHORT edge=-19.623bps required=9.582 spread=8.582 
+Bmove=-25.297 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+19.623bps signal_spread=8.582 
+execution_spread=0.956 latency=959.4ms px=0.010464
+SHADOW EXIT AKE_USDT SHORT reason=lead_lag_reversed pnl=+1.911bps MFE=+1.911 
+MAE=-0.956 trail=OFF hold=0.42s
+SHADOW SIGNAL AKE_USDT LONG edge=+8.799bps required=8.658 spread=7.658 
+Bmove=+3.350 Mmove=+0.000 delay=939.5ms
+SHADOW SIGNAL VELVET_USDT LONG edge=+20.993bps required=10.710 spread=9.710 
+Bmove=+4.411 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT LONG signal_edge=+8.799bps signal_spread=7.658 
+execution_spread=0.957 latency=979.8ms px=0.010453
+SHADOW ENTRY VELVET_USDT LONG signal_edge=+20.993bps signal_spread=9.710 
+execution_spread=6.176 latency=981.7ms px=1.1337
+SHADOW EXIT VELVET_USDT LONG reason=binance_reversal pnl=-6.174bps MFE=+0.000 
+MAE=-6.174 trail=OFF hold=0.23s
+SHADOW EXIT AKE_USDT LONG reason=positive_trailing_stop pnl=+17.220bps 
+MFE=+21.047 MAE=-0.957 trail=+19.547bps hold=2.54s
+SHADOW SIGNAL VELVET_USDT SHORT edge=-7.674bps required=6.292 spread=5.292 
+Bmove=-0.441 Mmove=+0.000 delay=939.5ms
+SHADOW STATUS books=3/3 depth_updates=1807 BinanceQuotes=34670 MEXCTrades=950 
+open=0 closed=59 pnl=-176.216bps book_error=-
+SHADOW ENTRY VELVET_USDT SHORT signal_edge=+7.674bps signal_spread=5.292 
+execution_spread=6.179 latency=941.5ms px=1.1326
+SHADOW EXIT VELVET_USDT SHORT reason=adverse_cut pnl=-12.361bps MFE=+0.000 
+MAE=-12.361 trail=OFF hold=0.82s
+SHADOW SIGNAL AKE_USDT SHORT edge=-11.236bps required=2.911 spread=1.911 
+Bmove=-4.777 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+11.236bps signal_spread=1.911 
+execution_spread=3.824 latency=946.0ms px=0.010459
+SHADOW EXIT AKE_USDT SHORT reason=binance_reversal pnl=-3.824bps MFE=+0.000 
+MAE=-3.824 trail=OFF hold=0.75s
+SHADOW SIGNAL AKE_USDT SHORT edge=-8.741bps required=1.955 spread=0.955 
+Bmove=-0.478 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT SHORT signal_edge=+8.741bps signal_spread=0.955 
+execution_spread=4.779 latency=973.9ms px=0.010461
+SHADOW EXIT AKE_USDT SHORT reason=adverse_cut pnl=-6.692bps MFE=+0.000 
+MAE=-6.692 trail=OFF hold=0.71s
+SHADOW SIGNAL AKE_USDT LONG edge=+26.132bps required=8.674 spread=7.674 
+Bmove=+16.776 Mmove=+0.000 delay=939.5ms
+SHADOW SIGNAL VELVET_USDT SHORT edge=-13.001bps required=9.812 spread=8.812 
+Bmove=-0.440 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT LONG signal_edge=+26.132bps signal_spread=7.674 
+execution_spread=6.705 latency=966.0ms px=0.010443
+SHADOW EXIT AKE_USDT LONG reason=binance_reversal pnl=-6.703bps MFE=+0.000 
+MAE=-6.703 trail=OFF hold=0.12s
+SHADOW STATUS books=3/3 depth_updates=1918 BinanceQuotes=35980 MEXCTrades=1001 
+open=0 closed=63 pnl=-205.796bps book_error=-
+SHADOW ENTRY VELVET_USDT SHORT signal_edge=+13.001bps signal_spread=8.812 
+execution_spread=6.172 latency=949.9ms px=1.1338
+SHADOW EXIT VELVET_USDT SHORT reason=adverse_cut pnl=-12.348bps MFE=+0.000 
+MAE=-12.348 trail=OFF hold=0.18s
+SHADOW SIGNAL AKE_USDT LONG edge=+9.895bps required=1.957 spread=0.957 
+Bmove=+8.612 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT LONG signal_edge=+9.895bps signal_spread=0.957 
+execution_spread=2.870 latency=952.9ms px=0.010456
+SHADOW SIGNAL VELVET_USDT LONG edge=+12.667bps required=10.714 spread=9.714 
+Bmove=+0.441 Mmove=+0.000 delay=939.5ms
+SHADOW EXIT AKE_USDT LONG reason=adverse_cut pnl=-6.695bps MFE=+0.000 
+MAE=-6.695 trail=OFF hold=0.40s
+SHADOW ENTRY VELVET_USDT LONG signal_edge=+12.667bps signal_spread=9.714 
+execution_spread=9.713 latency=955.4ms px=1.1331
+SHADOW EXIT VELVET_USDT LONG reason=adverse_cut pnl=-15.003bps MFE=+0.000 
+MAE=-15.003 trail=OFF hold=2.43s
+SHADOW SIGNAL AKE_USDT LONG edge=+22.024bps required=5.777 spread=4.777 
+Bmove=+20.515 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY AKE_USDT LONG signal_edge=+22.024bps signal_spread=4.777 
+execution_spread=2.864 latency=949.1ms px=0.010475
+SHADOW EXIT AKE_USDT LONG reason=adverse_cut pnl=-6.683bps MFE=+2.864 
+MAE=-6.683 trail=OFF hold=3.92s
+SHADOW STATUS books=3/3 depth_updates=2027 BinanceQuotes=37276 MEXCTrades=1060 
+open=0 closed=67 pnl=-246.524bps book_error=-
+SHADOW SIGNAL VELVET_USDT SHORT edge=-11.937bps required=8.926 spread=7.926 
+Bmove=-0.440 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY VELVET_USDT SHORT signal_edge=+11.937bps signal_spread=7.926 
+execution_spread=7.045 latency=950.6ms px=1.1352
+SHADOW EXIT VELVET_USDT SHORT reason=adverse_cut pnl=-12.333bps MFE=+0.000 
+MAE=-12.333 trail=OFF hold=0.25s
+SHADOW SIGNAL VELVET_USDT SHORT edge=-13.033bps required=8.927 spread=7.927 
+Bmove=-5.278 Mmove=+0.000 delay=939.5ms
+SHADOW ENTRY VELVET_USDT SHORT signal_edge=+13.033bps signal_spread=7.927 
+execution_spread=14.993 latency=957.0ms px=1.133
+SHADOW EXIT VELVET_USDT SHORT reason=session_end pnl=-11.474bps MFE=+0.000 
+MAE=-16.770 trail=OFF hold=1.43s
+    LIVE lead-lag SHADOW results (0 fees assumed only because LIVE account     
+                            currently reports 0/0)                             
++-----------------------------------------------------------------------------+
+|   |          |        |       |       |         |          |      |     Avg |
+| # | MEXC     | Trades |   W/L |  Win% | PnL bps | PnL $100 |   PF |    hold |
+|---+----------+--------+-------+-------+---------+----------+------+---------|
+| 1 | XLM_USDT |      0 |   0/0 |  0.0% |  +0.000 |  +0.0000 | 0.00 |   0.00s |
+| 2 | AKE_USDT |     43 | 11/29 | 25.6% | -46.860 | -46.8596 | 0.68 |   1.23s |
+| 3 | VELVET_… |     26 |  4/21 | 15.4% | -223.4… | -223.47… | 0.03 |   1.13s |
++-----------------------------------------------------------------------------+
+Trade CSV saved: 
+D:\Mexc_tick_scalper\MEXC-Tick-scalper\live_shadow_trades_1786792123.csv
+READ-ONLY SHADOW COMPLETE: no LIVE order endpoint was enabled or called.

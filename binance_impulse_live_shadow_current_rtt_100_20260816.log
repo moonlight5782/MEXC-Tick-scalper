@@ -1,0 +1,24 @@
+LIVE BINANCE IMPULSE SHADOW ONLY: public Binance/MEXC WebSockets and read-only 
+MEXC fee discovery; no execution adapter and no order endpoint.
+symbols=DOGE_USDT,LINK_USDT,XRP_USDT notional=10000USDT latency=LiveRTT 
+slippage_each_side=0.5bps
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=0/3 Bquotes=0 Mdepth=0
+live_rtt=PENDING error=- state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=167 
+Mdepth=13 live_rtt=314.6ms state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=369 
+Mdepth=43 live_rtt=296.9ms state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=486 
+Mdepth=68 live_rtt=295.5ms state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=742 
+Mdepth=87 live_rtt=294.4ms state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=896 
+Mdepth=105 live_rtt=294.4ms state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=1043 
+Mdepth=117 live_rtt=293.9ms state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=1173 
+Mdepth=133 live_rtt=294.4ms state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=1411 
+Mdepth=151 live_rtt=294.4ms state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=1633 
+Mdepth=180 live_rtt=294.0ms state=WATCHING

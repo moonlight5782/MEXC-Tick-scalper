@@ -1,0 +1,32 @@
+LIVE MICROSPREAD -> DEMO: 1 symbol(s); event-driven Binance bookTicker + MEXC 
+DEMO depth; all order writes TESTNET only.
+Fee gate: Demo exact 0/0 + explicit Demo-only experiment
+Excursion telemetry CSV: 
+D:\Mexc_tick_scalper\MEXC-Tick-scalper\xaut_oldbot_telemetry_excursions.csv
+Residual telemetry CSV: 
+D:\Mexc_tick_scalper\MEXC-Tick-scalper\xaut_oldbot_telemetry_residuals.csv
+Symbols: XAUT_USDT
+Micro gate: residual >= max(1.00bps, LIVE spread+0.60bps, spread*1.05); Binance
+micro-move >= 0.020bps; basis baseline=8s excluding newest 1000ms.
+Demo sizing: available=47035.7USDT mode=0.1USDT margin cap
+MICRO HEARTBEAT state=warming symbols=1 signal_source=demo books=1 demo_books=1
+Bquotes=0 Mdepth=0 Ddepth=1 above_floor=0 max_residual=0.000bps candidates=0 
+fee_age=0ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=160 Mdepth=0 Ddepth=21 above_floor=0 max_residual=0.000bps
+candidates=0 fee_age=4316ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=208 Mdepth=0 Ddepth=41 above_floor=0 max_residual=0.000bps
+candidates=0 fee_age=2375ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=277 Mdepth=0 Ddepth=57 above_floor=0 max_residual=0.000bps
+candidates=0 fee_age=424ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=333 Mdepth=0 Ddepth=74 above_floor=0 max_residual=0.000bps
+candidates=0 fee_age=4275ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=419 Mdepth=0 Ddepth=87 above_floor=0 max_residual=0.000bps
+candidates=0 fee_age=2301ms
+MICROSPREAD COMPLETE trades=0 signals=0 excursions=0 wins=0 losses=0 
+win_rate=0.0% PF=0.00 ZERO_FEE_LIVE_MODEL_PNL=+0.000000USDT 
+max_drawdown=0.000000USDT

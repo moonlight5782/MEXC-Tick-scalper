@@ -1,0 +1,453 @@
+LIVE MICROSPREAD -> DEMO: 1 symbol(s); event-driven Binance bookTicker + MEXC 
+DEMO depth; all order writes TESTNET only.
+Fee gate: Demo exact 0/0 + explicit Demo-only experiment
+Excursion telemetry CSV: 
+D:\Mexc_tick_scalper\MEXC-Tick-scalper\microspread_excursions_1786732969.csv
+Symbols: XAUT_USDT
+Micro gate: residual >= max(1.00bps, LIVE spread+0.60bps, spread*1.05); Binance
+micro-move >= 0.020bps; basis baseline=8s excluding newest 1000ms.
+Demo sizing: available=47035.8USDT mode=0.1USDT margin cap
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=9 Mdepth=0 Ddepth=12 above_floor=0 max_residual=0.000bps 
+candidates=0 fee_age=0ms
+MICRO SIGNAL XAUT_USDT LONG residual=+2.270bps threshold=1.059 spread=0.459 
+net=+1.211 B100=+2.178 M100=+0.000 Bage=3ms Mage=198ms DemoCross=1.0bps
+DEMO ENTRY XAUT_USDT LONG qty=0.022 LIVEEntry=4361.5 residual=+2.270 
+notional=95.953USDT leverage=1000x spread=0.459 DemoFeeReported=0
+MICRO EXIT XAUT_USDT reason=microspread_converged LIVEpnl=+0.011000USDT 
+move=+1.146bps MFE=+1.146 MAE=+0.000 hold=3510ms DemoExit=4362 
+DemoGross=+0.011000 DemoNet=+0.011000 DemoFee=0
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=482 Mdepth=0 Ddepth=107 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=2605ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=609 Mdepth=0 Ddepth=200 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=0ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=701 Mdepth=0 Ddepth=292 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=3093ms
+MICRO SIGNAL XAUT_USDT SHORT residual=-1.949bps threshold=1.000 spread=0.229 
+net=+0.949 B100=-1.949 M100=+0.000 Bage=2ms Mage=198ms DemoCross=1.0bps
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=1203 Mdepth=0 Ddepth=394 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=0ms
+MICRO SIGNAL XAUT_USDT LONG residual=+1.308bps threshold=1.000 spread=0.229 
+net=+0.308 B100=+0.711 M100=+0.000 Bage=2ms Mage=353ms DemoCross=1.0bps
+DEMO ENTRY XAUT_USDT LONG qty=0.022 LIVEEntry=4359 residual=+1.308 
+notional=95.898USDT leverage=1000x spread=0.229 DemoFeeReported=0
+MICRO POSITION XAUT_USDT mark=+0.229bps MFE=+0.229 MAE=-0.229 
+DemoNetMark=+0.002200USDT DemoNet=+0.229bps DemoMFE=+0.229 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO EXIT XAUT_USDT reason=demo_adverse_cut LIVEpnl=-0.015400USDT 
+move=-1.606bps MFE=+0.229 MAE=-1.606 hold=17844ms DemoExit=4358.2 
+DemoGross=-0.017600 DemoNet=-0.017600 DemoFee=0
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=3062 Mdepth=0 Ddepth=592 above_floor=0 
+max_residual=0.252bps candidates=0 fee_age=578ms
+MICRO SIGNAL XAUT_USDT SHORT residual=-1.446bps threshold=1.059 spread=0.459 
+net=+0.387 B100=-0.436 M100=+0.000 Bage=2ms Mage=76ms DemoCross=1.0bps
+DEMO ENTRY XAUT_USDT SHORT qty=0.022 LIVEEntry=4358.5 residual=-1.446 
+notional=95.887USDT leverage=1000x spread=0.459 DemoFeeReported=0
+MICRO EXIT XAUT_USDT reason=microspread_reversed LIVEpnl=+0.011000USDT 
+move=+1.147bps MFE=+1.147 MAE=+0.000 hold=1279ms DemoExit=4358 
+DemoGross=+0.011000 DemoNet=+0.011000 DemoFee=0
+MICRO SIGNAL XAUT_USDT LONG residual=+2.134bps threshold=1.000 spread=0.229 
+net=+1.134 B100=+0.436 M100=+0.000 Bage=1ms Mage=56ms DemoCross=1.0bps
+DEMO ENTRY XAUT_USDT LONG qty=0.022 LIVEEntry=4358 residual=+2.134 
+notional=95.876USDT leverage=1000x spread=0.229 DemoFeeReported=0
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.002200USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO EXIT XAUT_USDT reason=demo_adverse_cut LIVEpnl=-0.017600USDT 
+move=-1.836bps MFE=+0.229 MAE=-1.836 hold=20724ms DemoExit=4356.9 
+DemoGross=-0.024200 DemoNet=-0.024200 DemoFee=0
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=4424 Mdepth=0 Ddepth=806 above_floor=1 
+max_residual=1.021bps candidates=0 fee_age=1506ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=4862 Mdepth=0 Ddepth=884 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=64ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=5018 Mdepth=0 Ddepth=920 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=3234ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=6912 Mdepth=0 Ddepth=946 above_floor=0 
+max_residual=0.689bps candidates=0 fee_age=491ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=8479 Mdepth=0 Ddepth=968 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=4059ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=9122 Mdepth=0 Ddepth=987 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=1944ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=9235 Mdepth=0 Ddepth=1014 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=0ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=9415 Mdepth=0 Ddepth=1058 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=3618ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=10002 Mdepth=0 Ddepth=1133 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=1479ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=10280 Mdepth=0 Ddepth=1227 above_floor=0 
+max_residual=0.138bps candidates=0 fee_age=4632ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=10561 Mdepth=0 Ddepth=1327 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=2011ms
+MICRO SIGNAL XAUT_USDT SHORT residual=-1.125bps threshold=1.000 spread=0.230 
+net=+0.125 B100=-1.125 M100=+0.000 Bage=3ms Mage=156ms DemoCross=1.0bps
+DEMO ENTRY XAUT_USDT SHORT qty=0.022 LIVEEntry=4355.8 residual=-1.125 
+notional=95.8276USDT leverage=1000x spread=0.230 DemoFeeReported=0
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.459bps MFE=+0.000 MAE=-0.459 
+DemoNetMark=-0.004400USDT DemoNet=-0.459bps DemoMFE=+0.000 DemoMAE=-0.459 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO EXIT XAUT_USDT reason=demo_adverse_cut LIVEpnl=-0.017600USDT 
+move=-1.837bps MFE=+0.000 MAE=-1.837 hold=333892ms DemoExit=4356.6 
+DemoGross=-0.017600 DemoNet=-0.017600 DemoFee=0
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=14256 Mdepth=0 Ddepth=3192 above_floor=0 
+max_residual=0.930bps candidates=0 fee_age=4953ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=14434 Mdepth=0 Ddepth=3287 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=1370ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=14471 Mdepth=0 Ddepth=3390 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=0ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=14730 Mdepth=0 Ddepth=3490 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=2363ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=15042 Mdepth=0 Ddepth=3594 above_floor=0 
+max_residual=0.620bps candidates=0 fee_age=252ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=15182 Mdepth=0 Ddepth=3695 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=3838ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=15471 Mdepth=0 Ddepth=3792 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=1806ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=15694 Mdepth=0 Ddepth=3895 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=4903ms
+MICRO SIGNAL XAUT_USDT LONG residual=+1.447bps threshold=1.000 spread=0.230 
+net=+0.447 B100=+0.620 M100=+0.000 Bage=3ms Mage=59ms DemoCross=1.0bps
+DEMO ENTRY XAUT_USDT LONG qty=0.022 LIVEEntry=4355.3 residual=+1.447 
+notional=95.8166USDT leverage=1000x spread=0.230 DemoFeeReported=0
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.620bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO EXIT XAUT_USDT reason=demo_adverse_cut LIVEpnl=-0.015400USDT 
+move=-1.607bps MFE=+0.000 MAE=-1.607 hold=150257ms DemoExit=4354.6 
+DemoGross=-0.015400 DemoNet=-0.015400 DemoFee=0
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=17735 Mdepth=0 Ddepth=4539 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=0ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=17909 Mdepth=0 Ddepth=4626 above_floor=0 
+max_residual=0.264bps candidates=0 fee_age=3077ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=18024 Mdepth=0 Ddepth=4706 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=0ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=18141 Mdepth=0 Ddepth=4792 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=3614ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=18214 Mdepth=0 Ddepth=4898 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=456ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=18307 Mdepth=0 Ddepth=4999 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=4069ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=18374 Mdepth=0 Ddepth=5102 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=1955ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=18442 Mdepth=0 Ddepth=5206 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=4522ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=18522 Mdepth=0 Ddepth=5301 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=2340ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=18596 Mdepth=0 Ddepth=5397 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=174ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=18786 Mdepth=0 Ddepth=5493 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=3786ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=19124 Mdepth=0 Ddepth=5595 above_floor=0 
+max_residual=0.987bps candidates=0 fee_age=1623ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=19336 Mdepth=0 Ddepth=5699 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=4624ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=19471 Mdepth=0 Ddepth=5799 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=2411ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=19584 Mdepth=0 Ddepth=5853 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=182ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=19837 Mdepth=0 Ddepth=5876 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=2697ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=19909 Mdepth=0 Ddepth=5896 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=399ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=20015 Mdepth=0 Ddepth=5928 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=2715ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=20130 Mdepth=0 Ddepth=5948 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=550ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=20285 Mdepth=0 Ddepth=5967 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=3587ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=20399 Mdepth=0 Ddepth=6017 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=932ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=20442 Mdepth=0 Ddepth=6108 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=4003ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=20602 Mdepth=0 Ddepth=6202 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=1314ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=20741 Mdepth=0 Ddepth=6295 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=3853ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=20899 Mdepth=0 Ddepth=6387 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=1046ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=21066 Mdepth=0 Ddepth=6476 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=4585ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=21225 Mdepth=0 Ddepth=6572 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=1464ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=21477 Mdepth=0 Ddepth=6676 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=0ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=21615 Mdepth=0 Ddepth=6780 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=3515ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=21776 Mdepth=0 Ddepth=6886 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=1385ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=21802 Mdepth=0 Ddepth=6995 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=4423ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=21888 Mdepth=0 Ddepth=7096 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=1666ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=22042 Mdepth=0 Ddepth=7194 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=4671ms
+MICRO SIGNAL XAUT_USDT SHORT residual=-1.033bps threshold=1.000 spread=0.230 
+net=+0.033 B100=-1.033 M100=+0.000 Bage=7ms Mage=84ms DemoCross=1.0bps
+DEMO ENTRY XAUT_USDT SHORT qty=0.022 LIVEEntry=4354.2 residual=-1.033 
+notional=95.7924USDT leverage=1000x spread=0.230 DemoFeeReported=0
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.942bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.230bps MFE=+0.000 MAE=-0.230 
+DemoNetMark=-0.002200USDT DemoNet=-0.230bps DemoMFE=+0.000 DemoMAE=-0.230 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.459bps MFE=+0.000 MAE=-0.459 
+DemoNetMark=-0.004400USDT DemoNet=-0.459bps DemoMFE=+0.000 DemoMAE=-0.459 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO EXIT XAUT_USDT reason=demo_adverse_cut LIVEpnl=-0.030800USDT 
+move=-3.215bps MFE=+0.000 MAE=-3.215 hold=60699ms DemoExit=4355.6 
+DemoGross=-0.030800 DemoNet=-0.030800 DemoFee=0
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=23984 Mdepth=0 Ddepth=7407 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=0ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=24190 Mdepth=0 Ddepth=7433 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=3079ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=24262 Mdepth=0 Ddepth=7464 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=938ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=24434 Mdepth=0 Ddepth=7522 above_floor=0 
+max_residual=0.390bps candidates=0 fee_age=4541ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=24547 Mdepth=0 Ddepth=7614 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=1885ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=24707 Mdepth=0 Ddepth=7717 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=4926ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=24873 Mdepth=0 Ddepth=7806 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=2232ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=25303 Mdepth=0 Ddepth=7906 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=4657ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=25387 Mdepth=0 Ddepth=8001 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=2506ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=25763 Mdepth=0 Ddepth=8102 above_floor=1 
+max_residual=1.492bps candidates=0 fee_age=0ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=25819 Mdepth=0 Ddepth=8207 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=3564ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=26229 Mdepth=0 Ddepth=8306 above_floor=0 
+max_residual=0.115bps candidates=0 fee_age=258ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=26356 Mdepth=0 Ddepth=8395 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=3845ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=26580 Mdepth=0 Ddepth=8489 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=1591ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=26602 Mdepth=0 Ddepth=8589 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=0ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=26833 Mdepth=0 Ddepth=8684 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=3638ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=26869 Mdepth=0 Ddepth=8766 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=1409ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=27180 Mdepth=0 Ddepth=8808 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=4458ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=27455 Mdepth=0 Ddepth=8832 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=1209ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=27552 Mdepth=0 Ddepth=8864 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=4804ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=27625 Mdepth=0 Ddepth=8884 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=2742ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=27685 Mdepth=0 Ddepth=8907 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=86ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=27764 Mdepth=0 Ddepth=8933 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=3668ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=27872 Mdepth=0 Ddepth=8994 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=1472ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=28009 Mdepth=0 Ddepth=9097 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=0ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=28108 Mdepth=0 Ddepth=9200 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=3322ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=28193 Mdepth=0 Ddepth=9309 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=1228ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=28294 Mdepth=0 Ddepth=9407 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=4321ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=28463 Mdepth=0 Ddepth=9506 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=2230ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=28819 Mdepth=0 Ddepth=9594 above_floor=0 
+max_residual=0.161bps candidates=0 fee_age=60ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=28929 Mdepth=0 Ddepth=9684 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=3648ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=29002 Mdepth=0 Ddepth=9773 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=1545ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=29222 Mdepth=0 Ddepth=9872 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=0ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=29288 Mdepth=0 Ddepth=9964 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=2888ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=29396 Mdepth=0 Ddepth=10062 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=317ms

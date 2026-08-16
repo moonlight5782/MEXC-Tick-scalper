@@ -1,0 +1,226 @@
+LIVE MICROSPREAD -> DEMO: 1 symbol(s); event-driven Binance bookTicker + MEXC 
+DEMO depth; all order writes TESTNET only.
+Fee gate: Demo exact 0/0 + explicit Demo-only experiment
+Excursion telemetry CSV: 
+D:\Mexc_tick_scalper\MEXC-Tick-scalper\xaut_10k_frequent_100_excursions_2026081
+5.csv
+Residual telemetry CSV: 
+D:\Mexc_tick_scalper\MEXC-Tick-scalper\xaut_10k_frequent_100_residuals_20260815
+.csv
+Symbols: XAUT_USDT
+Micro gate: residual >= max(0.50bps, LIVE spread+0.25bps, spread*1.05); Binance
+micro-move >= 0.020bps; basis baseline=8s excluding newest 1000ms.
+Demo sizing: available=47047.2USDT mode=10000USDT target IOC notional
+MICRO HEARTBEAT state=warming symbols=1 signal_source=demo books=1 demo_books=1
+Bquotes=1 Mdepth=0 Ddepth=5 above_floor=0 max_residual=0.000bps candidates=0 
+fee_age=1ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=33 Mdepth=0 Ddepth=114 above_floor=0 max_residual=0.000bps
+candidates=0 fee_age=4404ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=107 Mdepth=0 Ddepth=219 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=4198ms
+MICRO SIGNAL XAUT_USDT SHORT residual=-0.527bps threshold=0.500 spread=0.229 
+net=+0.027 B100=-0.527 M100=+0.000 Bage=2ms Mage=138ms DemoCross=1.0bps
+DEMO ENTRY XAUT_USDT SHORT qty=2.293 LIVEEntry=4361 residual=-0.527 
+notional=9999.77USDT leverage=1000x requested_margin=10.0000USDT 
+strategy_equity=60.0000USDT sizing=TARGET_NOTIONAL spread=0.229 
+DemoFeeReported=0
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO POSITION XAUT_USDT mark=-0.229bps MFE=+0.000 MAE=-0.229 
+DemoNetMark=-0.229300USDT DemoNet=-0.229bps DemoMFE=+0.000 DemoMAE=-0.229 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO EXIT XAUT_USDT reason=microspread_reversed LIVEpnl=+1.605100USDT 
+move=+1.605bps MFE=+1.605 MAE=-0.229 hold=576839ms DemoExit=4360.2 
+DemoGross=+1.834400 DemoNet=+1.834400 DemoFee=0
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=1180 Mdepth=0 Ddepth=3213 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=1388ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=1289 Mdepth=0 Ddepth=3312 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=1310ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=1306 Mdepth=0 Ddepth=3409 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=1309ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=1338 Mdepth=0 Ddepth=3508 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=1306ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=1429 Mdepth=0 Ddepth=3614 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=1169ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=1564 Mdepth=0 Ddepth=3724 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=755ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=1625 Mdepth=0 Ddepth=3830 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=1085ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=1767 Mdepth=0 Ddepth=3939 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=1087ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=1865 Mdepth=0 Ddepth=4051 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=966ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=2030 Mdepth=0 Ddepth=4154 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=912ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=2142 Mdepth=0 Ddepth=4260 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=975ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=2277 Mdepth=0 Ddepth=4359 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=473ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=2319 Mdepth=0 Ddepth=4409 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=793ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=2345 Mdepth=0 Ddepth=4431 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=812ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=2401 Mdepth=0 Ddepth=4451 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=791ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=2435 Mdepth=0 Ddepth=4477 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=814ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=2502 Mdepth=0 Ddepth=4498 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=689ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=2556 Mdepth=0 Ddepth=4531 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=577ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=2663 Mdepth=0 Ddepth=4606 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=329ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=2752 Mdepth=0 Ddepth=4699 above_floor=0 
+max_residual=0.000bps candidates=0 fee_age=426ms
+MICRO SIGNAL XAUT_USDT LONG residual=+1.169bps threshold=0.500 spread=0.229 
+net=+0.669 B100=+1.169 M100=+0.000 Bage=2ms Mage=17ms DemoCross=1.0bps
+DEMO ENTRY XAUT_USDT LONG qty=2.293 LIVEEntry=4360.4 residual=+1.169 
+notional=9998.4USDT leverage=1000x requested_margin=10.0000USDT 
+strategy_equity=61.8344USDT sizing=TARGET_NOTIONAL spread=0.229 
+DemoFeeReported=0
+MICRO POSITION XAUT_USDT mark=+0.229bps MFE=+0.229 MAE=+0.000 
+DemoNetMark=+0.000000USDT DemoNet=+0.000bps DemoMFE=+0.000 DemoMAE=+0.000 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+Fee refresh unavailable (ClientConnectorDNSError); new entries blocked, 
+retrying.
+MICRO POSITION XAUT_USDT mark=+0.229bps MFE=+0.229 MAE=+0.000 
+DemoNetMark=+0.000000USDT DemoNet=+0.000bps DemoMFE=+0.000 DemoMAE=+0.000 
+TRAIL=OFF residual=+0.000bps B100=+0.000
+MICRO EXIT XAUT_USDT reason=demo_adverse_cut LIVEpnl=-3.668800USDT 
+move=-3.669bps MFE=+0.229 MAE=-3.669 hold=6589241ms DemoExit=4358.8 
+DemoGross=-3.898100 DemoNet=-3.898100 DemoFee=0
+MICRO RISK HALT: modeled zero-fee LIVE PnL -2.063700USDT <= -0.500000USDT
+MICROSPREAD COMPLETE trades=2 signals=2 excursions=2 wins=1 losses=1 
+win_rate=50.0% PF=0.44 ZERO_FEE_LIVE_MODEL_PNL=-2.063700USDT 
+max_drawdown=3.668800USDT

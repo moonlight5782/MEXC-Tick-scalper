@@ -1,0 +1,2 @@
+[console_scripts]
+mexc-scalper = mexc_tick_scalper.cli:main

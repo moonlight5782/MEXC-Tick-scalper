@@ -1,0 +1,353 @@
+diff --git a/src/mexc_tick_scalper/demo_hybrid_test.py b/src/mexc_tick_scalper/demo_hybrid_test.py
+--- a/src/mexc_tick_scalper/demo_hybrid_test.py
++++ b/src/mexc_tick_scalper/demo_hybrid_test.py
+@@ -18,7 +18,11 @@ from .web_execution import MexcWebError, MexcWebExecutionAdapter, WebExecutionConfig
+ from .web_fee import read_web_fee_status
+ 
+ console = Console()
+-POSITION_WATCHDOG_SECONDS = 0.25
++POSITION_WATCHDOG_SECONDS = 0.15
++IOC_RECONCILE_FILLED_SECONDS = 1.5
++IOC_RECONCILE_ZERO_FILL_SECONDS = 3.0
++IOC_RECONCILE_FILLED_POLL_SECONDS = 0.04
++IOC_RECONCILE_ZERO_FILL_POLL_SECONDS = 0.12
+ 
+ 
+ def _load_project_env() -> None:
+@@ -32,6 +36,59 @@ def _signed_move_bps(side: OrderSide, entry: float, price: float) -> float:
+     return raw if side is OrderSide.LONG else -raw
+ 
+ 
++async def _reconcile_ioc_position(
++    adapter: MexcWebExecutionAdapter,
++    symbol: str,
++    side: OrderSide,
++    fill: OrderFill,
++) -> PositionSnapshot | None:
++    """Use the remote TESTNET position as truth after every IOC attempt.
++
++    Demo can expose terminal order state/dealVol before open_positions becomes
++    consistent. Even dealVol=0 therefore gets a bounded reconciliation window.
++    """
++    if fill.filled_qty > 0:
++        timeout = IOC_RECONCILE_FILLED_SECONDS
++        poll_seconds = IOC_RECONCILE_FILLED_POLL_SECONDS
++    else:
++        timeout = IOC_RECONCILE_ZERO_FILL_SECONDS
++        poll_seconds = IOC_RECONCILE_ZERO_FILL_POLL_SECONDS
++
++    deadline = time.monotonic() + timeout
++    while time.monotonic() < deadline:
++        remote = await adapter.get_position(symbol)
++        if remote is not None:
++            if remote.side is not side:
++                raise MexcWebError(
++                    f"IOC reconciliation side mismatch: requested={side.value} remote={remote.side.value}"
++                )
++            return remote
++        await asyncio.sleep(poll_seconds)
++    return None
++
++
++def _build_exit_policy(
++    side: OrderSide,
++    entry_price: float,
++    args: argparse.Namespace,
++    spread_bps: float,
++) -> AsymmetricExitPolicy:
++    effective_pullback_bps = max(float(args.winner_pullback_bps), spread_bps)
++    effective_flip_pullback_bps = max(0.5, spread_bps * 0.5)
++    return AsymmetricExitPolicy(
++        side=1 if side is OrderSide.LONG else -1,
++        entry_price=entry_price,
++        early_adverse_changes=int(args.early_adverse_changes),
++        liq_buffer_fraction=float(args.liq_buffer_fraction),
++        winner_arm_bps=float(args.winner_arm_bps),
++        winner_pullback_bps=effective_pullback_bps,
++        winner_flip_pullback_bps=effective_flip_pullback_bps,
++        flip_confidence=float(args.exit_flip_confidence),
++        fade_confidence=float(args.exit_fade_confidence),
++        min_hold_seconds=float(args.min_hold_seconds),
++    )
++
++
+ async def _flatten_position(
+     adapter: MexcWebExecutionAdapter,
+     position: PositionSnapshot,
+@@ -335,15 +385,40 @@ async def run(args: argparse.Namespace) -> None:
+                             raise MexcWebError(f"non-zero execution fee observed on exit: {fill.fee_usdt}")
+                     continue
+ 
++                # Reconcile remote state even when there is no current signal.
++                # This catches a Demo IOC that was reported as zero-fill but
++                # appeared in open_positions later.
++                residual = await adapter.get_position(symbol)
++                if residual is not None:
++                    ask = await adapter.get_best_price(symbol, OrderSide.LONG)
++                    bid = await adapter.get_best_price(symbol, OrderSide.SHORT)
++                    mid = (ask + bid) / 2.0
++                    spread_bps = ((ask - bid) / mid) * 10_000 if mid > 0 else float(args.max_spread_bps)
++                    recovered_side = residual.side
++                    recovered_entry = residual.entry_price or mid
++                    position = residual
++                    entry_side = recovered_side
++                    entry_price = recovered_entry
++                    entry_fee = 0.0
++                    entry_time = now - float(args.min_hold_seconds)
++                    mfe_bps = mae_bps = 0.0
++                    exit_policy = _build_exit_policy(
++                        recovered_side, recovered_entry, args, spread_bps
++                    )
++                    latched_snap = None
++                    latched_until = 0.0
++                    console.print(
++                        f"[yellow]LATE POSITION RECOVERED[/yellow] {symbol} "
++                        f"{'LONG' if recovered_side is OrderSide.LONG else 'SHORT'} "
++                        f"qty={residual.qty:g} entry={recovered_entry:g}; managing instead of stacking"
++                    )
++                    continue
++
+                 active_snap = latched_snap if (latched_snap is not None and now <= latched_until) else None
+                 if active_snap is None:
+                     latched_snap = None
+                     continue
+ 
+-                residual = await adapter.get_position(symbol)
+-                if residual is not None:
+-                    raise MexcWebError(f"residual position detected before entry qty={residual.qty}; refusing to stack")
+-
+                 side = OrderSide.LONG if active_snap.direction == 1 else OrderSide.SHORT
+                 ask = await adapter.get_best_price(symbol, OrderSide.LONG)
+                 bid = await adapter.get_best_price(symbol, OrderSide.SHORT)
+@@ -370,8 +441,6 @@ async def run(args: argparse.Namespace) -> None:
+                 )
+                 latched_snap = None
+                 latched_until = 0.0
+-                if fill.filled_qty <= 0:
+-                    continue
+                 if fill.filled_qty > requested_qty * 1.000001:
+                     raise MexcWebError(
+                         f"impossible IOC fill: requested={requested_qty} filled={fill.filled_qty}; refusing inconsistent state"
+@@ -379,9 +448,18 @@ async def run(args: argparse.Namespace) -> None:
+                 if fill.fee_usdt != 0:
+                     raise MexcWebError(f"non-zero execution fee observed on entry: {fill.fee_usdt}")
+ 
+-                remote = await _wait_for_remote_position(adapter, symbol)
++                remote = await _reconcile_ioc_position(adapter, symbol, side, fill)
+                 if remote is None:
+-                    raise MexcWebError("IOC fill reported but position did not appear in open_positions within 1s")
++                    if fill.filled_qty > 0:
++                        raise MexcWebError(
++                            "IOC fill reported but position did not appear after reconciliation"
++                        )
++                    continue
++                if fill.filled_qty <= 0:
++                    console.print(
++                        f"[yellow]LATE IOC FILL RECOVERED[/yellow] {symbol} "
++                        f"{'LONG' if side is OrderSide.LONG else 'SHORT'} qty={remote.qty:g}"
++                    )
+                 if remote.qty > requested_qty * 1.000001:
+                     raise MexcWebError(
+                         f"remote position exceeds IOC request: requested={requested_qty} remote={remote.qty}; refusing to continue"
+@@ -395,20 +471,9 @@ async def run(args: argparse.Namespace) -> None:
+                 entry_fee = fill.fee_usdt
+                 entry_time = now
+                 mfe_bps = mae_bps = 0.0
+-                effective_pullback_bps = max(float(args.winner_pullback_bps), spread_bps)
++                exit_policy = _build_exit_policy(side, entry_price, args, spread_bps)
++                effective_pullback_bps = exit_policy.winner_pullback_bps
+                 effective_flip_pullback_bps = max(0.5, spread_bps * 0.5)
+-                exit_policy = AsymmetricExitPolicy(
+-                    side=1 if side is OrderSide.LONG else -1,
+-                    entry_price=entry_price,
+-                    early_adverse_changes=int(args.early_adverse_changes),
+-                    liq_buffer_fraction=float(args.liq_buffer_fraction),
+-                    winner_arm_bps=float(args.winner_arm_bps),
+-                    winner_pullback_bps=effective_pullback_bps,
+-                    winner_flip_pullback_bps=effective_flip_pullback_bps,
+-                    flip_confidence=float(args.exit_flip_confidence),
+-                    fade_confidence=float(args.exit_fade_confidence),
+-                    min_hold_seconds=float(args.min_hold_seconds),
+-                )
+                 fill_ratio = remote.qty / requested_qty if requested_qty > 0 else 0.0
+                 console.print(
+                     f"ENTRY {'LONG' if side is OrderSide.LONG else 'SHORT'} requested={requested_qty:g} "
+diff --git a/src/mexc_tick_scalper/demo_live_signal_test.py b/src/mexc_tick_scalper/demo_live_signal_test.py
+--- a/src/mexc_tick_scalper/demo_live_signal_test.py
++++ b/src/mexc_tick_scalper/demo_live_signal_test.py
+@@ -22,5 +22,6 @@ CLOSE_POSITION_RETRIES = 5
+ CLOSE_POSITION_RETRY_SECONDS = 0.12
+ DEMO_SPREAD_CACHE_SECONDS = 1.0
++LIVE_TICKER_CACHE_SECONDS = 0.20
+ _LAST_DEMO_SPREAD_BPS: float | None = None
+ 
+ 
+@@ -62,6 +63,7 @@ class _GuardedDemoAdapter(MexcWebExecutionAdapter):
+         self.last_divergence_bps: float | None = None
+         self.last_demo_spread_bps: float | None = None
+         self._demo_best_cache: dict[OrderSide, tuple[float, float]] = {}
++        self._live_mid_cache: tuple[float, float] | None = None
+         self._auto_flatten_start = os.getenv(AUTO_FLATTEN_ENV, "NO").upper() == "YES"
+         self._entry_started = False
+         self._cleaning_start_residual = False
+@@ -172,6 +174,25 @@ class _GuardedDemoAdapter(MexcWebExecutionAdapter):
+         assert last_error is not None
+         raise last_error
+ 
++    async def _get_live_mid(self, symbol: str) -> float:
++        now = time.monotonic()
++        if self._live_mid_cache is not None:
++            cached_mid, cached_at = self._live_mid_cache
++            if now - cached_at <= LIVE_TICKER_CACHE_SECONDS:
++                return cached_mid
++
++        live = await self._live_market.ticker(symbol)
++        if live is None:
++            raise MexcWebError(f"LIVE ticker unavailable for {symbol}")
++        live_bid = float(live.bid or 0)
++        live_ask = float(live.ask or 0)
++        if live_bid <= 0 or live_ask <= 0:
++            raise MexcWebError(f"LIVE bid/ask unavailable for {symbol}")
++
++        live_mid = (live_bid + live_ask) / 2.0
++        self._live_mid_cache = (live_mid, now)
++        return live_mid
++
+     async def get_best_price(self, symbol: str, side: OrderSide) -> float:
+         global _LAST_DEMO_SPREAD_BPS
+ 
+@@ -190,16 +211,7 @@ class _GuardedDemoAdapter(MexcWebExecutionAdapter):
+                 self.last_demo_spread_bps = spread_bps
+                 _LAST_DEMO_SPREAD_BPS = spread_bps
+ 
+-        live = await self._live_market.ticker(symbol)
+-        if live is None:
+-            raise MexcWebError(f"LIVE ticker unavailable for {symbol}")
+-
+-        live_bid = float(live.bid or 0)
+-        live_ask = float(live.ask or 0)
+-        if live_bid <= 0 or live_ask <= 0:
+-            raise MexcWebError(f"LIVE bid/ask unavailable for {symbol}")
+-
+-        live_mid = (live_bid + live_ask) / 2.0
++        live_mid = await self._get_live_mid(symbol)
+         divergence_bps = abs(demo_price - live_mid) / live_mid * 10_000.0
+         self.last_divergence_bps = divergence_bps
+         if divergence_bps > self._max_divergence_bps:
+diff --git a/src/mexc_tick_scalper/demo_position_manager.py b/src/mexc_tick_scalper/demo_position_manager.py
+--- a/src/mexc_tick_scalper/demo_position_manager.py
++++ b/src/mexc_tick_scalper/demo_position_manager.py
+@@ -11,5 +11,24 @@ from .web_execution import MexcWebError, MexcWebExecutionAdapter, WebExecutionConfig
+ 
+ console = Console()
+ 
++def _position_already_closed_error(exc: MexcWebError) -> bool:
++    text = str(exc)
++    return "code=2009" in text and "Position is nonexistent or closed" in text
++
++
++async def _confirm_symbol_absent(
++    adapter: MexcWebExecutionAdapter,
++    symbol: str,
++    *,
++    checks: int = 5,
++    poll_seconds: float = 0.10,
++) -> bool:
++    for index in range(max(1, checks)):
++        if await adapter.get_position(symbol) is not None:
++            return False
++        if index + 1 < checks:
++            await asyncio.sleep(poll_seconds)
++    return True
++
+ 
+ async def list_open_demo_positions(adapter: MexcWebExecutionAdapter) -> list[PositionSnapshot]:
+@@ -103,7 +121,21 @@ async def flatten_all_demo_positions(
+                     f"  closing {position.symbol} "
+                     f"{'LONG' if position.side is OrderSide.LONG else 'SHORT'} qty={position.qty:g}"
+                 )
+-                await _flatten_position(adapter, position, f"{reason}:{position.symbol}:{uuid.uuid4().hex[:8]}")
++                try:
++                    await _flatten_position(
++                        adapter,
++                        position,
++                        f"{reason}:{position.symbol}:{uuid.uuid4().hex[:8]}",
++                    )
++                except MexcWebError as exc:
++                    if _position_already_closed_error(exc) and await _confirm_symbol_absent(
++                        adapter, position.symbol
++                    ):
++                        console.print(
++                            f"  {position.symbol} already closed; stale TESTNET position snapshot ignored"
++                        )
++                        continue
++                    raise
+ 
+             if await wait_account_flat(adapter):
+                 console.print(f"[green]DEMO FLAT CONFIRMED[/green] ({reason})")
+diff --git a/tests/test_demo_live_signal_resilience.py b/tests/test_demo_live_signal_resilience.py
+--- a/tests/test_demo_live_signal_resilience.py
++++ b/tests/test_demo_live_signal_resilience.py
+@@ -2,8 +2,10 @@ import asyncio
+ 
+ import pytest
+ 
++import mexc_tick_scalper.demo_hybrid_test as hybrid
+ import mexc_tick_scalper.demo_live_signal_test as live_demo
+-from mexc_tick_scalper.execution import OrderFill, OrderSide
++import mexc_tick_scalper.demo_position_manager as position_manager
++from mexc_tick_scalper.execution import OrderFill, OrderSide, PositionSnapshot
+ from mexc_tick_scalper.hybrid_strategy import MicrostructureSnapshot
+ from mexc_tick_scalper.orderbook_signal import OrderBookFeatures, book_confirmation
+ from mexc_tick_scalper.web_execution import MexcWebError, MexcWebExecutionAdapter, WebExecutionConfig
+@@ -115,3 +117,50 @@ def test_default_live_l2_veto_blocks_moderate_opposite_pressure():
+     assert live_demo.DEFAULT_BOOK_VETO_CONFIDENCE == 0.30
+     assert not decision.allowed
+     assert decision.reason == "strong_book_disagreement"
++
++
++def test_zero_fill_ioc_reconciliation_recovers_late_remote_position(monkeypatch):
++    remote = PositionSnapshot(
++        symbol="TEST_USDT",
++        side=OrderSide.LONG,
++        qty=1.0,
++        entry_price=100.0,
++        leverage=50,
++        isolated=True,
++    )
++
++    class FakeAdapter:
++        def __init__(self):
++            self.calls = 0
++
++        async def get_position(self, symbol):
++            self.calls += 1
++            return remote if self.calls >= 3 else None
++
++    fill = OrderFill(
++        symbol="TEST_USDT",
++        side=OrderSide.LONG,
++        requested_qty=1.0,
++        filled_qty=0.0,
++        avg_price=100.0,
++        fee_usdt=0.0,
++        order_id="entry-1",
++        client_order_id="client-1",
++    )
++    monkeypatch.setattr(hybrid, "IOC_RECONCILE_ZERO_FILL_POLL_SECONDS", 0.0)
++    monkeypatch.setattr(hybrid, "IOC_RECONCILE_ZERO_FILL_SECONDS", 0.1)
++
++    adapter = FakeAdapter()
++    recovered = asyncio.run(
++        hybrid._reconcile_ioc_position(adapter, "TEST_USDT", OrderSide.LONG, fill)
++    )
++
++    assert recovered is remote
++    assert adapter.calls == 3
++
++
++def test_cleanup_recognizes_testnet_already_closed_error():
++    exc = MexcWebError(
++        "MEXC error from /private/order/submit: code=2009 message=Position is nonexistent or closed"
++    )
++    assert position_manager._position_already_closed_error(exc)

@@ -1,0 +1,15 @@
+LIVE MICROSPREAD -> DEMO: 1 symbol(s); event-driven Binance bookTicker + MEXC 
+DEMO depth; all order writes TESTNET only.
+Fee gate: Demo exact 0/0 + explicit Demo-only experiment
+Excursion telemetry CSV: 
+D:\Mexc_tick_scalper\MEXC-Tick-scalper\microspread_excursions_1786732865.csv
+Symbols: XAUT_USDT
+Micro gate: residual >= max(0.70bps, LIVE spread+0.60bps, spread*1.05); Binance
+micro-move >= 0.020bps; basis baseline=8s excluding newest 1000ms.
+Demo sizing: available=47035.8USDT mode=0.1USDT margin cap
+MICRO HEARTBEAT state=warming symbols=1 signal_source=demo books=0 demo_books=0
+Bquotes=0 Mdepth=0 Ddepth=0 above_floor=0 max_residual=0.000bps candidates=0 
+fee_age=0ms
+MICRO HEARTBEAT state=watching symbols=1 signal_source=demo books=1 
+demo_books=1 Bquotes=78 Mdepth=0 Ddepth=22 above_floor=0 max_residual=0.000bps 
+candidates=0 fee_age=3506ms

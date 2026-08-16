@@ -1,0 +1,1671 @@
+LIVE BINANCE IMPULSE SHADOW ONLY: public Binance/MEXC WebSockets and read-only 
+MEXC fee discovery; no execution adapter and no order endpoint.
+symbols=DOGE_USDT,LINK_USDT,XRP_USDT notional=10000USDT depth=ON:20 
+scaling=equity:60 latency=LiveRTT slippage_each_side=0bps
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=0/3 Bquotes=0 Mdepth=0
+live_rtt=PENDING error=- equity=60.0000USDT state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=269 
+Mdepth=14 live_rtt=293.9ms equity=60.0000USDT state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=629 
+Mdepth=28 live_rtt=305.0ms equity=60.0000USDT state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=933 
+Mdepth=48 live_rtt=294.1ms equity=60.0000USDT state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=1307 
+Mdepth=68 live_rtt=295.5ms equity=60.0000USDT state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=1568 
+Mdepth=81 live_rtt=297.7ms equity=60.0000USDT state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=1887 
+Mdepth=99 live_rtt=297.7ms equity=60.0000USDT state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=2156 
+Mdepth=134 live_rtt=294.0ms equity=60.0000USDT state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=2727 
+Mdepth=151 live_rtt=293.6ms equity=60.0000USDT state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=2933 
+Mdepth=165 live_rtt=293.6ms equity=60.0000USDT state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=3190 
+Mdepth=180 live_rtt=293.6ms equity=60.0000USDT state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=3385 
+Mdepth=195 live_rtt=292.2ms equity=60.0000USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+2.099bps threshold=1.250 spread=1.050 
+requested=10000.00USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+2.099bps spread=1.050 signal_to_fill=180ms
+px=9.528 fill=9995.00/10000.00USDT (100.0%) levels=1/20 visible=141832.04USDT 
+lev=200x
+SHADOW EXIT LINK_USDT LONG reason=binance_target_caught 
+pnl=+0.000bps/+0.0000USDT hold=2187ms fill=9995.00/10000.00USDT (100.0%) 
+equity=60.0000USDT
+SHADOW STATUS trades=1 W/L/F=0/0/1 pnl=+0.0000USDT books=3/3 Bquotes=3779 
+Mdepth=220 live_rtt=292.6ms equity=60.0000USDT state=WATCHING
+SHADOW STATUS trades=1 W/L/F=0/0/1 pnl=+0.0000USDT books=3/3 Bquotes=4025 
+Mdepth=244 live_rtt=294.4ms equity=60.0000USDT state=WATCHING
+SHADOW STATUS trades=1 W/L/F=0/0/1 pnl=+0.0000USDT books=3/3 Bquotes=4488 
+Mdepth=265 live_rtt=294.4ms equity=60.0000USDT state=WATCHING
+SHADOW STATUS trades=1 W/L/F=0/0/1 pnl=+0.0000USDT books=3/3 Bquotes=4785 
+Mdepth=281 live_rtt=292.4ms equity=60.0000USDT state=WATCHING
+SHADOW STATUS trades=1 W/L/F=0/0/1 pnl=+0.0000USDT books=3/3 Bquotes=5013 
+Mdepth=297 live_rtt=293.3ms equity=60.0000USDT state=WATCHING
+SHADOW STATUS trades=1 W/L/F=0/0/1 pnl=+0.0000USDT books=3/3 Bquotes=5464 
+Mdepth=312 live_rtt=290.3ms equity=60.0000USDT state=WATCHING
+SHADOW STATUS trades=1 W/L/F=0/0/1 pnl=+0.0000USDT books=3/3 Bquotes=6225 
+Mdepth=331 live_rtt=291.0ms equity=60.0000USDT state=WATCHING
+SHADOW SIGNAL DOGE_USDT LONG impulse=+2.146bps threshold=1.631 spread=1.431 
+requested=10000.00USDT
+SHADOW ENTRY DOGE_USDT LONG impulse=+2.146bps spread=1.430 signal_to_fill=173ms
+px=0.06992 fill=9995.00/10000.00USDT (100.0%) levels=1/20 visible=451741.06USDT
+lev=200x
+SHADOW EXIT DOGE_USDT LONG reason=binance_target_caught 
+pnl=+0.000bps/+0.0000USDT hold=3658ms fill=9995.00/10000.00USDT (100.0%) 
+equity=60.0000USDT
+SHADOW STATUS trades=2 W/L/F=0/0/2 pnl=+0.0000USDT books=3/3 Bquotes=8140 
+Mdepth=368 live_rtt=290.3ms equity=60.0000USDT state=WATCHING
+SHADOW STATUS trades=2 W/L/F=0/0/2 pnl=+0.0000USDT books=3/3 Bquotes=8622 
+Mdepth=393 live_rtt=291.0ms equity=60.0000USDT state=WATCHING
+SHADOW STATUS trades=2 W/L/F=0/0/2 pnl=+0.0000USDT books=3/3 Bquotes=8877 
+Mdepth=414 live_rtt=293.4ms equity=60.0000USDT state=WATCHING
+SHADOW STATUS trades=2 W/L/F=0/0/2 pnl=+0.0000USDT books=3/3 Bquotes=9081 
+Mdepth=430 live_rtt=293.2ms equity=60.0000USDT state=WATCHING
+SHADOW STATUS trades=2 W/L/F=0/0/2 pnl=+0.0000USDT books=3/3 Bquotes=9343 
+Mdepth=445 live_rtt=291.7ms equity=60.0000USDT state=WATCHING
+SHADOW STATUS trades=2 W/L/F=0/0/2 pnl=+0.0000USDT books=3/3 Bquotes=9690 
+Mdepth=457 live_rtt=290.3ms equity=60.0000USDT state=WATCHING
+SHADOW SIGNAL DOGE_USDT LONG impulse=+2.145bps threshold=1.630 spread=1.430 
+requested=10000.00USDT
+SHADOW ENTRY DOGE_USDT LONG impulse=+2.145bps spread=1.430 signal_to_fill=205ms
+px=0.06995 fill=9995.00/10000.00USDT (100.0%) levels=1/20 visible=535885.29USDT
+lev=200x
+SHADOW EXIT DOGE_USDT LONG reason=live_adverse_cut pnl=-4.289bps/-4.2866USDT 
+hold=19487ms fill=9995.00/10000.00USDT (100.0%) equity=55.7134USDT
+SHADOW STATUS trades=3 W/L/F=0/1/2 pnl=-4.2866USDT books=3/3 Bquotes=11559 
+Mdepth=544 live_rtt=290.6ms equity=55.7134USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+1.574bps threshold=1.249 spread=1.049 
+requested=9285.56USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+1.574bps spread=1.049 signal_to_fill=199ms
+px=9.53223 fill=9281.15/9285.56USDT (100.0%) levels=2/20 visible=97088.97USDT 
+lev=200x
+SHADOW EXIT LINK_USDT LONG reason=binance_target_caught 
+pnl=+0.550bps/+0.5105USDT hold=2887ms fill=9281.15/9285.56USDT (100.0%) 
+equity=56.2239USDT
+SHADOW STATUS trades=4 W/L/F=1/1/2 pnl=-3.7761USDT books=3/3 Bquotes=12363 
+Mdepth=570 live_rtt=291.0ms equity=56.2239USDT state=WATCHING
+SHADOW STATUS trades=4 W/L/F=1/1/2 pnl=-3.7761USDT books=3/3 Bquotes=12781 
+Mdepth=590 live_rtt=291.0ms equity=56.2239USDT state=WATCHING
+SHADOW SIGNAL DOGE_USDT SHORT impulse=-5.721bps threshold=3.060 spread=2.860 
+requested=9370.65USDT
+SHADOW ENTRY DOGE_USDT SHORT impulse=-5.721bps spread=2.860 
+signal_to_fill=168ms px=0.06992 fill=9375.34/9370.65USDT (100.0%) levels=1/20 
+visible=748345.65USDT lev=200x
+SHADOW EXIT DOGE_USDT SHORT reason=binance_target_caught 
+pnl=+4.291bps/+4.0226USDT hold=3125ms fill=9375.34/9370.65USDT (100.0%) 
+equity=60.2465USDT
+SHADOW STATUS trades=5 W/L/F=2/1/2 pnl=+0.2465USDT books=3/3 Bquotes=14738 
+Mdepth=622 live_rtt=291.5ms equity=60.2465USDT state=WATCHING
+SHADOW STATUS trades=5 W/L/F=2/1/2 pnl=+0.2465USDT books=3/3 Bquotes=14902 
+Mdepth=643 live_rtt=290.7ms equity=60.2465USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+2.098bps threshold=1.249 spread=1.049 
+requested=10041.08USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+2.098bps spread=1.049 signal_to_fill=202ms
+px=9.53425 fill=10036.33/10041.08USDT (100.0%) levels=2/20 visible=89399.48USDT
+lev=200x
+SHADOW EXIT LINK_USDT LONG reason=binance_target_caught 
+pnl=+2.887bps/+2.8979USDT hold=2753ms fill=10036.33/10041.08USDT (100.0%) 
+equity=63.1444USDT
+SHADOW STATUS trades=6 W/L/F=3/1/2 pnl=+3.1444USDT books=3/3 Bquotes=15381 
+Mdepth=662 live_rtt=289.8ms equity=63.1444USDT state=WATCHING
+SHADOW STATUS trades=6 W/L/F=3/1/2 pnl=+3.1444USDT books=3/3 Bquotes=15565 
+Mdepth=679 live_rtt=289.1ms equity=63.1444USDT state=WATCHING
+SHADOW STATUS trades=6 W/L/F=3/1/2 pnl=+3.1444USDT books=3/3 Bquotes=15846 
+Mdepth=699 live_rtt=288.8ms equity=63.1444USDT state=WATCHING
+SHADOW STATUS trades=6 W/L/F=3/1/2 pnl=+3.1444USDT books=3/3 Bquotes=16051 
+Mdepth=729 live_rtt=287.8ms equity=63.1444USDT state=WATCHING
+SHADOW STATUS trades=6 W/L/F=3/1/2 pnl=+3.1444USDT books=3/3 Bquotes=16251 
+Mdepth=748 live_rtt=287.8ms equity=63.1444USDT state=WATCHING
+SHADOW STATUS trades=6 W/L/F=3/1/2 pnl=+3.1444USDT books=3/3 Bquotes=16548 
+Mdepth=763 live_rtt=287.9ms equity=63.1444USDT state=WATCHING
+SHADOW STATUS trades=6 W/L/F=3/1/2 pnl=+3.1444USDT books=3/3 Bquotes=16827 
+Mdepth=780 live_rtt=288.8ms equity=63.1444USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+3.146bps threshold=1.249 spread=1.049 
+requested=10524.07USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+3.146bps spread=1.049 signal_to_fill=160ms
+px=9.53612 fill=10518.94/10524.07USDT (100.0%) levels=2/20 
+visible=107304.46USDT lev=200x
+SHADOW EXIT LINK_USDT LONG reason=live_adverse_cut pnl=-3.516bps/-3.6980USDT 
+hold=33716ms fill=10518.94/10524.07USDT (100.0%) equity=59.4464USDT
+SHADOW STATUS trades=7 W/L/F=3/2/2 pnl=-0.5536USDT books=3/3 Bquotes=19590 
+Mdepth=981 live_rtt=293.4ms equity=59.4464USDT state=WATCHING
+SHADOW STATUS trades=7 W/L/F=3/2/2 pnl=-0.5536USDT books=3/3 Bquotes=20166 
+Mdepth=1001 live_rtt=294.4ms equity=59.4464USDT state=WATCHING
+SHADOW STATUS trades=7 W/L/F=3/2/2 pnl=-0.5536USDT books=3/3 Bquotes=20711 
+Mdepth=1015 live_rtt=294.4ms equity=59.4464USDT state=WATCHING
+SHADOW STATUS trades=7 W/L/F=3/2/2 pnl=-0.5536USDT books=3/3 Bquotes=21361 
+Mdepth=1033 live_rtt=294.4ms equity=59.4464USDT state=WATCHING
+SHADOW STATUS trades=7 W/L/F=3/2/2 pnl=-0.5536USDT books=3/3 Bquotes=21720 
+Mdepth=1050 live_rtt=295.5ms equity=59.4464USDT state=WATCHING
+SHADOW STATUS trades=7 W/L/F=3/2/2 pnl=-0.5536USDT books=3/3 Bquotes=22233 
+Mdepth=1067 live_rtt=300.2ms equity=59.4464USDT state=WATCHING
+SHADOW STATUS trades=7 W/L/F=3/2/2 pnl=-0.5536USDT books=3/3 Bquotes=22557 
+Mdepth=1092 live_rtt=302.1ms equity=59.4464USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.098bps threshold=1.249 spread=1.049 
+requested=9907.74USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.098bps spread=1.049 
+signal_to_fill=168ms px=9.53281 fill=9912.49/9907.74USDT (100.0%) levels=2/20 
+visible=94549.32USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=binance_target_caught 
+pnl=+1.895bps/+1.8780USDT hold=3271ms fill=9912.49/9907.74USDT (100.0%) 
+equity=61.3244USDT
+SHADOW STATUS trades=8 W/L/F=4/2/2 pnl=+1.3244USDT books=3/3 Bquotes=22976 
+Mdepth=1112 live_rtt=305.0ms equity=61.3244USDT state=WATCHING
+SHADOW SIGNAL DOGE_USDT SHORT impulse=-2.147bps threshold=1.631 spread=1.431 
+requested=10220.74USDT
+SHADOW ENTRY DOGE_USDT SHORT impulse=-2.147bps spread=1.431 
+signal_to_fill=168ms px=0.06986 fill=10225.85/10220.74USDT (100.0%) levels=1/20
+visible=461651.50USDT lev=200x
+SHADOW EXIT DOGE_USDT SHORT reason=timeout pnl=-0.000bps/-0.0000USDT 
+hold=62409ms fill=10225.85/10220.74USDT (100.0%) equity=61.3244USDT
+SHADOW STATUS trades=9 W/L/F=4/2/3 pnl=+1.3244USDT books=3/3 Bquotes=27581 
+Mdepth=1447 live_rtt=298.0ms equity=61.3244USDT state=WATCHING
+SHADOW STATUS trades=9 W/L/F=4/2/3 pnl=+1.3244USDT books=3/3 Bquotes=27788 
+Mdepth=1458 live_rtt=293.8ms equity=61.3244USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+1.575bps threshold=1.250 spread=1.050 
+requested=10220.74USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+1.575bps spread=1.050 signal_to_fill=164ms
+px=9.52578 fill=10216.47/10220.74USDT (100.0%) levels=2/20 visible=84198.83USDT
+lev=200x
+SHADOW EXIT LINK_USDT LONG reason=live_adverse_cut pnl=+0.226bps/+0.2307USDT 
+hold=10197ms fill=10216.47/10220.74USDT (100.0%) equity=61.5551USDT
+SHADOW STATUS trades=10 W/L/F=5/2/3 pnl=+1.5551USDT books=3/3 Bquotes=28352 
+Mdepth=1505 live_rtt=291.9ms equity=61.5551USDT state=WATCHING
+SHADOW STATUS trades=10 W/L/F=5/2/3 pnl=+1.5551USDT books=3/3 Bquotes=28722 
+Mdepth=1527 live_rtt=291.1ms equity=61.5551USDT state=WATCHING
+SHADOW STATUS trades=10 W/L/F=5/2/3 pnl=+1.5551USDT books=3/3 Bquotes=28994 
+Mdepth=1546 live_rtt=288.9ms equity=61.5551USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-1.576bps threshold=1.250 spread=1.050 
+requested=10259.19USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-1.576bps spread=1.050 
+signal_to_fill=169ms px=9.52 fill=10264.32/10259.19USDT (100.0%) levels=1/20 
+visible=92268.08USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=binance_target_caught 
+pnl=+1.903bps/+1.9535USDT hold=18201ms fill=10264.32/10259.19USDT (100.0%) 
+equity=63.5086USDT
+SHADOW STATUS trades=11 W/L/F=6/2/3 pnl=+3.5086USDT books=3/3 Bquotes=31053 
+Mdepth=1675 live_rtt=286.6ms equity=63.5086USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+3.152bps threshold=1.251 spread=1.051 
+requested=10584.77USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+3.152bps spread=1.051 signal_to_fill=169ms
+px=9.51718 fill=10579.68/10584.77USDT (100.0%) levels=2/20 
+visible=129919.50USDT lev=200x
+SHADOW EXIT LINK_USDT LONG reason=live_adverse_cut pnl=-0.512bps/-0.5422USDT 
+hold=46068ms fill=10579.68/10584.77USDT (100.0%) equity=62.9664USDT
+SHADOW STATUS trades=12 W/L/F=6/3/3 pnl=+2.9664USDT books=3/3 Bquotes=34661 
+Mdepth=1941 live_rtt=287.2ms equity=62.9664USDT state=WATCHING
+SHADOW STATUS trades=12 W/L/F=6/3/3 pnl=+2.9664USDT books=3/3 Bquotes=34810 
+Mdepth=1947 live_rtt=286.9ms equity=62.9664USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+1.576bps threshold=1.251 spread=1.051 
+requested=10494.41USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+1.576bps spread=1.051 signal_to_fill=164ms
+px=9.51721 fill=10489.40/10494.41USDT (100.0%) levels=2/20 
+visible=124060.24USDT lev=200x
+SHADOW EXIT LINK_USDT LONG reason=binance_target_caught 
+pnl=+1.242bps/+1.3026USDT hold=3569ms fill=10489.40/10494.41USDT (100.0%) 
+equity=64.2690USDT
+SHADOW STATUS trades=13 W/L/F=7/3/3 pnl=+4.2690USDT books=3/3 Bquotes=35187 
+Mdepth=1970 live_rtt=286.9ms equity=64.2690USDT state=WATCHING
+SHADOW STATUS trades=13 W/L/F=7/3/3 pnl=+4.2690USDT books=3/3 Bquotes=35376 
+Mdepth=1980 live_rtt=286.7ms equity=64.2690USDT state=WATCHING
+SHADOW STATUS trades=13 W/L/F=7/3/3 pnl=+4.2690USDT books=3/3 Bquotes=35778 
+Mdepth=1999 live_rtt=286.9ms equity=64.2690USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.101bps threshold=1.250 spread=1.050 
+requested=10711.51USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.101bps spread=1.051 
+signal_to_fill=200ms px=9.51789 fill=10716.74/10711.51USDT (100.0%) levels=2/20
+visible=74409.81USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=binance_target_caught 
+pnl=+0.649bps/+0.6954USDT hold=2711ms fill=10716.74/10711.51USDT (100.0%) 
+equity=64.9645USDT
+SHADOW STATUS trades=14 W/L/F=8/3/3 pnl=+4.9645USDT books=3/3 Bquotes=36225 
+Mdepth=2020 live_rtt=286.9ms equity=64.9645USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+1.576bps threshold=1.251 spread=1.051 
+requested=10827.41USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+1.576bps spread=1.051 signal_to_fill=170ms
+px=9.51832 fill=10822.37/10827.41USDT (100.0%) levels=2/20 
+visible=119523.56USDT lev=200x
+SHADOW EXIT LINK_USDT LONG reason=binance_target_caught 
+pnl=+1.760bps/+1.9047USDT hold=10389ms fill=10822.37/10827.41USDT (100.0%) 
+equity=66.8692USDT
+SHADOW STATUS trades=15 W/L/F=9/3/3 pnl=+6.8692USDT books=3/3 Bquotes=37024 
+Mdepth=2059 live_rtt=287.8ms equity=66.8692USDT state=WATCHING
+SHADOW STATUS trades=15 W/L/F=9/3/3 pnl=+6.8692USDT books=3/3 Bquotes=37347 
+Mdepth=2077 live_rtt=287.8ms equity=66.8692USDT state=WATCHING
+SHADOW STATUS trades=15 W/L/F=9/3/3 pnl=+6.8692USDT books=3/3 Bquotes=37661 
+Mdepth=2094 live_rtt=288.0ms equity=66.8692USDT state=WATCHING
+SHADOW STATUS trades=15 W/L/F=9/3/3 pnl=+6.8692USDT books=3/3 Bquotes=37883 
+Mdepth=2109 live_rtt=288.1ms equity=66.8692USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-3.677bps threshold=1.250 spread=1.050 
+requested=11144.87USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-3.677bps spread=1.051 
+signal_to_fill=182ms px=9.51557 fill=11149.93/11144.87USDT (100.0%) levels=2/20
+visible=109447.13USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=live_adverse_cut pnl=-1.888bps/-2.1048USDT 
+hold=983ms fill=11149.93/11144.87USDT (100.0%) equity=64.7644USDT
+SHADOW STATUS trades=16 W/L/F=9/4/3 pnl=+4.7644USDT books=3/3 Bquotes=38480 
+Mdepth=2130 live_rtt=288.1ms equity=64.7644USDT state=WATCHING
+SHADOW STATUS trades=16 W/L/F=9/4/3 pnl=+4.7644USDT books=3/3 Bquotes=38788 
+Mdepth=2146 live_rtt=288.1ms equity=64.7644USDT state=WATCHING
+SHADOW STATUS trades=16 W/L/F=9/4/3 pnl=+4.7644USDT books=3/3 Bquotes=39157 
+Mdepth=2159 live_rtt=287.9ms equity=64.7644USDT state=WATCHING
+SHADOW STATUS trades=16 W/L/F=9/4/3 pnl=+4.7644USDT books=3/3 Bquotes=39662 
+Mdepth=2175 live_rtt=287.7ms equity=64.7644USDT state=WATCHING
+SHADOW STATUS trades=16 W/L/F=9/4/3 pnl=+4.7644USDT books=3/3 Bquotes=39852 
+Mdepth=2189 live_rtt=287.1ms equity=64.7644USDT state=WATCHING
+SHADOW STATUS trades=16 W/L/F=9/4/3 pnl=+4.7644USDT books=3/3 Bquotes=40124 
+Mdepth=2204 live_rtt=287.1ms equity=64.7644USDT state=WATCHING
+SHADOW SIGNAL XRP_USDT SHORT impulse=-1.992bps threshold=1.196 spread=0.996 
+requested=10794.07USDT
+SHADOW ENTRY XRP_USDT SHORT impulse=-1.992bps spread=0.996 signal_to_fill=163ms
+px=1.004 fill=10799.47/10794.07USDT (100.0%) levels=1/20 visible=953392.61USDT 
+lev=200x
+SHADOW EXIT XRP_USDT SHORT reason=binance_target_caught 
+pnl=+2.988bps/+3.2269USDT hold=33849ms fill=10799.47/10794.07USDT (100.0%) 
+equity=67.9914USDT
+SHADOW STATUS trades=17 W/L/F=10/4/3 pnl=+7.9914USDT books=3/3 Bquotes=42608 
+Mdepth=2375 live_rtt=283.8ms equity=67.9914USDT state=WATCHING
+SHADOW STATUS trades=17 W/L/F=10/4/3 pnl=+7.9914USDT books=3/3 Bquotes=43090 
+Mdepth=2384 live_rtt=283.8ms equity=67.9914USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.101bps threshold=1.250 spread=1.050 
+requested=11331.89USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.101bps spread=1.050 
+signal_to_fill=187ms px=9.519 fill=11337.56/11331.89USDT (100.0%) levels=1/20 
+visible=98038.35USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=binance_target_caught 
+pnl=+2.101bps/+2.3821USDT hold=2653ms fill=11337.56/11331.89USDT (100.0%) 
+equity=70.3734USDT
+SHADOW STATUS trades=18 W/L/F=11/4/3 pnl=+10.3734USDT books=3/3 Bquotes=43753 
+Mdepth=2417 live_rtt=283.8ms equity=70.3734USDT state=WATCHING
+SHADOW STATUS trades=18 W/L/F=11/4/3 pnl=+10.3734USDT books=3/3 Bquotes=43946 
+Mdepth=2432 live_rtt=283.8ms equity=70.3734USDT state=WATCHING
+SHADOW STATUS trades=18 W/L/F=11/4/3 pnl=+10.3734USDT books=3/3 Bquotes=44186 
+Mdepth=2447 live_rtt=283.8ms equity=70.3734USDT state=WATCHING
+SHADOW STATUS trades=18 W/L/F=11/4/3 pnl=+10.3734USDT books=3/3 Bquotes=44689 
+Mdepth=2472 live_rtt=283.6ms equity=70.3734USDT state=WATCHING
+SHADOW STATUS trades=18 W/L/F=11/4/3 pnl=+10.3734USDT books=3/3 Bquotes=44936 
+Mdepth=2500 live_rtt=283.2ms equity=70.3734USDT state=WATCHING
+SHADOW STATUS trades=18 W/L/F=11/4/3 pnl=+10.3734USDT books=3/3 Bquotes=45222 
+Mdepth=2516 live_rtt=283.3ms equity=70.3734USDT state=WATCHING
+SHADOW STATUS trades=18 W/L/F=11/4/3 pnl=+10.3734USDT books=3/3 Bquotes=45491 
+Mdepth=2530 live_rtt=283.4ms equity=70.3734USDT state=WATCHING
+SHADOW STATUS trades=18 W/L/F=11/4/3 pnl=+10.3734USDT books=3/3 Bquotes=45787 
+Mdepth=2548 live_rtt=283.4ms equity=70.3734USDT state=WATCHING
+SHADOW STATUS trades=18 W/L/F=11/4/3 pnl=+10.3734USDT books=3/3 Bquotes=45989 
+Mdepth=2564 live_rtt=283.4ms equity=70.3734USDT state=WATCHING
+SHADOW STATUS trades=18 W/L/F=11/4/3 pnl=+10.3734USDT books=3/3 Bquotes=46401 
+Mdepth=2583 live_rtt=283.8ms equity=70.3734USDT state=WATCHING
+SHADOW STATUS trades=18 W/L/F=11/4/3 pnl=+10.3734USDT books=3/3 Bquotes=46633 
+Mdepth=2608 live_rtt=284.1ms equity=70.3734USDT state=WATCHING
+SHADOW STATUS trades=18 W/L/F=11/4/3 pnl=+10.3734USDT books=3/3 Bquotes=46837 
+Mdepth=2620 live_rtt=284.2ms equity=70.3734USDT state=WATCHING
+SHADOW STATUS trades=18 W/L/F=11/4/3 pnl=+10.3734USDT books=3/3 Bquotes=47030 
+Mdepth=2637 live_rtt=285.2ms equity=70.3734USDT state=WATCHING
+SHADOW STATUS trades=18 W/L/F=11/4/3 pnl=+10.3734USDT books=3/3 Bquotes=47611 
+Mdepth=2655 live_rtt=284.5ms equity=70.3734USDT state=WATCHING
+SHADOW STATUS trades=18 W/L/F=11/4/3 pnl=+10.3734USDT books=3/3 Bquotes=47827 
+Mdepth=2676 live_rtt=284.9ms equity=70.3734USDT state=WATCHING
+SHADOW STATUS trades=18 W/L/F=11/4/3 pnl=+10.3734USDT books=3/3 Bquotes=48085 
+Mdepth=2693 live_rtt=285.2ms equity=70.3734USDT state=WATCHING
+SHADOW STATUS trades=18 W/L/F=11/4/3 pnl=+10.3734USDT books=3/3 Bquotes=48226 
+Mdepth=2705 live_rtt=285.2ms equity=70.3734USDT state=WATCHING
+SHADOW SIGNAL XRP_USDT SHORT impulse=-1.992bps threshold=1.196 spread=0.996 
+requested=11728.91USDT
+SHADOW ENTRY XRP_USDT SHORT impulse=-1.992bps spread=0.996 signal_to_fill=158ms
+px=1.004 fill=11734.77/11728.91USDT (100.0%) levels=1/20 visible=1250784.44USDT
+lev=200x
+SHADOW EXIT XRP_USDT SHORT reason=timeout pnl=+0.996bps/+1.1688USDT 
+hold=61081ms fill=11734.77/11728.91USDT (100.0%) equity=71.5422USDT
+SHADOW STATUS trades=19 W/L/F=12/4/3 pnl=+11.5422USDT books=3/3 Bquotes=51385 
+Mdepth=3005 live_rtt=288.2ms equity=71.5422USDT state=WATCHING
+SHADOW STATUS trades=19 W/L/F=12/4/3 pnl=+11.5422USDT books=3/3 Bquotes=51504 
+Mdepth=3016 live_rtt=288.5ms equity=71.5422USDT state=WATCHING
+SHADOW STATUS trades=19 W/L/F=12/4/3 pnl=+11.5422USDT books=3/3 Bquotes=51690 
+Mdepth=3031 live_rtt=288.2ms equity=71.5422USDT state=WATCHING
+SHADOW STATUS trades=19 W/L/F=12/4/3 pnl=+11.5422USDT books=3/3 Bquotes=51827 
+Mdepth=3068 live_rtt=288.1ms equity=71.5422USDT state=WATCHING
+SHADOW STATUS trades=19 W/L/F=12/4/3 pnl=+11.5422USDT books=3/3 Bquotes=52001 
+Mdepth=3085 live_rtt=287.8ms equity=71.5422USDT state=WATCHING
+SHADOW STATUS trades=19 W/L/F=12/4/3 pnl=+11.5422USDT books=3/3 Bquotes=52169 
+Mdepth=3099 live_rtt=287.4ms equity=71.5422USDT state=WATCHING
+SHADOW STATUS trades=19 W/L/F=12/4/3 pnl=+11.5422USDT books=3/3 Bquotes=52342 
+Mdepth=3116 live_rtt=287.5ms equity=71.5422USDT state=WATCHING
+SHADOW STATUS trades=19 W/L/F=12/4/3 pnl=+11.5422USDT books=3/3 Bquotes=52530 
+Mdepth=3132 live_rtt=287.4ms equity=71.5422USDT state=WATCHING
+SHADOW STATUS trades=19 W/L/F=12/4/3 pnl=+11.5422USDT books=3/3 Bquotes=52727 
+Mdepth=3146 live_rtt=287.4ms equity=71.5422USDT state=WATCHING
+SHADOW STATUS trades=19 W/L/F=12/4/3 pnl=+11.5422USDT books=3/3 Bquotes=52932 
+Mdepth=3160 live_rtt=286.7ms equity=71.5422USDT state=WATCHING
+SHADOW STATUS trades=19 W/L/F=12/4/3 pnl=+11.5422USDT books=3/3 Bquotes=53206 
+Mdepth=3173 live_rtt=286.7ms equity=71.5422USDT state=WATCHING
+SHADOW STATUS trades=19 W/L/F=12/4/3 pnl=+11.5422USDT books=3/3 Bquotes=53406 
+Mdepth=3186 live_rtt=287.4ms equity=71.5422USDT state=WATCHING
+SHADOW STATUS trades=19 W/L/F=12/4/3 pnl=+11.5422USDT books=3/3 Bquotes=53863 
+Mdepth=3202 live_rtt=287.5ms equity=71.5422USDT state=WATCHING
+SHADOW STATUS trades=19 W/L/F=12/4/3 pnl=+11.5422USDT books=3/3 Bquotes=54065 
+Mdepth=3221 live_rtt=287.2ms equity=71.5422USDT state=WATCHING
+SHADOW STATUS trades=19 W/L/F=12/4/3 pnl=+11.5422USDT books=3/3 Bquotes=54332 
+Mdepth=3241 live_rtt=287.4ms equity=71.5422USDT state=WATCHING
+SHADOW STATUS trades=19 W/L/F=12/4/3 pnl=+11.5422USDT books=3/3 Bquotes=54653 
+Mdepth=3262 live_rtt=287.2ms equity=71.5422USDT state=WATCHING
+SHADOW STATUS trades=19 W/L/F=12/4/3 pnl=+11.5422USDT books=3/3 Bquotes=54870 
+Mdepth=3288 live_rtt=287.2ms equity=71.5422USDT state=WATCHING
+SHADOW STATUS trades=19 W/L/F=12/4/3 pnl=+11.5422USDT books=3/3 Bquotes=55076 
+Mdepth=3308 live_rtt=286.2ms equity=71.5422USDT state=WATCHING
+SHADOW STATUS trades=19 W/L/F=12/4/3 pnl=+11.5422USDT books=3/3 Bquotes=55304 
+Mdepth=3320 live_rtt=287.4ms equity=71.5422USDT state=WATCHING
+SHADOW STATUS trades=19 W/L/F=12/4/3 pnl=+11.5422USDT books=3/3 Bquotes=55523 
+Mdepth=3339 live_rtt=287.4ms equity=71.5422USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.099bps threshold=1.249 spread=1.049 
+requested=11923.71USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.099bps spread=1.049 
+signal_to_fill=188ms px=9.53 fill=11929.67/11923.71USDT (100.0%) levels=1/20 
+visible=87813.53USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=binance_target_caught 
+pnl=+1.918bps/+2.2879USDT hold=6648ms fill=11929.67/11923.71USDT (100.0%) 
+equity=73.8301USDT
+SHADOW STATUS trades=20 W/L/F=13/4/3 pnl=+13.8301USDT books=3/3 Bquotes=57142 
+Mdepth=3386 live_rtt=287.6ms equity=73.8301USDT state=WATCHING
+SHADOW STATUS trades=20 W/L/F=13/4/3 pnl=+13.8301USDT books=3/3 Bquotes=57671 
+Mdepth=3409 live_rtt=287.9ms equity=73.8301USDT state=WATCHING
+SHADOW STATUS trades=20 W/L/F=13/4/3 pnl=+13.8301USDT books=3/3 Bquotes=58278 
+Mdepth=3449 live_rtt=287.6ms equity=73.8301USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.099bps threshold=1.250 spread=1.050 
+requested=12305.02USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.099bps spread=2.099 
+signal_to_fill=196ms px=9.52592 fill=12311.07/12305.02USDT (100.0%) levels=2/20
+visible=104845.60USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=binance_target_caught 
+pnl=+6.210bps/+7.6446USDT hold=5245ms fill=12311.07/12305.02USDT (100.0%) 
+equity=81.4747USDT
+SHADOW STATUS trades=21 W/L/F=14/4/3 pnl=+21.4747USDT books=3/3 Bquotes=60686 
+Mdepth=3494 live_rtt=287.6ms equity=81.4747USDT state=WATCHING
+SHADOW STATUS trades=21 W/L/F=14/4/3 pnl=+21.4747USDT books=3/3 Bquotes=61213 
+Mdepth=3508 live_rtt=287.6ms equity=81.4747USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.101bps threshold=1.250 spread=1.050 
+requested=13579.12USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.101bps spread=1.050 
+signal_to_fill=180ms px=9.52172 fill=13585.52/13579.12USDT (100.0%) levels=2/20
+visible=79109.51USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=binance_target_caught 
+pnl=+1.525bps/+2.0715USDT hold=11239ms fill=13585.52/13579.12USDT (100.0%) 
+equity=83.5462USDT
+SHADOW STATUS trades=22 W/L/F=15/4/3 pnl=+23.5462USDT books=3/3 Bquotes=62777 
+Mdepth=3576 live_rtt=287.6ms equity=83.5462USDT state=WATCHING
+SHADOW SIGNAL XRP_USDT LONG impulse=+3.987bps threshold=1.197 spread=0.997 
+requested=13924.37USDT
+SHADOW ENTRY XRP_USDT LONG impulse=+3.987bps spread=0.997 signal_to_fill=160ms 
+px=1.0033 fill=13917.41/13924.37USDT (100.0%) levels=1/20 
+visible=1293949.61USDT lev=200x
+SHADOW EXIT XRP_USDT LONG reason=timeout pnl=-0.997bps/-1.3872USDT hold=61731ms
+fill=13917.41/13924.37USDT (100.0%) equity=82.1591USDT
+SHADOW STATUS trades=23 W/L/F=15/5/3 pnl=+22.1591USDT books=3/3 Bquotes=68486 
+Mdepth=3827 live_rtt=286.5ms equity=82.1591USDT state=WATCHING
+SHADOW STATUS trades=23 W/L/F=15/5/3 pnl=+22.1591USDT books=3/3 Bquotes=68685 
+Mdepth=3840 live_rtt=287.1ms equity=82.1591USDT state=WATCHING
+SHADOW STATUS trades=23 W/L/F=15/5/3 pnl=+22.1591USDT books=3/3 Bquotes=69022 
+Mdepth=3856 live_rtt=286.9ms equity=82.1591USDT state=WATCHING
+SHADOW STATUS trades=23 W/L/F=15/5/3 pnl=+22.1591USDT books=3/3 Bquotes=69284 
+Mdepth=3873 live_rtt=286.5ms equity=82.1591USDT state=WATCHING
+SHADOW STATUS trades=23 W/L/F=15/5/3 pnl=+22.1591USDT books=3/3 Bquotes=69463 
+Mdepth=3887 live_rtt=286.9ms equity=82.1591USDT state=WATCHING
+SHADOW STATUS trades=23 W/L/F=15/5/3 pnl=+22.1591USDT books=3/3 Bquotes=69648 
+Mdepth=3904 live_rtt=286.9ms equity=82.1591USDT state=WATCHING
+SHADOW STATUS trades=23 W/L/F=15/5/3 pnl=+22.1591USDT books=3/3 Bquotes=69894 
+Mdepth=3923 live_rtt=286.9ms equity=82.1591USDT state=WATCHING
+SHADOW STATUS trades=23 W/L/F=15/5/3 pnl=+22.1591USDT books=3/3 Bquotes=70205 
+Mdepth=3942 live_rtt=286.4ms equity=82.1591USDT state=WATCHING
+SHADOW STATUS trades=23 W/L/F=15/5/3 pnl=+22.1591USDT books=3/3 Bquotes=70478 
+Mdepth=3962 live_rtt=285.8ms equity=82.1591USDT state=WATCHING
+SHADOW STATUS trades=23 W/L/F=15/5/3 pnl=+22.1591USDT books=3/3 Bquotes=70735 
+Mdepth=3982 live_rtt=285.8ms equity=82.1591USDT state=WATCHING
+SHADOW STATUS trades=23 W/L/F=15/5/3 pnl=+22.1591USDT books=3/3 Bquotes=71372 
+Mdepth=4001 live_rtt=285.8ms equity=82.1591USDT state=WATCHING
+SHADOW SIGNAL DOGE_USDT LONG impulse=+2.864bps threshold=1.632 spread=1.432 
+requested=13693.18USDT
+SHADOW ENTRY DOGE_USDT LONG impulse=+2.864bps spread=1.432 signal_to_fill=177ms
+px=0.06982 fill=13686.33/13693.18USDT (100.0%) levels=1/20 
+visible=628711.56USDT lev=200x
+SHADOW EXIT DOGE_USDT LONG reason=binance_target_caught 
+pnl=+4.297bps/+5.8807USDT hold=9390ms fill=13686.33/13693.18USDT (100.0%) 
+equity=88.0398USDT
+SHADOW STATUS trades=24 W/L/F=16/5/3 pnl=+28.0398USDT books=3/3 Bquotes=73075 
+Mdepth=4096 live_rtt=286.4ms equity=88.0398USDT state=WATCHING
+SHADOW STATUS trades=24 W/L/F=16/5/3 pnl=+28.0398USDT books=3/3 Bquotes=73275 
+Mdepth=4112 live_rtt=286.6ms equity=88.0398USDT state=WATCHING
+SHADOW STATUS trades=24 W/L/F=16/5/3 pnl=+28.0398USDT books=3/3 Bquotes=73528 
+Mdepth=4132 live_rtt=286.6ms equity=88.0398USDT state=WATCHING
+SHADOW STATUS trades=24 W/L/F=16/5/3 pnl=+28.0398USDT books=3/3 Bquotes=73801 
+Mdepth=4154 live_rtt=286.4ms equity=88.0398USDT state=WATCHING
+SHADOW STATUS trades=24 W/L/F=16/5/3 pnl=+28.0398USDT books=3/3 Bquotes=74056 
+Mdepth=4166 live_rtt=286.4ms equity=88.0398USDT state=WATCHING
+SHADOW STATUS trades=24 W/L/F=16/5/3 pnl=+28.0398USDT books=3/3 Bquotes=74254 
+Mdepth=4190 live_rtt=286.8ms equity=88.0398USDT state=WATCHING
+SHADOW STATUS trades=24 W/L/F=16/5/3 pnl=+28.0398USDT books=3/3 Bquotes=74456 
+Mdepth=4222 live_rtt=285.8ms equity=88.0398USDT state=WATCHING
+SHADOW STATUS trades=24 W/L/F=16/5/3 pnl=+28.0398USDT books=3/3 Bquotes=74841 
+Mdepth=4240 live_rtt=285.5ms equity=88.0398USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.099bps threshold=1.249 spread=1.049 
+requested=14673.29USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.099bps spread=1.049 
+signal_to_fill=254ms px=9.53 fill=14680.63/14673.29USDT (100.0%) levels=1/20 
+visible=98342.72USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=timeout pnl=-1.517bps/-2.2271USDT 
+hold=65364ms fill=14680.63/14673.29USDT (100.0%) equity=85.8126USDT
+SHADOW STATUS trades=25 W/L/F=16/6/3 pnl=+25.8126USDT books=3/3 Bquotes=78715 
+Mdepth=4530 live_rtt=286.4ms equity=85.8126USDT state=WATCHING
+SHADOW STATUS trades=25 W/L/F=16/6/3 pnl=+25.8126USDT books=3/3 Bquotes=78975 
+Mdepth=4544 live_rtt=286.6ms equity=85.8126USDT state=WATCHING
+SHADOW STATUS trades=25 W/L/F=16/6/3 pnl=+25.8126USDT books=3/3 Bquotes=79248 
+Mdepth=4563 live_rtt=286.1ms equity=85.8126USDT state=WATCHING
+SHADOW STATUS trades=25 W/L/F=16/6/3 pnl=+25.8126USDT books=3/3 Bquotes=79456 
+Mdepth=4578 live_rtt=286.4ms equity=85.8126USDT state=WATCHING
+SHADOW STATUS trades=25 W/L/F=16/6/3 pnl=+25.8126USDT books=3/3 Bquotes=80028 
+Mdepth=4602 live_rtt=286.2ms equity=85.8126USDT state=WATCHING
+SHADOW STATUS trades=25 W/L/F=16/6/3 pnl=+25.8126USDT books=3/3 Bquotes=80204 
+Mdepth=4615 live_rtt=285.5ms equity=85.8126USDT state=WATCHING
+SHADOW STATUS trades=25 W/L/F=16/6/3 pnl=+25.8126USDT books=3/3 Bquotes=80464 
+Mdepth=4636 live_rtt=286.0ms equity=85.8126USDT state=WATCHING
+SHADOW SIGNAL XRP_USDT LONG impulse=+1.993bps threshold=1.196 spread=0.996 
+requested=14302.11USDT
+SHADOW ENTRY XRP_USDT LONG impulse=+1.993bps spread=0.996 signal_to_fill=174ms 
+px=1.0036 fill=14294.96/14302.11USDT (100.0%) levels=1/20 visible=936904.70USDT
+lev=200x
+SHADOW EXIT XRP_USDT LONG reason=live_adverse_cut pnl=-1.993bps/-2.8487USDT 
+hold=39963ms fill=14294.96/14302.11USDT (100.0%) equity=82.9639USDT
+SHADOW STATUS trades=26 W/L/F=16/7/3 pnl=+22.9639USDT books=3/3 Bquotes=83633 
+Mdepth=4784 live_rtt=285.7ms equity=82.9639USDT state=WATCHING
+SHADOW STATUS trades=26 W/L/F=16/7/3 pnl=+22.9639USDT books=3/3 Bquotes=83832 
+Mdepth=4795 live_rtt=285.7ms equity=82.9639USDT state=WATCHING
+SHADOW STATUS trades=26 W/L/F=16/7/3 pnl=+22.9639USDT books=3/3 Bquotes=84069 
+Mdepth=4813 live_rtt=285.7ms equity=82.9639USDT state=WATCHING
+SHADOW STATUS trades=26 W/L/F=16/7/3 pnl=+22.9639USDT books=3/3 Bquotes=84607 
+Mdepth=4831 live_rtt=286.3ms equity=82.9639USDT state=WATCHING
+SHADOW SIGNAL XRP_USDT SHORT impulse=-1.993bps threshold=1.197 spread=0.997 
+requested=13827.32USDT
+SHADOW ENTRY XRP_USDT SHORT impulse=-1.993bps spread=0.997 signal_to_fill=165ms
+px=1.0032 fill=13834.23/13827.32USDT (100.0%) levels=1/20 
+visible=1514855.45USDT lev=200x
+SHADOW EXIT XRP_USDT SHORT reason=live_adverse_cut pnl=-1.994bps/-2.7580USDT 
+hold=12846ms fill=13834.23/13827.32USDT (100.0%) equity=80.2059USDT
+SHADOW STATUS trades=27 W/L/F=16/8/3 pnl=+20.2059USDT books=3/3 Bquotes=86090 
+Mdepth=4884 live_rtt=286.6ms equity=80.2059USDT state=WATCHING
+SHADOW STATUS trades=27 W/L/F=16/8/3 pnl=+20.2059USDT books=3/3 Bquotes=86315 
+Mdepth=4901 live_rtt=286.4ms equity=80.2059USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+2.098bps threshold=1.249 spread=1.049 
+requested=13367.65USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+2.098bps spread=1.049 signal_to_fill=179ms
+px=9.53237 fill=13361.49/13367.65USDT (100.0%) levels=2/20 
+visible=129291.83USDT lev=200x
+SHADOW EXIT LINK_USDT LONG reason=live_adverse_cut pnl=-2.489bps/-3.3258USDT 
+hold=23796ms fill=13361.49/13367.65USDT (100.0%) equity=76.8801USDT
+SHADOW STATUS trades=28 W/L/F=16/9/3 pnl=+16.8801USDT books=3/3 Bquotes=87983 
+Mdepth=5078 live_rtt=287.3ms equity=76.8801USDT state=WATCHING
+SHADOW STATUS trades=28 W/L/F=16/9/3 pnl=+16.8801USDT books=3/3 Bquotes=88216 
+Mdepth=5094 live_rtt=287.5ms equity=76.8801USDT state=WATCHING
+SHADOW STATUS trades=28 W/L/F=16/9/3 pnl=+16.8801USDT books=3/3 Bquotes=88720 
+Mdepth=5111 live_rtt=286.6ms equity=76.8801USDT state=WATCHING
+SHADOW STATUS trades=28 W/L/F=16/9/3 pnl=+16.8801USDT books=3/3 Bquotes=88923 
+Mdepth=5121 live_rtt=286.6ms equity=76.8801USDT state=WATCHING
+SHADOW STATUS trades=28 W/L/F=16/9/3 pnl=+16.8801USDT books=3/3 Bquotes=89134 
+Mdepth=5141 live_rtt=287.1ms equity=76.8801USDT state=WATCHING
+SHADOW STATUS trades=28 W/L/F=16/9/3 pnl=+16.8801USDT books=3/3 Bquotes=89387 
+Mdepth=5159 live_rtt=287.3ms equity=76.8801USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+2.098bps threshold=1.249 spread=1.049 
+requested=12813.35USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+2.098bps spread=1.049 signal_to_fill=160ms
+px=9.5341 fill=12807.07/12813.35USDT (100.0%) levels=2/20 visible=131579.18USDT
+lev=200x
+SHADOW EXIT LINK_USDT LONG reason=live_adverse_cut pnl=-4.851bps/-6.2126USDT 
+hold=62002ms fill=12807.07/12813.35USDT (100.0%) equity=70.6675USDT
+SHADOW STATUS trades=29 W/L/F=16/10/3 pnl=+10.6675USDT books=3/3 Bquotes=92554 
+Mdepth=5511 live_rtt=285.1ms equity=70.6675USDT state=WATCHING
+SHADOW STATUS trades=29 W/L/F=16/10/3 pnl=+10.6675USDT books=3/3 Bquotes=92718 
+Mdepth=5526 live_rtt=285.9ms equity=70.6675USDT state=WATCHING
+SHADOW STATUS trades=29 W/L/F=16/10/3 pnl=+10.6675USDT books=3/3 Bquotes=92904 
+Mdepth=5540 live_rtt=285.1ms equity=70.6675USDT state=WATCHING
+SHADOW STATUS trades=29 W/L/F=16/10/3 pnl=+10.6675USDT books=3/3 Bquotes=93115 
+Mdepth=5557 live_rtt=285.1ms equity=70.6675USDT state=WATCHING
+SHADOW STATUS trades=29 W/L/F=16/10/3 pnl=+10.6675USDT books=3/3 Bquotes=93389 
+Mdepth=5577 live_rtt=285.1ms equity=70.6675USDT state=WATCHING
+SHADOW STATUS trades=29 W/L/F=16/10/3 pnl=+10.6675USDT books=3/3 Bquotes=93580 
+Mdepth=5591 live_rtt=285.3ms equity=70.6675USDT state=WATCHING
+SHADOW STATUS trades=29 W/L/F=16/10/3 pnl=+10.6675USDT books=3/3 Bquotes=93756 
+Mdepth=5611 live_rtt=285.1ms equity=70.6675USDT state=WATCHING
+SHADOW STATUS trades=29 W/L/F=16/10/3 pnl=+10.6675USDT books=3/3 Bquotes=93928 
+Mdepth=5626 live_rtt=285.1ms equity=70.6675USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.099bps threshold=1.249 spread=1.049 
+requested=11777.92USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.099bps spread=1.049 
+signal_to_fill=158ms px=9.53 fill=11783.81/11777.92USDT (100.0%) levels=1/20 
+visible=73109.34USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=binance_target_caught 
+pnl=+2.099bps/+2.4730USDT hold=2625ms fill=11783.81/11777.92USDT (100.0%) 
+equity=73.1405USDT
+SHADOW STATUS trades=30 W/L/F=17/10/3 pnl=+13.1405USDT books=3/3 Bquotes=94374 
+Mdepth=5650 live_rtt=284.8ms equity=73.1405USDT state=WATCHING
+SHADOW STATUS trades=30 W/L/F=17/10/3 pnl=+13.1405USDT books=3/3 Bquotes=94613 
+Mdepth=5676 live_rtt=284.9ms equity=73.1405USDT state=WATCHING
+SHADOW STATUS trades=30 W/L/F=17/10/3 pnl=+13.1405USDT books=3/3 Bquotes=94865 
+Mdepth=5718 live_rtt=284.9ms equity=73.1405USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+2.099bps threshold=1.250 spread=1.050 
+requested=12190.09USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+2.099bps spread=1.050 signal_to_fill=175ms
+px=9.5282 fill=12184.26/12190.09USDT (100.0%) levels=2/20 visible=93806.51USDT 
+lev=200x
+SHADOW EXIT LINK_USDT LONG reason=live_adverse_cut pnl=-4.585bps/-5.5861USDT 
+hold=17476ms fill=12184.26/12190.09USDT (100.0%) equity=67.5544USDT
+SHADOW STATUS trades=31 W/L/F=17/11/3 pnl=+7.5544USDT books=3/3 Bquotes=96242 
+Mdepth=5834 live_rtt=285.1ms equity=67.5544USDT state=WATCHING
+SHADOW STATUS trades=31 W/L/F=17/11/3 pnl=+7.5544USDT books=3/3 Bquotes=96390 
+Mdepth=5843 live_rtt=285.0ms equity=67.5544USDT state=WATCHING
+SHADOW STATUS trades=31 W/L/F=17/11/3 pnl=+7.5544USDT books=3/3 Bquotes=96643 
+Mdepth=5859 live_rtt=285.1ms equity=67.5544USDT state=WATCHING
+SHADOW STATUS trades=31 W/L/F=17/11/3 pnl=+7.5544USDT books=3/3 Bquotes=96913 
+Mdepth=5875 live_rtt=284.8ms equity=67.5544USDT state=WATCHING
+SHADOW STATUS trades=31 W/L/F=17/11/3 pnl=+7.5544USDT books=3/3 Bquotes=97157 
+Mdepth=5897 live_rtt=284.9ms equity=67.5544USDT state=WATCHING
+SHADOW STATUS trades=31 W/L/F=17/11/3 pnl=+7.5544USDT books=3/3 Bquotes=97453 
+Mdepth=5908 live_rtt=285.0ms equity=67.5544USDT state=WATCHING
+SHADOW STATUS trades=31 W/L/F=17/11/3 pnl=+7.5544USDT books=3/3 Bquotes=97739 
+Mdepth=5923 live_rtt=285.3ms equity=67.5544USDT state=WATCHING
+SHADOW STATUS trades=31 W/L/F=17/11/3 pnl=+7.5544USDT books=3/3 Bquotes=98089 
+Mdepth=5940 live_rtt=285.5ms equity=67.5544USDT state=WATCHING
+SHADOW STATUS trades=31 W/L/F=17/11/3 pnl=+7.5544USDT books=3/3 Bquotes=98448 
+Mdepth=5956 live_rtt=285.6ms equity=67.5544USDT state=WATCHING
+SHADOW STATUS trades=31 W/L/F=17/11/3 pnl=+7.5544USDT books=3/3 Bquotes=98699 
+Mdepth=5969 live_rtt=285.9ms equity=67.5544USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-1.575bps threshold=1.250 spread=1.050 
+requested=11259.06USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-1.575bps spread=2.100 
+signal_to_fill=166ms px=9.525 fill=11264.70/11259.06USDT (100.0%) levels=1/20 
+visible=89092.25USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=binance_target_caught 
+pnl=+2.100bps/+2.3653USDT hold=14485ms fill=11264.70/11259.06USDT (100.0%) 
+equity=69.9197USDT
+SHADOW STATUS trades=32 W/L/F=18/11/3 pnl=+9.9197USDT books=3/3 Bquotes=99963 
+Mdepth=6025 live_rtt=284.9ms equity=69.9197USDT state=WATCHING
+SHADOW STATUS trades=32 W/L/F=18/11/3 pnl=+9.9197USDT books=3/3 Bquotes=100573 
+Mdepth=6038 live_rtt=284.9ms equity=69.9197USDT state=WATCHING
+SHADOW STATUS trades=32 W/L/F=18/11/3 pnl=+9.9197USDT books=3/3 Bquotes=101185 
+Mdepth=6075 live_rtt=285.6ms equity=69.9197USDT state=WATCHING
+SHADOW SIGNAL XRP_USDT SHORT impulse=-3.989bps threshold=1.197 spread=0.997 
+requested=11653.28USDT
+SHADOW ENTRY XRP_USDT SHORT impulse=-3.989bps spread=0.997 signal_to_fill=159ms
+px=1.0025 fill=11659.11/11653.28USDT (100.0%) levels=1/20 visible=822163.52USDT
+lev=200x
+SHADOW EXIT XRP_USDT SHORT reason=live_adverse_cut pnl=-1.995bps/-2.3260USDT 
+hold=1773ms fill=11659.11/11653.28USDT (100.0%) equity=67.5937USDT
+SHADOW STATUS trades=33 W/L/F=18/12/3 pnl=+7.5937USDT books=3/3 Bquotes=102061 
+Mdepth=6103 live_rtt=285.6ms equity=67.5937USDT state=WATCHING
+SHADOW STATUS trades=33 W/L/F=18/12/3 pnl=+7.5937USDT books=3/3 Bquotes=102496 
+Mdepth=6117 live_rtt=286.7ms equity=67.5937USDT state=WATCHING
+SHADOW STATUS trades=33 W/L/F=18/12/3 pnl=+7.5937USDT books=3/3 Bquotes=103264 
+Mdepth=6127 live_rtt=286.8ms equity=67.5937USDT state=WATCHING
+SHADOW SIGNAL XRP_USDT SHORT impulse=-1.995bps threshold=1.197 spread=0.997 
+requested=11265.61USDT
+SHADOW ENTRY XRP_USDT SHORT impulse=-1.995bps spread=0.997 signal_to_fill=168ms
+px=1.0025 fill=11271.25/11265.61USDT (100.0%) levels=1/20 
+visible=1244375.15USDT lev=200x
+SHADOW EXIT XRP_USDT SHORT reason=live_adverse_cut pnl=-2.811bps/-3.1686USDT 
+hold=7303ms fill=11271.25/11265.61USDT (100.0%) equity=64.4250USDT
+SHADOW STATUS trades=34 W/L/F=18/13/3 pnl=+4.4250USDT books=3/3 Bquotes=104812 
+Mdepth=6170 live_rtt=286.4ms equity=64.4250USDT state=WATCHING
+SHADOW STATUS trades=34 W/L/F=18/13/3 pnl=+4.4250USDT books=3/3 Bquotes=105600 
+Mdepth=6193 live_rtt=285.4ms equity=64.4250USDT state=WATCHING
+SHADOW SIGNAL DOGE_USDT SHORT impulse=-2.868bps threshold=1.634 spread=1.434 
+requested=10737.50USDT
+SHADOW ENTRY DOGE_USDT SHORT impulse=-2.868bps spread=1.434 
+signal_to_fill=178ms px=0.06975 fill=10742.88/10737.50USDT (100.0%) levels=1/20
+visible=802440.47USDT lev=200x
+SHADOW EXIT DOGE_USDT SHORT reason=binance_target_caught 
+pnl=+2.867bps/+3.0804USDT hold=8333ms fill=10742.88/10737.50USDT (100.0%) 
+equity=67.5054USDT
+SHADOW STATUS trades=35 W/L/F=19/13/3 pnl=+7.5054USDT books=3/3 Bquotes=107484 
+Mdepth=6256 live_rtt=285.2ms equity=67.5054USDT state=WATCHING
+SHADOW STATUS trades=35 W/L/F=19/13/3 pnl=+7.5054USDT books=3/3 Bquotes=108138 
+Mdepth=6278 live_rtt=285.4ms equity=67.5054USDT state=WATCHING
+SHADOW STATUS trades=35 W/L/F=19/13/3 pnl=+7.5054USDT books=3/3 Bquotes=108538 
+Mdepth=6301 live_rtt=285.2ms equity=67.5054USDT state=WATCHING
+SHADOW STATUS trades=35 W/L/F=19/13/3 pnl=+7.5054USDT books=3/3 Bquotes=109047 
+Mdepth=6323 live_rtt=285.8ms equity=67.5054USDT state=WATCHING
+SHADOW STATUS trades=35 W/L/F=19/13/3 pnl=+7.5054USDT books=3/3 Bquotes=109629 
+Mdepth=6345 live_rtt=286.6ms equity=67.5054USDT state=WATCHING
+SHADOW STATUS trades=35 W/L/F=19/13/3 pnl=+7.5054USDT books=3/3 Bquotes=110609 
+Mdepth=6374 live_rtt=286.6ms equity=67.5054USDT state=WATCHING
+SHADOW STATUS trades=35 W/L/F=19/13/3 pnl=+7.5054USDT books=3/3 Bquotes=111637 
+Mdepth=6395 live_rtt=286.6ms equity=67.5054USDT state=WATCHING
+SHADOW SIGNAL XRP_USDT LONG impulse=+1.996bps threshold=1.198 spread=0.998 
+requested=11250.90USDT
+SHADOW ENTRY XRP_USDT LONG impulse=+1.996bps spread=0.998 signal_to_fill=174ms 
+px=1.0021 fill=11245.28/11250.90USDT (100.0%) levels=1/20 visible=813724.66USDT
+lev=200x
+SHADOW EXIT XRP_USDT LONG reason=live_adverse_cut pnl=-1.996bps/-2.2443USDT 
+hold=11402ms fill=11245.28/11250.90USDT (100.0%) equity=65.2611USDT
+SHADOW STATUS trades=36 W/L/F=19/14/3 pnl=+5.2611USDT books=3/3 Bquotes=113457 
+Mdepth=6450 live_rtt=285.8ms equity=65.2611USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.102bps threshold=1.251 spread=1.051 
+requested=10876.85USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.102bps spread=2.102 
+signal_to_fill=234ms px=9.515 fill=10882.29/10876.85USDT (100.0%) levels=1/20 
+visible=115975.38USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=live_adverse_cut pnl=-3.309bps/-3.6011USDT 
+hold=9313ms fill=10882.29/10876.85USDT (100.0%) equity=61.6600USDT
+SHADOW STATUS trades=37 W/L/F=19/15/3 pnl=+1.6600USDT books=3/3 Bquotes=115360 
+Mdepth=6508 live_rtt=286.2ms equity=61.6600USDT state=WATCHING
+SHADOW STATUS trades=37 W/L/F=19/15/3 pnl=+1.6600USDT books=3/3 Bquotes=115760 
+Mdepth=6551 live_rtt=286.2ms equity=61.6600USDT state=WATCHING
+SHADOW SIGNAL XRP_USDT SHORT impulse=-1.996bps threshold=1.198 spread=0.998 
+requested=10276.66USDT
+SHADOW ENTRY XRP_USDT SHORT impulse=-1.996bps spread=0.998 signal_to_fill=160ms
+px=1.0017 fill=10281.81/10276.66USDT (100.0%) levels=1/20 
+visible=1082597.99USDT lev=200x
+SHADOW EXIT XRP_USDT SHORT reason=binance_target_caught 
+pnl=+0.998bps/+1.0264USDT hold=12473ms fill=10281.81/10276.66USDT (100.0%) 
+equity=62.6864USDT
+SHADOW STATUS trades=38 W/L/F=20/15/3 pnl=+2.6864USDT books=3/3 Bquotes=117731 
+Mdepth=6646 live_rtt=286.6ms equity=62.6864USDT state=WATCHING
+SHADOW STATUS trades=38 W/L/F=20/15/3 pnl=+2.6864USDT books=3/3 Bquotes=117949 
+Mdepth=6665 live_rtt=287.0ms equity=62.6864USDT state=WATCHING
+SHADOW STATUS trades=38 W/L/F=20/15/3 pnl=+2.6864USDT books=3/3 Bquotes=118482 
+Mdepth=6681 live_rtt=287.0ms equity=62.6864USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.102bps threshold=1.251 spread=1.051 
+requested=10447.74USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.102bps spread=1.051 
+signal_to_fill=192ms px=9.5148 fill=10452.75/10447.74USDT (100.0%) levels=2/20 
+visible=77560.99USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=binance_target_caught 
+pnl=+0.430bps/+0.4490USDT hold=5878ms fill=10452.75/10447.74USDT (100.0%) 
+equity=63.1354USDT
+SHADOW STATUS trades=39 W/L/F=21/15/3 pnl=+3.1354USDT books=3/3 Bquotes=119138 
+Mdepth=6715 live_rtt=286.7ms equity=63.1354USDT state=WATCHING
+SHADOW STATUS trades=39 W/L/F=21/15/3 pnl=+3.1354USDT books=3/3 Bquotes=119654 
+Mdepth=6737 live_rtt=286.4ms equity=63.1354USDT state=WATCHING
+SHADOW SIGNAL XRP_USDT SHORT impulse=-1.997bps threshold=1.198 spread=0.998 
+requested=10522.57USDT
+SHADOW ENTRY XRP_USDT SHORT impulse=-1.997bps spread=0.998 signal_to_fill=201ms
+px=1.0015 fill=10527.84/10522.57USDT (100.0%) levels=1/20 
+visible=1592048.40USDT lev=200x
+SHADOW EXIT XRP_USDT SHORT reason=binance_target_caught 
+pnl=+1.997bps/+2.1024USDT hold=3739ms fill=10527.84/10522.57USDT (100.0%) 
+equity=65.2379USDT
+SHADOW STATUS trades=40 W/L/F=22/15/3 pnl=+5.2379USDT books=3/3 Bquotes=120837 
+Mdepth=6773 live_rtt=286.5ms equity=65.2379USDT state=WATCHING
+SHADOW SIGNAL DOGE_USDT SHORT impulse=-4.307bps threshold=1.635 spread=1.435 
+requested=10872.98USDT
+SHADOW ENTRY DOGE_USDT SHORT impulse=-4.307bps spread=2.874 
+signal_to_fill=263ms px=0.06957 fill=10878.42/10872.98USDT (100.0%) levels=1/20
+visible=1240027.77USDT lev=200x
+SHADOW EXIT DOGE_USDT SHORT reason=positive_trailing_stop 
+pnl=-11.499bps/-12.5093USDT hold=30835ms fill=10878.42/10872.98USDT (100.0%) 
+equity=52.7285USDT
+SHADOW STATUS trades=41 W/L/F=22/16/3 pnl=-7.2715USDT books=3/3 Bquotes=136755 
+Mdepth=6983 live_rtt=288.3ms equity=52.7285USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.102bps threshold=1.251 spread=1.051 
+requested=8788.09USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.102bps spread=1.051 
+signal_to_fill=168ms px=9.517 fill=8792.49/8788.09USDT (100.0%) levels=1/20 
+visible=76741.45USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=binance_target_caught 
+pnl=+1.051bps/+0.9239USDT hold=546ms fill=8792.49/8788.09USDT (100.0%) 
+equity=53.6524USDT
+SHADOW STATUS trades=42 W/L/F=23/16/3 pnl=-6.3476USDT books=3/3 Bquotes=137472 
+Mdepth=7005 live_rtt=288.4ms equity=53.6524USDT state=WATCHING
+SHADOW STATUS trades=42 W/L/F=23/16/3 pnl=-6.3476USDT books=3/3 Bquotes=138336 
+Mdepth=7031 live_rtt=288.3ms equity=53.6524USDT state=WATCHING
+SHADOW STATUS trades=42 W/L/F=23/16/3 pnl=-6.3476USDT books=3/3 Bquotes=138800 
+Mdepth=7068 live_rtt=287.9ms equity=53.6524USDT state=WATCHING
+SHADOW STATUS trades=42 W/L/F=23/16/3 pnl=-6.3476USDT books=3/3 Bquotes=138991 
+Mdepth=7097 live_rtt=287.5ms equity=53.6524USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+2.101bps threshold=1.251 spread=1.051 
+requested=8942.07USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+2.101bps spread=1.051 signal_to_fill=177ms
+px=9.51818 fill=8937.77/8942.07USDT (100.0%) levels=2/20 visible=121711.83USDT 
+lev=200x
+SHADOW EXIT LINK_USDT LONG reason=live_adverse_cut pnl=-2.287bps/-2.0445USDT 
+hold=6075ms fill=8937.77/8942.07USDT (100.0%) equity=51.6080USDT
+SHADOW STATUS trades=43 W/L/F=23/17/3 pnl=-8.3920USDT books=3/3 Bquotes=139718 
+Mdepth=7133 live_rtt=287.5ms equity=51.6080USDT state=WATCHING
+SHADOW SIGNAL XRP_USDT SHORT impulse=-2.994bps threshold=1.198 spread=0.998 
+requested=8601.33USDT
+SHADOW ENTRY XRP_USDT SHORT impulse=-2.994bps spread=0.998 signal_to_fill=171ms
+px=1.0017 fill=8605.63/8601.33USDT (100.0%) levels=1/20 visible=926071.01USDT 
+lev=200x
+SHADOW EXIT XRP_USDT SHORT reason=binance_target_caught 
+pnl=+4.992bps/+4.2955USDT hold=67089ms fill=8605.63/8601.33USDT (100.0%) 
+equity=55.9035USDT
+SHADOW STATUS trades=44 W/L/F=24/17/3 pnl=-4.0965USDT books=3/3 Bquotes=147141 
+Mdepth=7442 live_rtt=284.6ms equity=55.9035USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+2.102bps threshold=1.251 spread=1.051 
+requested=9317.24USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+2.102bps spread=1.051 signal_to_fill=186ms
+px=9.51619 fill=9312.77/9317.24USDT (100.0%) levels=2/20 visible=93392.96USDT 
+lev=200x
+SHADOW EXIT LINK_USDT LONG reason=binance_target_caught 
+pnl=-0.195bps/-0.1819USDT hold=3884ms fill=9312.77/9317.24USDT (100.0%) 
+equity=55.7215USDT
+SHADOW STATUS trades=45 W/L/F=24/18/3 pnl=-4.2785USDT books=3/3 Bquotes=147688 
+Mdepth=7467 live_rtt=284.6ms equity=55.7215USDT state=WATCHING
+SHADOW STATUS trades=45 W/L/F=24/18/3 pnl=-4.2785USDT books=3/3 Bquotes=148330 
+Mdepth=7491 live_rtt=285.2ms equity=55.7215USDT state=WATCHING
+SHADOW STATUS trades=45 W/L/F=24/18/3 pnl=-4.2785USDT books=3/3 Bquotes=148600 
+Mdepth=7508 live_rtt=284.9ms equity=55.7215USDT state=WATCHING
+SHADOW STATUS trades=45 W/L/F=24/18/3 pnl=-4.2785USDT books=3/3 Bquotes=149171 
+Mdepth=7547 live_rtt=284.6ms equity=55.7215USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+2.101bps threshold=1.251 spread=1.051 
+requested=9286.92USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+2.101bps spread=1.050 signal_to_fill=158ms
+px=9.52 fill=9282.28/9286.92USDT (100.0%) levels=1/20 visible=126449.05USDT 
+lev=200x
+SHADOW EXIT LINK_USDT LONG reason=binance_target_caught 
+pnl=+1.883bps/+1.7476USDT hold=10522ms fill=9282.28/9286.92USDT (100.0%) 
+equity=57.4692USDT
+SHADOW STATUS trades=46 W/L/F=25/18/3 pnl=-2.5308USDT books=3/3 Bquotes=150570 
+Mdepth=7653 live_rtt=284.9ms equity=57.4692USDT state=WATCHING
+SHADOW STATUS trades=46 W/L/F=25/18/3 pnl=-2.5308USDT books=3/3 Bquotes=150753 
+Mdepth=7665 live_rtt=284.9ms equity=57.4692USDT state=WATCHING
+SHADOW STATUS trades=46 W/L/F=25/18/3 pnl=-2.5308USDT books=3/3 Bquotes=151190 
+Mdepth=7685 live_rtt=285.2ms equity=57.4692USDT state=WATCHING
+SHADOW STATUS trades=46 W/L/F=25/18/3 pnl=-2.5308USDT books=3/3 Bquotes=151606 
+Mdepth=7706 live_rtt=285.2ms equity=57.4692USDT state=WATCHING
+SHADOW STATUS trades=46 W/L/F=25/18/3 pnl=-2.5308USDT books=3/3 Bquotes=152040 
+Mdepth=7724 live_rtt=285.2ms equity=57.4692USDT state=WATCHING
+SHADOW STATUS trades=46 W/L/F=25/18/3 pnl=-2.5308USDT books=3/3 Bquotes=152264 
+Mdepth=7744 live_rtt=285.6ms equity=57.4692USDT state=WATCHING
+SHADOW STATUS trades=46 W/L/F=25/18/3 pnl=-2.5308USDT books=3/3 Bquotes=152520 
+Mdepth=7765 live_rtt=285.6ms equity=57.4692USDT state=WATCHING
+SHADOW STATUS trades=46 W/L/F=25/18/3 pnl=-2.5308USDT books=3/3 Bquotes=152765 
+Mdepth=7782 live_rtt=285.6ms equity=57.4692USDT state=WATCHING
+SHADOW STATUS trades=46 W/L/F=25/18/3 pnl=-2.5308USDT books=3/3 Bquotes=153158 
+Mdepth=7801 live_rtt=285.6ms equity=57.4692USDT state=WATCHING
+SHADOW STATUS trades=46 W/L/F=25/18/3 pnl=-2.5308USDT books=3/3 Bquotes=153451 
+Mdepth=7821 live_rtt=285.6ms equity=57.4692USDT state=WATCHING
+SHADOW STATUS trades=46 W/L/F=25/18/3 pnl=-2.5308USDT books=3/3 Bquotes=153746 
+Mdepth=7840 live_rtt=285.6ms equity=57.4692USDT state=WATCHING
+SHADOW STATUS trades=46 W/L/F=25/18/3 pnl=-2.5308USDT books=3/3 Bquotes=154050 
+Mdepth=7862 live_rtt=285.6ms equity=57.4692USDT state=WATCHING
+SHADOW STATUS trades=46 W/L/F=25/18/3 pnl=-2.5308USDT books=3/3 Bquotes=154324 
+Mdepth=7878 live_rtt=285.9ms equity=57.4692USDT state=WATCHING
+SHADOW STATUS trades=46 W/L/F=25/18/3 pnl=-2.5308USDT books=3/3 Bquotes=154618 
+Mdepth=7909 live_rtt=285.4ms equity=57.4692USDT state=WATCHING
+SHADOW STATUS trades=46 W/L/F=25/18/3 pnl=-2.5308USDT books=3/3 Bquotes=154827 
+Mdepth=7950 live_rtt=285.1ms equity=57.4692USDT state=WATCHING
+SHADOW SIGNAL DOGE_USDT SHORT impulse=-2.873bps threshold=1.636 spread=1.436 
+requested=9578.19USDT
+SHADOW ENTRY DOGE_USDT SHORT impulse=-2.873bps spread=2.873 
+signal_to_fill=167ms px=0.06961 fill=9582.99/9578.19USDT (100.0%) levels=1/20 
+visible=497606.67USDT lev=200x
+SHADOW EXIT DOGE_USDT SHORT reason=timeout pnl=-1.437bps/-1.3767USDT 
+hold=60793ms fill=9582.99/9578.19USDT (100.0%) equity=56.0925USDT
+SHADOW STATUS trades=47 W/L/F=25/19/3 pnl=-3.9075USDT books=3/3 Bquotes=160932 
+Mdepth=8233 live_rtt=285.5ms equity=56.0925USDT state=WATCHING
+SHADOW STATUS trades=47 W/L/F=25/19/3 pnl=-3.9075USDT books=3/3 Bquotes=161209 
+Mdepth=8245 live_rtt=285.6ms equity=56.0925USDT state=WATCHING
+SHADOW STATUS trades=47 W/L/F=25/19/3 pnl=-3.9075USDT books=3/3 Bquotes=161440 
+Mdepth=8274 live_rtt=285.8ms equity=56.0925USDT state=WATCHING
+SHADOW STATUS trades=47 W/L/F=25/19/3 pnl=-3.9075USDT books=3/3 Bquotes=161746 
+Mdepth=8287 live_rtt=286.2ms equity=56.0925USDT state=WATCHING
+SHADOW STATUS trades=47 W/L/F=25/19/3 pnl=-3.9075USDT books=3/3 Bquotes=162052 
+Mdepth=8304 live_rtt=285.8ms equity=56.0925USDT state=WATCHING
+SHADOW STATUS trades=47 W/L/F=25/19/3 pnl=-3.9075USDT books=3/3 Bquotes=162254 
+Mdepth=8318 live_rtt=286.7ms equity=56.0925USDT state=WATCHING
+SHADOW STATUS trades=47 W/L/F=25/19/3 pnl=-3.9075USDT books=3/3 Bquotes=162518 
+Mdepth=8333 live_rtt=286.2ms equity=56.0925USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+2.102bps threshold=1.251 spread=1.051 
+requested=9348.75USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+2.102bps spread=1.051 signal_to_fill=160ms
+px=9.513 fill=9344.08/9348.75USDT (100.0%) levels=1/20 visible=93151.93USDT 
+lev=200x
+SHADOW EXIT LINK_USDT LONG reason=binance_target_caught 
+pnl=+2.102bps/+1.9645USDT hold=4604ms fill=9344.08/9348.75USDT (100.0%) 
+equity=58.0570USDT
+SHADOW STATUS trades=48 W/L/F=26/19/3 pnl=-1.9430USDT books=3/3 Bquotes=163185 
+Mdepth=8356 live_rtt=285.7ms equity=58.0570USDT state=WATCHING
+SHADOW SIGNAL XRP_USDT LONG impulse=+1.997bps threshold=1.199 spread=0.999 
+requested=9676.16USDT
+SHADOW ENTRY XRP_USDT LONG impulse=+1.997bps spread=0.999 signal_to_fill=160ms 
+px=1.0014 fill=9671.33/9676.16USDT (100.0%) levels=1/20 visible=1181949.26USDT 
+lev=200x
+SHADOW EXIT XRP_USDT LONG reason=timeout pnl=-0.999bps/-0.9658USDT hold=60929ms
+fill=9671.33/9676.16USDT (100.0%) equity=57.0912USDT
+SHADOW STATUS trades=49 W/L/F=26/20/3 pnl=-2.9088USDT books=3/3 Bquotes=168168 
+Mdepth=8779 live_rtt=286.2ms equity=57.0912USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+2.104bps threshold=1.252 spread=1.052 
+requested=9515.20USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+2.104bps spread=1.052 signal_to_fill=178ms
+px=9.504 fill=9510.45/9515.20USDT (100.0%) levels=1/20 visible=103729.72USDT 
+lev=200x
+SHADOW EXIT LINK_USDT LONG reason=binance_target_caught 
+pnl=+3.157bps/+3.0020USDT hold=20231ms fill=9510.45/9515.20USDT (100.0%) 
+equity=60.0932USDT
+SHADOW STATUS trades=50 W/L/F=27/20/3 pnl=+0.0932USDT books=3/3 Bquotes=170234 
+Mdepth=8864 live_rtt=286.7ms equity=60.0932USDT state=WATCHING
+SHADOW STATUS trades=50 W/L/F=27/20/3 pnl=+0.0932USDT books=3/3 Bquotes=170466 
+Mdepth=8877 live_rtt=286.3ms equity=60.0932USDT state=WATCHING
+SHADOW STATUS trades=50 W/L/F=27/20/3 pnl=+0.0932USDT books=3/3 Bquotes=171137 
+Mdepth=8895 live_rtt=286.3ms equity=60.0932USDT state=WATCHING
+SHADOW STATUS trades=50 W/L/F=27/20/3 pnl=+0.0932USDT books=3/3 Bquotes=171876 
+Mdepth=8916 live_rtt=286.3ms equity=60.0932USDT state=WATCHING
+SHADOW STATUS trades=50 W/L/F=27/20/3 pnl=+0.0932USDT books=3/3 Bquotes=172315 
+Mdepth=8935 live_rtt=287.1ms equity=60.0932USDT state=WATCHING
+SHADOW STATUS trades=50 W/L/F=27/20/3 pnl=+0.0932USDT books=3/3 Bquotes=172725 
+Mdepth=8954 live_rtt=288.8ms equity=60.0932USDT state=WATCHING
+SHADOW STATUS trades=50 W/L/F=27/20/3 pnl=+0.0932USDT books=3/3 Bquotes=173001 
+Mdepth=8972 live_rtt=289.1ms equity=60.0932USDT state=WATCHING
+SHADOW STATUS trades=50 W/L/F=27/20/3 pnl=+0.0932USDT books=3/3 Bquotes=173296 
+Mdepth=9005 live_rtt=288.8ms equity=60.0932USDT state=WATCHING
+SHADOW STATUS trades=50 W/L/F=27/20/3 pnl=+0.0932USDT books=3/3 Bquotes=173548 
+Mdepth=9030 live_rtt=288.8ms equity=60.0932USDT state=WATCHING
+SHADOW STATUS trades=50 W/L/F=27/20/3 pnl=+0.0932USDT books=3/3 Bquotes=173803 
+Mdepth=9043 live_rtt=288.6ms equity=60.0932USDT state=WATCHING
+SHADOW STATUS trades=50 W/L/F=27/20/3 pnl=+0.0932USDT books=3/3 Bquotes=174023 
+Mdepth=9055 live_rtt=288.6ms equity=60.0932USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.104bps threshold=1.252 spread=1.052 
+requested=10015.54USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.104bps spread=1.052 
+signal_to_fill=205ms px=9.504 fill=10020.55/10015.54USDT (100.0%) levels=1/20 
+visible=86601.17USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=live_adverse_cut pnl=-3.157bps/-3.1631USDT 
+hold=13384ms fill=10020.55/10015.54USDT (100.0%) equity=56.9302USDT
+SHADOW STATUS trades=51 W/L/F=27/21/3 pnl=-3.0698USDT books=3/3 Bquotes=176231 
+Mdepth=9119 live_rtt=287.2ms equity=56.9302USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.104bps threshold=1.252 spread=1.052 
+requested=9488.36USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.104bps spread=1.052 
+signal_to_fill=210ms px=9.50488 fill=9492.99/9488.36USDT (100.0%) levels=2/20 
+visible=80692.95USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=binance_target_caught 
+pnl=+0.921bps/+0.8745USDT hold=5850ms fill=9492.99/9488.36USDT (100.0%) 
+equity=57.8047USDT
+SHADOW STATUS trades=52 W/L/F=28/21/3 pnl=-2.1953USDT books=3/3 Bquotes=176725 
+Mdepth=9154 live_rtt=286.5ms equity=57.8047USDT state=WATCHING
+SHADOW STATUS trades=52 W/L/F=28/21/3 pnl=-2.1953USDT books=3/3 Bquotes=177027 
+Mdepth=9168 live_rtt=286.2ms equity=57.8047USDT state=WATCHING
+SHADOW STATUS trades=52 W/L/F=28/21/3 pnl=-2.1953USDT books=3/3 Bquotes=177288 
+Mdepth=9186 live_rtt=286.1ms equity=57.8047USDT state=WATCHING
+SHADOW STATUS trades=52 W/L/F=28/21/3 pnl=-2.1953USDT books=3/3 Bquotes=177548 
+Mdepth=9207 live_rtt=286.1ms equity=57.8047USDT state=WATCHING
+SHADOW STATUS trades=52 W/L/F=28/21/3 pnl=-2.1953USDT books=3/3 Bquotes=177884 
+Mdepth=9229 live_rtt=285.4ms equity=57.8047USDT state=WATCHING
+SHADOW STATUS trades=52 W/L/F=28/21/3 pnl=-2.1953USDT books=3/3 Bquotes=178097 
+Mdepth=9261 live_rtt=285.1ms equity=57.8047USDT state=WATCHING
+SHADOW STATUS trades=52 W/L/F=28/21/3 pnl=-2.1953USDT books=3/3 Bquotes=178307 
+Mdepth=9288 live_rtt=284.9ms equity=57.8047USDT state=WATCHING
+SHADOW STATUS trades=52 W/L/F=28/21/3 pnl=-2.1953USDT books=3/3 Bquotes=178767 
+Mdepth=9309 live_rtt=284.7ms equity=57.8047USDT state=WATCHING
+SHADOW STATUS trades=52 W/L/F=28/21/3 pnl=-2.1953USDT books=3/3 Bquotes=178963 
+Mdepth=9327 live_rtt=284.7ms equity=57.8047USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.105bps threshold=1.252 spread=1.052 
+requested=9634.11USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.105bps spread=1.052 
+signal_to_fill=161ms px=9.502 fill=9638.93/9634.11USDT (100.0%) levels=1/20 
+visible=121395.04USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=binance_target_caught 
+pnl=+0.746bps/+0.7195USDT hold=1827ms fill=9638.93/9634.11USDT (100.0%) 
+equity=58.5242USDT
+SHADOW STATUS trades=53 W/L/F=29/21/3 pnl=-1.4758USDT books=3/3 Bquotes=179685 
+Mdepth=9348 live_rtt=284.9ms equity=58.5242USDT state=WATCHING
+SHADOW STATUS trades=53 W/L/F=29/21/3 pnl=-1.4758USDT books=3/3 Bquotes=179925 
+Mdepth=9368 live_rtt=285.0ms equity=58.5242USDT state=WATCHING
+SHADOW STATUS trades=53 W/L/F=29/21/3 pnl=-1.4758USDT books=3/3 Bquotes=180206 
+Mdepth=9385 live_rtt=284.9ms equity=58.5242USDT state=WATCHING
+SHADOW STATUS trades=53 W/L/F=29/21/3 pnl=-1.4758USDT books=3/3 Bquotes=180532 
+Mdepth=9415 live_rtt=284.9ms equity=58.5242USDT state=WATCHING
+SHADOW STATUS trades=53 W/L/F=29/21/3 pnl=-1.4758USDT books=3/3 Bquotes=180777 
+Mdepth=9436 live_rtt=285.0ms equity=58.5242USDT state=WATCHING
+SHADOW STATUS trades=53 W/L/F=29/21/3 pnl=-1.4758USDT books=3/3 Bquotes=180995 
+Mdepth=9453 live_rtt=285.4ms equity=58.5242USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.105bps threshold=1.252 spread=1.052 
+requested=9754.03USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.105bps spread=1.052 
+signal_to_fill=171ms px=9.50097 fill=9758.88/9754.03USDT (100.0%) levels=2/20 
+visible=115153.24USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=binance_target_caught 
+pnl=+3.129bps/+3.0537USDT hold=2954ms fill=9758.88/9754.03USDT (100.0%) 
+equity=61.5779USDT
+SHADOW STATUS trades=54 W/L/F=30/21/3 pnl=+1.5779USDT books=3/3 Bquotes=181473 
+Mdepth=9477 live_rtt=286.7ms equity=61.5779USDT state=WATCHING
+SHADOW STATUS trades=54 W/L/F=30/21/3 pnl=+1.5779USDT books=3/3 Bquotes=181657 
+Mdepth=9495 live_rtt=286.7ms equity=61.5779USDT state=WATCHING
+SHADOW STATUS trades=54 W/L/F=30/21/3 pnl=+1.5779USDT books=3/3 Bquotes=182011 
+Mdepth=9514 live_rtt=287.7ms equity=61.5779USDT state=WATCHING
+SHADOW STATUS trades=54 W/L/F=30/21/3 pnl=+1.5779USDT books=3/3 Bquotes=182414 
+Mdepth=9535 live_rtt=287.9ms equity=61.5779USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+2.106bps threshold=1.253 spread=1.053 
+requested=10262.98USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+2.106bps spread=1.053 signal_to_fill=175ms
+px=9.49932 fill=10258.19/10262.98USDT (100.0%) levels=2/20 visible=84312.94USDT
+lev=200x
+SHADOW EXIT LINK_USDT LONG reason=live_adverse_cut pnl=-2.461bps/-2.5250USDT 
+hold=19791ms fill=10258.19/10262.98USDT (100.0%) equity=59.0528USDT
+SHADOW STATUS trades=55 W/L/F=30/22/3 pnl=-0.9472USDT books=3/3 Bquotes=184254 
+Mdepth=9641 live_rtt=288.6ms equity=59.0528USDT state=WATCHING
+SHADOW STATUS trades=55 W/L/F=30/22/3 pnl=-0.9472USDT books=3/3 Bquotes=184514 
+Mdepth=9662 live_rtt=288.3ms equity=59.0528USDT state=WATCHING
+SHADOW STATUS trades=55 W/L/F=30/22/3 pnl=-0.9472USDT books=3/3 Bquotes=184685 
+Mdepth=9677 live_rtt=288.6ms equity=59.0528USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-4.213bps threshold=1.253 spread=1.053 
+requested=9842.14USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-4.213bps spread=2.106 
+signal_to_fill=162ms px=9.49204 fill=9842.96/9842.14USDT (100.0%) levels=5/20 
+visible=30336.48USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=live_adverse_cut pnl=-2.220bps/-2.1853USDT 
+hold=348ms fill=9842.96/9842.14USDT (100.0%) equity=56.8675USDT
+SHADOW SIGNAL LINK_USDT LONG impulse=+2.106bps threshold=1.253 spread=1.053 
+requested=9477.92USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+2.106bps spread=1.053 signal_to_fill=174ms
+px=9.49611 fill=9473.30/9477.92USDT (100.0%) levels=2/20 visible=100689.41USDT 
+lev=200x
+SHADOW EXIT LINK_USDT LONG reason=live_adverse_cut pnl=-2.224bps/-2.1069USDT 
+hold=9290ms fill=9473.30/9477.92USDT (100.0%) equity=54.7606USDT
+SHADOW STATUS trades=57 W/L/F=30/24/3 pnl=-5.2394USDT books=3/3 Bquotes=186056 
+Mdepth=9758 live_rtt=287.6ms equity=54.7606USDT state=WATCHING
+SHADOW STATUS trades=57 W/L/F=30/24/3 pnl=-5.2394USDT books=3/3 Bquotes=186186 
+Mdepth=9772 live_rtt=287.0ms equity=54.7606USDT state=WATCHING
+SHADOW STATUS trades=57 W/L/F=30/24/3 pnl=-5.2394USDT books=3/3 Bquotes=186489 
+Mdepth=9790 live_rtt=287.0ms equity=54.7606USDT state=WATCHING
+SHADOW STATUS trades=57 W/L/F=30/24/3 pnl=-5.2394USDT books=3/3 Bquotes=187305 
+Mdepth=9812 live_rtt=287.0ms equity=54.7606USDT state=WATCHING
+SHADOW SIGNAL DOGE_USDT SHORT impulse=-2.876bps threshold=1.638 spread=1.438 
+requested=9126.77USDT
+SHADOW ENTRY DOGE_USDT SHORT impulse=-2.876bps spread=1.438 
+signal_to_fill=180ms px=0.06952 fill=9131.34/9126.77USDT (100.0%) levels=1/20 
+visible=517406.46USDT lev=200x
+SHADOW EXIT DOGE_USDT SHORT reason=binance_target_caught 
+pnl=-0.000bps/-0.0000USDT hold=12116ms fill=9131.34/9126.77USDT (100.0%) 
+equity=54.7606USDT
+SHADOW STATUS trades=58 W/L/F=30/24/4 pnl=-5.2394USDT books=3/3 Bquotes=189639 
+Mdepth=9892 live_rtt=286.9ms equity=54.7606USDT state=WATCHING
+SHADOW STATUS trades=58 W/L/F=30/24/4 pnl=-5.2394USDT books=3/3 Bquotes=189984 
+Mdepth=9926 live_rtt=286.9ms equity=54.7606USDT state=WATCHING
+SHADOW STATUS trades=58 W/L/F=30/24/4 pnl=-5.2394USDT books=3/3 Bquotes=190338 
+Mdepth=9948 live_rtt=286.7ms equity=54.7606USDT state=WATCHING
+SHADOW STATUS trades=58 W/L/F=30/24/4 pnl=-5.2394USDT books=3/3 Bquotes=190841 
+Mdepth=9970 live_rtt=286.7ms equity=54.7606USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.108bps threshold=1.254 spread=1.054 
+requested=9126.77USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.108bps spread=1.054 
+signal_to_fill=163ms px=9.489 fill=9131.34/9126.77USDT (100.0%) levels=1/20 
+visible=137951.08USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=binance_target_caught 
+pnl=+2.108bps/+1.9246USDT hold=3749ms fill=9131.34/9126.77USDT (100.0%) 
+equity=56.6852USDT
+SHADOW STATUS trades=59 W/L/F=31/24/4 pnl=-3.3148USDT books=3/3 Bquotes=192125 
+Mdepth=10009 live_rtt=286.7ms equity=56.6852USDT state=WATCHING
+SHADOW STATUS trades=59 W/L/F=31/24/4 pnl=-3.3148USDT books=3/3 Bquotes=192526 
+Mdepth=10028 live_rtt=286.7ms equity=56.6852USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+2.108bps threshold=1.254 spread=1.054 
+requested=9447.54USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+2.108bps spread=1.054 signal_to_fill=170ms
+px=9.488 fill=9442.82/9447.54USDT (100.0%) levels=1/20 visible=110876.41USDT 
+lev=200x
+SHADOW EXIT LINK_USDT LONG reason=binance_target_caught 
+pnl=+0.907bps/+0.8562USDT hold=6730ms fill=9442.82/9447.54USDT (100.0%) 
+equity=57.5414USDT
+SHADOW STATUS trades=60 W/L/F=32/24/4 pnl=-2.4586USDT books=3/3 Bquotes=193491 
+Mdepth=10112 live_rtt=287.1ms equity=57.5414USDT state=WATCHING
+SHADOW STATUS trades=60 W/L/F=32/24/4 pnl=-2.4586USDT books=3/3 Bquotes=193657 
+Mdepth=10138 live_rtt=287.1ms equity=57.5414USDT state=WATCHING
+SHADOW STATUS trades=60 W/L/F=32/24/4 pnl=-2.4586USDT books=3/3 Bquotes=194005 
+Mdepth=10179 live_rtt=286.5ms equity=57.5414USDT state=WATCHING
+SHADOW SIGNAL DOGE_USDT LONG impulse=+2.877bps threshold=1.639 spread=1.439 
+requested=9590.24USDT
+SHADOW ENTRY DOGE_USDT LONG impulse=+2.877bps spread=1.439 signal_to_fill=183ms
+px=0.06952 fill=9585.45/9590.24USDT (100.0%) levels=1/20 visible=617209.16USDT 
+lev=200x
+SHADOW EXIT DOGE_USDT LONG reason=binance_target_caught 
+pnl=+1.438bps/+1.3788USDT hold=14681ms fill=9585.45/9590.24USDT (100.0%) 
+equity=58.9202USDT
+SHADOW STATUS trades=61 W/L/F=33/24/4 pnl=-1.0798USDT books=3/3 Bquotes=195294 
+Mdepth=10265 live_rtt=288.2ms equity=58.9202USDT state=WATCHING
+SHADOW SIGNAL DOGE_USDT LONG impulse=+2.876bps threshold=1.638 spread=1.438 
+requested=9820.04USDT
+SHADOW ENTRY DOGE_USDT LONG impulse=+2.876bps spread=1.438 signal_to_fill=163ms
+px=0.06954 fill=9815.13/9820.04USDT (100.0%) levels=1/20 visible=655081.52USDT 
+lev=200x
+SHADOW EXIT DOGE_USDT LONG reason=live_adverse_cut pnl=-2.876bps/-2.8229USDT 
+hold=25440ms fill=9815.13/9820.04USDT (100.0%) equity=56.0974USDT
+SHADOW STATUS trades=62 W/L/F=33/25/4 pnl=-3.9026USDT books=3/3 Bquotes=198499 
+Mdepth=10379 live_rtt=287.4ms equity=56.0974USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+2.110bps threshold=1.255 spread=1.055 
+requested=9349.56USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+2.110bps spread=1.055 signal_to_fill=186ms
+px=9.48125 fill=9345.13/9349.56USDT (100.0%) levels=2/20 visible=80416.89USDT 
+lev=200x
+SHADOW EXIT LINK_USDT LONG reason=binance_target_caught 
+pnl=-0.514bps/-0.4803USDT hold=3339ms fill=9345.13/9349.56USDT (100.0%) 
+equity=55.6171USDT
+SHADOW STATUS trades=63 W/L/F=33/26/4 pnl=-4.3829USDT books=3/3 Bquotes=199216 
+Mdepth=10403 live_rtt=287.2ms equity=55.6171USDT state=WATCHING
+SHADOW STATUS trades=63 W/L/F=33/26/4 pnl=-4.3829USDT books=3/3 Bquotes=199724 
+Mdepth=10429 live_rtt=286.9ms equity=55.6171USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.110bps threshold=1.255 spread=1.055 
+requested=9269.51USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.110bps spread=6.332 
+signal_to_fill=164ms px=9.47184 fill=9274.00/9269.51USDT (100.0%) levels=2/20 
+visible=131991.66USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=live_adverse_cut pnl=-8.611bps/-7.9857USDT 
+hold=43113ms fill=9274.00/9269.51USDT (100.0%) equity=47.6314USDT
+SHADOW STATUS trades=64 W/L/F=33/27/4 pnl=-12.3686USDT books=3/3 Bquotes=203452
+Mdepth=10632 live_rtt=286.0ms equity=47.6314USDT state=WATCHING
+SHADOW STATUS trades=64 W/L/F=33/27/4 pnl=-12.3686USDT books=3/3 Bquotes=203825
+Mdepth=10650 live_rtt=284.9ms equity=47.6314USDT state=WATCHING
+SHADOW STATUS trades=64 W/L/F=33/27/4 pnl=-12.3686USDT books=3/3 Bquotes=204316
+Mdepth=10694 live_rtt=284.9ms equity=47.6314USDT state=WATCHING
+SHADOW STATUS trades=64 W/L/F=33/27/4 pnl=-12.3686USDT books=3/3 Bquotes=204537
+Mdepth=10738 live_rtt=284.9ms equity=47.6314USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.108bps threshold=1.254 spread=1.054 
+requested=7938.56USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.108bps spread=1.054 
+signal_to_fill=164ms px=9.483 fill=7942.53/7938.56USDT (100.0%) levels=1/20 
+visible=86281.05USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=live_adverse_cut pnl=-1.055bps/-0.8376USDT 
+hold=4514ms fill=7942.53/7938.56USDT (100.0%) equity=46.7938USDT
+SHADOW STATUS trades=65 W/L/F=33/28/4 pnl=-13.2062USDT books=3/3 Bquotes=205104
+Mdepth=10784 live_rtt=284.2ms equity=46.7938USDT state=WATCHING
+SHADOW STATUS trades=65 W/L/F=33/28/4 pnl=-13.2062USDT books=3/3 Bquotes=205568
+Mdepth=10828 live_rtt=284.2ms equity=46.7938USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+2.108bps threshold=1.254 spread=1.054 
+requested=7798.97USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+2.108bps spread=1.054 signal_to_fill=190ms
+px=9.486 fill=7795.07/7798.97USDT (100.0%) levels=1/20 visible=97078.15USDT 
+lev=200x
+SHADOW EXIT LINK_USDT LONG reason=binance_target_caught 
+pnl=+2.093bps/+1.6311USDT hold=7862ms fill=7795.07/7798.97USDT (100.0%) 
+equity=48.4250USDT
+SHADOW STATUS trades=66 W/L/F=34/28/4 pnl=-11.5750USDT books=3/3 Bquotes=206418
+Mdepth=10892 live_rtt=283.8ms equity=48.4250USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.108bps threshold=1.254 spread=1.054 
+requested=8070.83USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.108bps spread=1.054 
+signal_to_fill=200ms px=9.487 fill=8074.87/8070.83USDT (100.0%) levels=1/20 
+visible=81499.31USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=binance_target_caught 
+pnl=-0.070bps/-0.0563USDT hold=1070ms fill=8074.87/8070.83USDT (100.0%) 
+equity=48.3687USDT
+SHADOW STATUS trades=67 W/L/F=34/29/4 pnl=-11.6313USDT books=3/3 Bquotes=206859
+Mdepth=10908 live_rtt=283.4ms equity=48.3687USDT state=WATCHING
+SHADOW STATUS trades=67 W/L/F=34/29/4 pnl=-11.6313USDT books=3/3 Bquotes=207087
+Mdepth=10923 live_rtt=283.4ms equity=48.3687USDT state=WATCHING
+SHADOW STATUS trades=67 W/L/F=34/29/4 pnl=-11.6313USDT books=3/3 Bquotes=207378
+Mdepth=10946 live_rtt=283.4ms equity=48.3687USDT state=WATCHING
+SHADOW STATUS trades=67 W/L/F=34/29/4 pnl=-11.6313USDT books=3/3 Bquotes=207697
+Mdepth=10964 live_rtt=283.4ms equity=48.3687USDT state=WATCHING
+SHADOW STATUS trades=67 W/L/F=34/29/4 pnl=-11.6313USDT books=3/3 Bquotes=207952
+Mdepth=10985 live_rtt=284.3ms equity=48.3687USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.109bps threshold=1.254 spread=1.054 
+requested=8061.45USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.109bps spread=1.054 
+signal_to_fill=169ms px=9.485 fill=8065.49/8061.45USDT (100.0%) levels=1/20 
+visible=107259.51USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=live_adverse_cut pnl=-3.293bps/-2.6563USDT 
+hold=20020ms fill=8065.49/8061.45USDT (100.0%) equity=45.7125USDT
+SHADOW STATUS trades=68 W/L/F=34/30/4 pnl=-14.2875USDT books=3/3 Bquotes=210278
+Mdepth=11169 live_rtt=281.6ms equity=45.7125USDT state=WATCHING
+SHADOW STATUS trades=68 W/L/F=34/30/4 pnl=-14.2875USDT books=3/3 Bquotes=210793
+Mdepth=11185 live_rtt=283.1ms equity=45.7125USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-1.581bps threshold=1.254 spread=1.054 
+requested=7618.74USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-1.581bps spread=1.054 
+signal_to_fill=164ms px=9.487 fill=7622.55/7618.74USDT (100.0%) levels=1/20 
+visible=77006.11USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=live_adverse_cut pnl=-2.108bps/-1.6069USDT 
+hold=6616ms fill=7622.55/7618.74USDT (100.0%) equity=44.1055USDT
+SHADOW STATUS trades=69 W/L/F=34/31/4 pnl=-15.8945USDT books=3/3 Bquotes=211495
+Mdepth=11221 live_rtt=283.9ms equity=44.1055USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+2.108bps threshold=1.254 spread=1.054 
+requested=7350.92USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+2.108bps spread=1.054 signal_to_fill=179ms
+px=9.49 fill=7347.24/7350.92USDT (100.0%) levels=1/20 visible=136434.45USDT 
+lev=200x
+SHADOW EXIT LINK_USDT LONG reason=binance_target_caught 
+pnl=+2.107bps/+1.5484USDT hold=5619ms fill=7347.24/7350.92USDT (100.0%) 
+equity=45.6539USDT
+SHADOW STATUS trades=70 W/L/F=35/31/4 pnl=-14.3461USDT books=3/3 Bquotes=212041
+Mdepth=11252 live_rtt=283.9ms equity=45.6539USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.107bps threshold=1.254 spread=1.054 
+requested=7608.99USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.107bps spread=1.054 
+signal_to_fill=198ms px=9.491 fill=7612.79/7608.99USDT (100.0%) levels=1/20 
+visible=91329.86USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=binance_target_caught 
+pnl=+2.107bps/+1.6042USDT hold=15253ms fill=7612.79/7608.99USDT (100.0%) 
+equity=47.2581USDT
+SHADOW STATUS trades=71 W/L/F=36/31/4 pnl=-12.7419USDT books=3/3 Bquotes=213515
+Mdepth=11326 live_rtt=285.2ms equity=47.2581USDT state=WATCHING
+SHADOW STATUS trades=71 W/L/F=36/31/4 pnl=-12.7419USDT books=3/3 Bquotes=213797
+Mdepth=11366 live_rtt=285.1ms equity=47.2581USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+2.107bps threshold=1.254 spread=1.054 
+requested=7876.36USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+2.107bps spread=1.054 signal_to_fill=175ms
+px=9.491 fill=7872.42/7876.36USDT (100.0%) levels=2/20 visible=186327.88USDT 
+lev=200x
+SHADOW EXIT LINK_USDT LONG reason=live_adverse_cut pnl=-2.186bps/-1.7206USDT 
+hold=21934ms fill=7872.42/7876.36USDT (100.0%) equity=45.5375USDT
+SHADOW STATUS trades=72 W/L/F=36/32/4 pnl=-14.4625USDT books=3/3 Bquotes=215551
+Mdepth=11554 live_rtt=285.8ms equity=45.5375USDT state=WATCHING
+SHADOW STATUS trades=72 W/L/F=36/32/4 pnl=-14.4625USDT books=3/3 Bquotes=215687
+Mdepth=11566 live_rtt=285.5ms equity=45.5375USDT state=WATCHING
+SHADOW STATUS trades=72 W/L/F=36/32/4 pnl=-14.4625USDT books=3/3 Bquotes=215903
+Mdepth=11587 live_rtt=285.8ms equity=45.5375USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-3.689bps threshold=1.254 spread=1.054 
+requested=7589.58USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-3.689bps spread=2.108 
+signal_to_fill=184ms px=9.486 fill=7593.38/7589.58USDT (100.0%) levels=1/20 
+visible=59258.23USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=binance_target_caught 
+pnl=-0.000bps/-0.0000USDT hold=615ms fill=7593.38/7589.58USDT (100.0%) 
+equity=45.5375USDT
+SHADOW STATUS trades=73 W/L/F=36/32/5 pnl=-14.4625USDT books=3/3 Bquotes=216404
+Mdepth=11607 live_rtt=285.8ms equity=45.5375USDT state=WATCHING
+SHADOW STATUS trades=73 W/L/F=36/32/5 pnl=-14.4625USDT books=3/3 Bquotes=216689
+Mdepth=11627 live_rtt=285.9ms equity=45.5375USDT state=WATCHING
+SHADOW STATUS trades=73 W/L/F=36/32/5 pnl=-14.4625USDT books=3/3 Bquotes=216931
+Mdepth=11644 live_rtt=285.9ms equity=45.5375USDT state=WATCHING
+SHADOW STATUS trades=73 W/L/F=36/32/5 pnl=-14.4625USDT books=3/3 Bquotes=217220
+Mdepth=11666 live_rtt=285.9ms equity=45.5375USDT state=WATCHING
+SHADOW STATUS trades=73 W/L/F=36/32/5 pnl=-14.4625USDT books=3/3 Bquotes=217548
+Mdepth=11686 live_rtt=285.8ms equity=45.5375USDT state=WATCHING
+SHADOW STATUS trades=73 W/L/F=36/32/5 pnl=-14.4625USDT books=3/3 Bquotes=217920
+Mdepth=11697 live_rtt=285.8ms equity=45.5375USDT state=WATCHING
+SHADOW STATUS trades=73 W/L/F=36/32/5 pnl=-14.4625USDT books=3/3 Bquotes=218345
+Mdepth=11710 live_rtt=285.9ms equity=45.5375USDT state=WATCHING
+SHADOW STATUS trades=73 W/L/F=36/32/5 pnl=-14.4625USDT books=3/3 Bquotes=218560
+Mdepth=11724 live_rtt=285.8ms equity=45.5375USDT state=WATCHING
+SHADOW STATUS trades=73 W/L/F=36/32/5 pnl=-14.4625USDT books=3/3 Bquotes=219107
+Mdepth=11737 live_rtt=285.8ms equity=45.5375USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.108bps threshold=1.254 spread=1.054 
+requested=7589.58USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.108bps spread=1.054 
+signal_to_fill=169ms px=9.489 fill=7593.38/7589.58USDT (100.0%) levels=1/20 
+visible=83328.94USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=positive_trailing_stop 
+pnl=+3.162bps/+2.4007USDT hold=7425ms fill=7593.38/7589.58USDT (100.0%) 
+equity=47.9382USDT
+SHADOW STATUS trades=74 W/L/F=37/32/5 pnl=-12.0618USDT books=3/3 Bquotes=221552
+Mdepth=11797 live_rtt=286.4ms equity=47.9382USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-1.582bps threshold=1.254 spread=1.054 
+requested=7989.70USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-1.582bps spread=1.054 
+signal_to_fill=180ms px=9.48393 fill=7993.64/7989.70USDT (100.0%) levels=2/20 
+visible=78096.82USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=binance_target_caught 
+pnl=+0.984bps/+0.7866USDT hold=4290ms fill=7993.64/7989.70USDT (100.0%) 
+equity=48.7248USDT
+SHADOW STATUS trades=75 W/L/F=38/32/5 pnl=-11.2752USDT books=3/3 Bquotes=222259
+Mdepth=11821 live_rtt=285.9ms equity=48.7248USDT state=WATCHING
+SHADOW STATUS trades=75 W/L/F=38/32/5 pnl=-11.2752USDT books=3/3 Bquotes=222602
+Mdepth=11841 live_rtt=285.4ms equity=48.7248USDT state=WATCHING
+SHADOW STATUS trades=75 W/L/F=38/32/5 pnl=-11.2752USDT books=3/3 Bquotes=222964
+Mdepth=11863 live_rtt=285.4ms equity=48.7248USDT state=WATCHING
+SHADOW STATUS trades=75 W/L/F=38/32/5 pnl=-11.2752USDT books=3/3 Bquotes=223158
+Mdepth=11875 live_rtt=285.3ms equity=48.7248USDT state=WATCHING
+SHADOW STATUS trades=75 W/L/F=38/32/5 pnl=-11.2752USDT books=3/3 Bquotes=223767
+Mdepth=11902 live_rtt=285.1ms equity=48.7248USDT state=WATCHING
+SHADOW STATUS trades=75 W/L/F=38/32/5 pnl=-11.2752USDT books=3/3 Bquotes=224116
+Mdepth=11926 live_rtt=285.2ms equity=48.7248USDT state=WATCHING
+SHADOW STATUS trades=75 W/L/F=38/32/5 pnl=-11.2752USDT books=3/3 Bquotes=224343
+Mdepth=11940 live_rtt=285.3ms equity=48.7248USDT state=WATCHING
+SHADOW STATUS trades=75 W/L/F=38/32/5 pnl=-11.2752USDT books=3/3 Bquotes=224563
+Mdepth=11954 live_rtt=285.2ms equity=48.7248USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+1.582bps threshold=1.255 spread=1.055 
+requested=8120.80USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+1.582bps spread=1.055 signal_to_fill=211ms
+px=9.48006 fill=8116.79/8120.80USDT (100.0%) levels=2/20 visible=96781.58USDT 
+lev=200x
+SHADOW EXIT LINK_USDT LONG reason=binance_target_caught 
+pnl=+0.996bps/+0.8087USDT hold=4842ms fill=8116.79/8120.80USDT (100.0%) 
+equity=49.5335USDT
+SHADOW STATUS trades=76 W/L/F=39/32/5 pnl=-10.4665USDT books=3/3 Bquotes=225711
+Mdepth=11995 live_rtt=285.3ms equity=49.5335USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-1.582bps threshold=1.255 spread=1.055 
+requested=8255.58USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-1.582bps spread=1.055 
+signal_to_fill=190ms px=9.4799 fill=8259.63/8255.58USDT (100.0%) levels=2/20 
+visible=56939.51USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=live_adverse_cut pnl=-5.376bps/-4.4404USDT 
+hold=12954ms fill=8259.63/8255.58USDT (100.0%) equity=45.0931USDT
+SHADOW STATUS trades=77 W/L/F=39/33/5 pnl=-14.9069USDT books=3/3 Bquotes=227343
+Mdepth=12071 live_rtt=284.8ms equity=45.0931USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.109bps threshold=1.254 spread=1.054 
+requested=7515.52USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.109bps spread=1.054 
+signal_to_fill=175ms px=9.484 fill=7519.28/7515.52USDT (100.0%) levels=1/20 
+visible=67390.62USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=binance_target_caught 
+pnl=+2.098bps/+1.5776USDT hold=3767ms fill=7519.28/7515.52USDT (100.0%) 
+equity=46.6708USDT
+SHADOW STATUS trades=78 W/L/F=40/33/5 pnl=-13.3292USDT books=3/3 Bquotes=227850
+Mdepth=12097 live_rtt=285.0ms equity=46.6708USDT state=WATCHING
+SHADOW STATUS trades=78 W/L/F=40/33/5 pnl=-13.3292USDT books=3/3 Bquotes=228033
+Mdepth=12112 live_rtt=285.0ms equity=46.6708USDT state=WATCHING
+SHADOW STATUS trades=78 W/L/F=40/33/5 pnl=-13.3292USDT books=3/3 Bquotes=228381
+Mdepth=12133 live_rtt=285.0ms equity=46.6708USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+2.109bps threshold=1.255 spread=1.055 
+requested=7778.46USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+2.109bps spread=1.055 signal_to_fill=165ms
+px=9.48143 fill=7774.92/7778.46USDT (100.0%) levels=2/20 visible=76699.61USDT 
+lev=200x
+SHADOW EXIT LINK_USDT LONG reason=live_adverse_cut pnl=-1.510bps/-1.1736USDT 
+hold=26735ms fill=7774.92/7778.46USDT (100.0%) equity=45.4971USDT
+SHADOW STATUS trades=79 W/L/F=40/34/5 pnl=-14.5029USDT books=3/3 Bquotes=229838
+Mdepth=12250 live_rtt=285.4ms equity=45.4971USDT state=WATCHING
+SHADOW STATUS trades=79 W/L/F=40/34/5 pnl=-14.5029USDT books=3/3 Bquotes=230560
+Mdepth=12271 live_rtt=285.4ms equity=45.4971USDT state=WATCHING
+SHADOW STATUS trades=79 W/L/F=40/34/5 pnl=-14.5029USDT books=3/3 Bquotes=230734
+Mdepth=12285 live_rtt=285.2ms equity=45.4971USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-7.388bps threshold=1.255 spread=1.055 
+requested=7582.85USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-7.388bps spread=5.278 
+signal_to_fill=161ms px=9.46719 fill=7583.59/7582.85USDT (100.0%) levels=5/20 
+visible=13492.52USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=live_adverse_cut pnl=-2.968bps/-2.2506USDT 
+hold=665ms fill=7583.59/7582.85USDT (100.0%) equity=43.2465USDT
+SHADOW STATUS trades=80 W/L/F=40/35/5 pnl=-16.7535USDT books=3/3 Bquotes=231648
+Mdepth=12316 live_rtt=285.4ms equity=43.2465USDT state=WATCHING
+SHADOW STATUS trades=80 W/L/F=40/35/5 pnl=-16.7535USDT books=3/3 Bquotes=231916
+Mdepth=12337 live_rtt=285.4ms equity=43.2465USDT state=WATCHING
+SHADOW STATUS trades=80 W/L/F=40/35/5 pnl=-16.7535USDT books=3/3 Bquotes=232111
+Mdepth=12354 live_rtt=285.0ms equity=43.2465USDT state=WATCHING
+SHADOW STATUS trades=80 W/L/F=40/35/5 pnl=-16.7535USDT books=3/3 Bquotes=232333
+Mdepth=12368 live_rtt=285.2ms equity=43.2465USDT state=WATCHING
+SHADOW STATUS trades=80 W/L/F=40/35/5 pnl=-16.7535USDT books=3/3 Bquotes=232753
+Mdepth=12392 live_rtt=285.2ms equity=43.2465USDT state=WATCHING
+SHADOW STATUS trades=80 W/L/F=40/35/5 pnl=-16.7535USDT books=3/3 Bquotes=233204
+Mdepth=12416 live_rtt=285.4ms equity=43.2465USDT state=WATCHING
+SHADOW STATUS trades=80 W/L/F=40/35/5 pnl=-16.7535USDT books=3/3 Bquotes=233402
+Mdepth=12434 live_rtt=285.4ms equity=43.2465USDT state=WATCHING
+SHADOW STATUS trades=80 W/L/F=40/35/5 pnl=-16.7535USDT books=3/3 Bquotes=233604
+Mdepth=12453 live_rtt=285.2ms equity=43.2465USDT state=WATCHING
+SHADOW STATUS trades=80 W/L/F=40/35/5 pnl=-16.7535USDT books=3/3 Bquotes=234072
+Mdepth=12473 live_rtt=284.9ms equity=43.2465USDT state=WATCHING
+SHADOW STATUS trades=80 W/L/F=40/35/5 pnl=-16.7535USDT books=3/3 Bquotes=234353
+Mdepth=12489 live_rtt=285.1ms equity=43.2465USDT state=WATCHING
+SHADOW STATUS trades=80 W/L/F=40/35/5 pnl=-16.7535USDT books=3/3 Bquotes=234753
+Mdepth=12507 live_rtt=284.9ms equity=43.2465USDT state=WATCHING
+SHADOW STATUS trades=80 W/L/F=40/35/5 pnl=-16.7535USDT books=3/3 Bquotes=235250
+Mdepth=12532 live_rtt=285.0ms equity=43.2465USDT state=WATCHING
+SHADOW STATUS trades=80 W/L/F=40/35/5 pnl=-16.7535USDT books=3/3 Bquotes=235520
+Mdepth=12550 live_rtt=285.0ms equity=43.2465USDT state=WATCHING
+SHADOW STATUS trades=80 W/L/F=40/35/5 pnl=-16.7535USDT books=3/3 Bquotes=235817
+Mdepth=12563 live_rtt=285.0ms equity=43.2465USDT state=WATCHING
+SHADOW STATUS trades=80 W/L/F=40/35/5 pnl=-16.7535USDT books=3/3 Bquotes=236027
+Mdepth=12572 live_rtt=285.0ms equity=43.2465USDT state=WATCHING
+SHADOW STATUS trades=80 W/L/F=40/35/5 pnl=-16.7535USDT books=3/3 Bquotes=236318
+Mdepth=12585 live_rtt=285.0ms equity=43.2465USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+2.112bps threshold=1.256 spread=1.056 
+requested=7207.75USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+2.112bps spread=1.056 signal_to_fill=177ms
+px=9.471 fill=7204.15/7207.75USDT (100.0%) levels=1/20 visible=95388.63USDT 
+lev=200x
+SHADOW EXIT LINK_USDT LONG reason=binance_target_caught 
+pnl=+1.056bps/+0.7607USDT hold=3491ms fill=7204.15/7207.75USDT (100.0%) 
+equity=44.0072USDT
+SHADOW STATUS trades=81 W/L/F=41/35/5 pnl=-15.9928USDT books=3/3 Bquotes=237148
+Mdepth=12624 live_rtt=285.0ms equity=44.0072USDT state=WATCHING
+SHADOW STATUS trades=81 W/L/F=41/35/5 pnl=-15.9928USDT books=3/3 Bquotes=237358
+Mdepth=12664 live_rtt=285.1ms equity=44.0072USDT state=WATCHING
+SHADOW STATUS trades=81 W/L/F=41/35/5 pnl=-15.9928USDT books=3/3 Bquotes=237675
+Mdepth=12708 live_rtt=285.1ms equity=44.0072USDT state=WATCHING
+SHADOW STATUS trades=81 W/L/F=41/35/5 pnl=-15.9928USDT books=3/3 Bquotes=238123
+Mdepth=12745 live_rtt=285.1ms equity=44.0072USDT state=WATCHING
+SHADOW STATUS trades=81 W/L/F=41/35/5 pnl=-15.9928USDT books=3/3 Bquotes=238542
+Mdepth=12764 live_rtt=284.9ms equity=44.0072USDT state=WATCHING
+SHADOW STATUS trades=81 W/L/F=41/35/5 pnl=-15.9928USDT books=3/3 Bquotes=238901
+Mdepth=12782 live_rtt=284.9ms equity=44.0072USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.111bps threshold=1.256 spread=1.056 
+requested=7334.53USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.111bps spread=1.056 
+signal_to_fill=164ms px=9.46697 fill=7338.17/7334.53USDT (100.0%) levels=2/20 
+visible=56159.56USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=live_adverse_cut pnl=-0.029bps/-0.0210USDT 
+hold=14855ms fill=7338.17/7334.53USDT (100.0%) equity=43.9861USDT
+SHADOW STATUS trades=82 W/L/F=41/36/5 pnl=-16.0139USDT books=3/3 Bquotes=240675
+Mdepth=12863 live_rtt=284.9ms equity=43.9861USDT state=WATCHING
+SHADOW STATUS trades=82 W/L/F=41/36/5 pnl=-16.0139USDT books=3/3 Bquotes=240795
+Mdepth=12884 live_rtt=284.9ms equity=43.9861USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.114bps threshold=1.257 spread=1.057 
+requested=7331.02USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.114bps spread=1.057 
+signal_to_fill=161ms px=9.463 fill=7334.69/7331.02USDT (100.0%) levels=1/20 
+visible=88335.32USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=live_adverse_cut pnl=-4.227bps/-3.1004USDT 
+hold=5901ms fill=7334.69/7331.02USDT (100.0%) equity=40.8858USDT
+SHADOW STATUS trades=83 W/L/F=41/37/5 pnl=-19.1142USDT books=3/3 Bquotes=242126
+Mdepth=12929 live_rtt=284.7ms equity=40.8858USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-4.226bps threshold=3.369 spread=3.169 
+requested=6814.29USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-4.226bps spread=2.113 
+signal_to_fill=168ms px=9.465 fill=6817.70/6814.29USDT (100.0%) levels=1/20 
+visible=126033.84USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=live_adverse_cut pnl=-3.170bps/-2.1609USDT 
+hold=19599ms fill=6817.70/6814.29USDT (100.0%) equity=38.7248USDT
+SHADOW STATUS trades=84 W/L/F=41/38/5 pnl=-21.2752USDT books=3/3 Bquotes=243886
+Mdepth=13014 live_rtt=284.3ms equity=38.7248USDT state=WATCHING
+SHADOW STATUS trades=84 W/L/F=41/38/5 pnl=-21.2752USDT books=3/3 Bquotes=244340
+Mdepth=13046 live_rtt=284.1ms equity=38.7248USDT state=WATCHING
+SHADOW STATUS trades=84 W/L/F=41/38/5 pnl=-21.2752USDT books=3/3 Bquotes=244745
+Mdepth=13087 live_rtt=284.1ms equity=38.7248USDT state=WATCHING
+SHADOW STATUS trades=84 W/L/F=41/38/5 pnl=-21.2752USDT books=3/3 Bquotes=245044
+Mdepth=13110 live_rtt=284.4ms equity=38.7248USDT state=WATCHING
+SHADOW STATUS trades=84 W/L/F=41/38/5 pnl=-21.2752USDT books=3/3 Bquotes=245475
+Mdepth=13130 live_rtt=284.6ms equity=38.7248USDT state=WATCHING
+SHADOW STATUS trades=84 W/L/F=41/38/5 pnl=-21.2752USDT books=3/3 Bquotes=245723
+Mdepth=13150 live_rtt=284.5ms equity=38.7248USDT state=WATCHING
+SHADOW STATUS trades=84 W/L/F=41/38/5 pnl=-21.2752USDT books=3/3 Bquotes=246036
+Mdepth=13168 live_rtt=284.5ms equity=38.7248USDT state=WATCHING
+SHADOW STATUS trades=84 W/L/F=41/38/5 pnl=-21.2752USDT books=3/3 Bquotes=246262
+Mdepth=13183 live_rtt=284.7ms equity=38.7248USDT state=WATCHING
+SHADOW STATUS trades=84 W/L/F=41/38/5 pnl=-21.2752USDT books=3/3 Bquotes=246794
+Mdepth=13198 live_rtt=284.3ms equity=38.7248USDT state=WATCHING
+SHADOW STATUS trades=84 W/L/F=41/38/5 pnl=-21.2752USDT books=3/3 Bquotes=247103
+Mdepth=13216 live_rtt=283.8ms equity=38.7248USDT state=WATCHING
+SHADOW STATUS trades=84 W/L/F=41/38/5 pnl=-21.2752USDT books=3/3 Bquotes=247434
+Mdepth=13231 live_rtt=284.1ms equity=38.7248USDT state=WATCHING
+SHADOW STATUS trades=84 W/L/F=41/38/5 pnl=-21.2752USDT books=3/3 Bquotes=247673
+Mdepth=13247 live_rtt=284.1ms equity=38.7248USDT state=WATCHING
+SHADOW STATUS trades=84 W/L/F=41/38/5 pnl=-21.2752USDT books=3/3 Bquotes=247946
+Mdepth=13266 live_rtt=284.2ms equity=38.7248USDT state=WATCHING
+SHADOW STATUS trades=84 W/L/F=41/38/5 pnl=-21.2752USDT books=3/3 Bquotes=248197
+Mdepth=13282 live_rtt=284.7ms equity=38.7248USDT state=WATCHING
+SHADOW SIGNAL XRP_USDT SHORT impulse=-1.997bps threshold=1.198 spread=0.998 
+requested=6454.14USDT
+SHADOW ENTRY XRP_USDT SHORT impulse=-1.997bps spread=0.998 signal_to_fill=176ms
+px=1.0017 fill=6457.37/6454.14USDT (100.0%) levels=1/20 visible=1121677.76USDT 
+lev=200x
+SHADOW EXIT XRP_USDT SHORT reason=binance_target_caught 
+pnl=+1.997bps/+1.2893USDT hold=3262ms fill=6457.37/6454.14USDT (100.0%) 
+equity=40.0141USDT
+SHADOW STATUS trades=85 W/L/F=42/38/5 pnl=-19.9859USDT books=3/3 Bquotes=249221
+Mdepth=13305 live_rtt=284.7ms equity=40.0141USDT state=WATCHING
+SHADOW STATUS trades=85 W/L/F=42/38/5 pnl=-19.9859USDT books=3/3 Bquotes=249418
+Mdepth=13339 live_rtt=284.4ms equity=40.0141USDT state=WATCHING
+SHADOW STATUS trades=85 W/L/F=42/38/5 pnl=-19.9859USDT books=3/3 Bquotes=249659
+Mdepth=13379 live_rtt=284.7ms equity=40.0141USDT state=WATCHING
+SHADOW STATUS trades=85 W/L/F=42/38/5 pnl=-19.9859USDT books=3/3 Bquotes=249823
+Mdepth=13406 live_rtt=284.8ms equity=40.0141USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+2.111bps threshold=1.256 spread=1.056 
+requested=6669.02USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+2.111bps spread=1.056 signal_to_fill=186ms
+px=9.472 fill=6665.69/6669.02USDT (100.0%) levels=1/20 visible=103382.58USDT 
+lev=200x
+SHADOW EXIT LINK_USDT LONG reason=binance_target_caught 
+pnl=+3.167bps/+2.1112USDT hold=2762ms fill=6665.69/6669.02USDT (100.0%) 
+equity=42.1253USDT
+SHADOW STATUS trades=86 W/L/F=43/38/5 pnl=-17.8747USDT books=3/3 Bquotes=250426
+Mdepth=13429 live_rtt=285.1ms equity=42.1253USDT state=WATCHING
+SHADOW STATUS trades=86 W/L/F=43/38/5 pnl=-17.8747USDT books=3/3 Bquotes=250808
+Mdepth=13448 live_rtt=284.9ms equity=42.1253USDT state=WATCHING
+SHADOW STATUS trades=86 W/L/F=43/38/5 pnl=-17.8747USDT books=3/3 Bquotes=251225
+Mdepth=13477 live_rtt=285.0ms equity=42.1253USDT state=WATCHING
+SHADOW STATUS trades=86 W/L/F=43/38/5 pnl=-17.8747USDT books=3/3 Bquotes=251419
+Mdepth=13494 live_rtt=285.2ms equity=42.1253USDT state=WATCHING
+SHADOW STATUS trades=86 W/L/F=43/38/5 pnl=-17.8747USDT books=3/3 Bquotes=251609
+Mdepth=13513 live_rtt=285.7ms equity=42.1253USDT state=WATCHING
+SHADOW STATUS trades=86 W/L/F=43/38/5 pnl=-17.8747USDT books=3/3 Bquotes=251809
+Mdepth=13555 live_rtt=285.9ms equity=42.1253USDT state=WATCHING
+SHADOW STATUS trades=86 W/L/F=43/38/5 pnl=-17.8747USDT books=3/3 Bquotes=251963
+Mdepth=13594 live_rtt=286.0ms equity=42.1253USDT state=WATCHING
+SHADOW STATUS trades=86 W/L/F=43/38/5 pnl=-17.8747USDT books=3/3 Bquotes=252207
+Mdepth=13634 live_rtt=285.9ms equity=42.1253USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.111bps threshold=1.255 spread=1.055 
+requested=7020.88USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.111bps spread=1.056 
+signal_to_fill=172ms px=9.473 fill=7024.39/7020.88USDT (100.0%) levels=1/20 
+visible=71540.24USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=binance_target_caught 
+pnl=+6.334bps/+4.4491USDT hold=59815ms fill=7024.39/7020.88USDT (100.0%) 
+equity=46.5744USDT
+SHADOW STATUS trades=87 W/L/F=44/38/5 pnl=-13.4256USDT books=3/3 Bquotes=255382
+Mdepth=13991 live_rtt=283.8ms equity=46.5744USDT state=WATCHING
+SHADOW STATUS trades=87 W/L/F=44/38/5 pnl=-13.4256USDT books=3/3 Bquotes=255509
+Mdepth=14000 live_rtt=284.0ms equity=46.5744USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.113bps threshold=1.257 spread=1.057 
+requested=7762.40USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.113bps spread=1.057 
+signal_to_fill=181ms px=9.46297 fill=7766.26/7762.40USDT (100.0%) levels=2/20 
+visible=63115.84USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=binance_target_caught 
+pnl=-1.089bps/-0.8459USDT hold=8215ms fill=7766.26/7762.40USDT (100.0%) 
+equity=45.7285USDT
+SHADOW STATUS trades=88 W/L/F=44/39/5 pnl=-14.2715USDT books=3/3 Bquotes=256803
+Mdepth=14042 live_rtt=284.2ms equity=45.7285USDT state=WATCHING
+SHADOW STATUS trades=88 W/L/F=44/39/5 pnl=-14.2715USDT books=3/3 Bquotes=257270
+Mdepth=14061 live_rtt=283.8ms equity=45.7285USDT state=WATCHING
+SHADOW STATUS trades=88 W/L/F=44/39/5 pnl=-14.2715USDT books=3/3 Bquotes=257536
+Mdepth=14075 live_rtt=284.0ms equity=45.7285USDT state=WATCHING
+SHADOW STATUS trades=88 W/L/F=44/39/5 pnl=-14.2715USDT books=3/3 Bquotes=258804
+Mdepth=14102 live_rtt=284.2ms equity=45.7285USDT state=WATCHING
+SHADOW STATUS trades=88 W/L/F=44/39/5 pnl=-14.2715USDT books=3/3 Bquotes=258973
+Mdepth=14135 live_rtt=284.4ms equity=45.7285USDT state=WATCHING
+SHADOW STATUS trades=88 W/L/F=44/39/5 pnl=-14.2715USDT books=3/3 Bquotes=259369
+Mdepth=14151 live_rtt=284.7ms equity=45.7285USDT state=WATCHING
+SHADOW STATUS trades=88 W/L/F=44/39/5 pnl=-14.2715USDT books=3/3 Bquotes=259666
+Mdepth=14167 live_rtt=284.7ms equity=45.7285USDT state=WATCHING
+SHADOW STATUS trades=88 W/L/F=44/39/5 pnl=-14.2715USDT books=3/3 Bquotes=260048
+Mdepth=14184 live_rtt=284.9ms equity=45.7285USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-1.585bps threshold=1.257 spread=1.057 
+requested=7621.42USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-1.585bps spread=1.057 
+signal_to_fill=160ms px=9.463 fill=7625.23/7621.42USDT (100.0%) levels=1/20 
+visible=68962.70USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=live_adverse_cut pnl=-3.170bps/-2.4174USDT 
+hold=4949ms fill=7625.23/7621.42USDT (100.0%) equity=43.3111USDT
+SHADOW STATUS trades=89 W/L/F=44/40/5 pnl=-16.6889USDT books=3/3 Bquotes=261274
+Mdepth=14238 live_rtt=283.8ms equity=43.3111USDT state=WATCHING
+SHADOW STATUS trades=89 W/L/F=44/40/5 pnl=-16.6889USDT books=3/3 Bquotes=261431
+Mdepth=14247 live_rtt=284.4ms equity=43.3111USDT state=WATCHING
+SHADOW STATUS trades=89 W/L/F=44/40/5 pnl=-16.6889USDT books=3/3 Bquotes=261748
+Mdepth=14276 live_rtt=284.2ms equity=43.3111USDT state=WATCHING
+SHADOW STATUS trades=89 W/L/F=44/40/5 pnl=-16.6889USDT books=3/3 Bquotes=262473
+Mdepth=14298 live_rtt=284.6ms equity=43.3111USDT state=WATCHING
+SHADOW STATUS trades=89 W/L/F=44/40/5 pnl=-16.6889USDT books=3/3 Bquotes=262613
+Mdepth=14313 live_rtt=284.6ms equity=43.3111USDT state=WATCHING
+SHADOW STATUS trades=89 W/L/F=44/40/5 pnl=-16.6889USDT books=3/3 Bquotes=262901
+Mdepth=14329 live_rtt=284.2ms equity=43.3111USDT state=WATCHING
+SHADOW STATUS trades=89 W/L/F=44/40/5 pnl=-16.6889USDT books=3/3 Bquotes=263308
+Mdepth=14346 live_rtt=284.8ms equity=43.3111USDT state=WATCHING
+SHADOW STATUS trades=89 W/L/F=44/40/5 pnl=-16.6889USDT books=3/3 Bquotes=263586
+Mdepth=14359 live_rtt=284.4ms equity=43.3111USDT state=WATCHING
+SHADOW STATUS trades=89 W/L/F=44/40/5 pnl=-16.6889USDT books=3/3 Bquotes=263831
+Mdepth=14389 live_rtt=285.0ms equity=43.3111USDT state=WATCHING
+SHADOW STATUS trades=89 W/L/F=44/40/5 pnl=-16.6889USDT books=3/3 Bquotes=264183
+Mdepth=14437 live_rtt=285.0ms equity=43.3111USDT state=WATCHING
+SHADOW STATUS trades=89 W/L/F=44/40/5 pnl=-16.6889USDT books=3/3 Bquotes=264483
+Mdepth=14463 live_rtt=284.7ms equity=43.3111USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.112bps threshold=1.256 spread=1.056 
+requested=7218.52USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.112bps spread=1.056 
+signal_to_fill=195ms px=9.467 fill=7222.13/7218.52USDT (100.0%) levels=1/20 
+visible=77867.82USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=binance_target_caught 
+pnl=+1.056bps/+0.7629USDT hold=2537ms fill=7222.13/7218.52USDT (100.0%) 
+equity=44.0740USDT
+SHADOW STATUS trades=90 W/L/F=45/40/5 pnl=-15.9260USDT books=3/3 Bquotes=264838
+Mdepth=14477 live_rtt=284.9ms equity=44.0740USDT state=WATCHING
+SHADOW STATUS trades=90 W/L/F=45/40/5 pnl=-15.9260USDT books=3/3 Bquotes=265445
+Mdepth=14502 live_rtt=285.0ms equity=44.0740USDT state=WATCHING
+SHADOW STATUS trades=90 W/L/F=45/40/5 pnl=-15.9260USDT books=3/3 Bquotes=265742
+Mdepth=14522 live_rtt=284.7ms equity=44.0740USDT state=WATCHING
+SHADOW STATUS trades=90 W/L/F=45/40/5 pnl=-15.9260USDT books=3/3 Bquotes=266023
+Mdepth=14533 live_rtt=284.7ms equity=44.0740USDT state=WATCHING
+SHADOW STATUS trades=90 W/L/F=45/40/5 pnl=-15.9260USDT books=3/3 Bquotes=266237
+Mdepth=14546 live_rtt=285.3ms equity=44.0740USDT state=WATCHING
+SHADOW STATUS trades=90 W/L/F=45/40/5 pnl=-15.9260USDT books=3/3 Bquotes=266521
+Mdepth=14582 live_rtt=285.1ms equity=44.0740USDT state=WATCHING
+SHADOW STATUS trades=90 W/L/F=45/40/5 pnl=-15.9260USDT books=3/3 Bquotes=266754
+Mdepth=14602 live_rtt=285.6ms equity=44.0740USDT state=WATCHING
+SHADOW STATUS trades=90 W/L/F=45/40/5 pnl=-15.9260USDT books=3/3 Bquotes=267247
+Mdepth=14617 live_rtt=285.1ms equity=44.0740USDT state=WATCHING
+SHADOW STATUS trades=90 W/L/F=45/40/5 pnl=-15.9260USDT books=3/3 Bquotes=267430
+Mdepth=14633 live_rtt=285.0ms equity=44.0740USDT state=WATCHING
+SHADOW STATUS trades=90 W/L/F=45/40/5 pnl=-15.9260USDT books=3/3 Bquotes=267636
+Mdepth=14647 live_rtt=285.3ms equity=44.0740USDT state=WATCHING
+SHADOW STATUS trades=90 W/L/F=45/40/5 pnl=-15.9260USDT books=3/3 Bquotes=267922
+Mdepth=14660 live_rtt=285.3ms equity=44.0740USDT state=WATCHING
+SHADOW STATUS trades=90 W/L/F=45/40/5 pnl=-15.9260USDT books=3/3 Bquotes=268129
+Mdepth=14671 live_rtt=285.4ms equity=44.0740USDT state=WATCHING
+SHADOW STATUS trades=90 W/L/F=45/40/5 pnl=-15.9260USDT books=3/3 Bquotes=268395
+Mdepth=14683 live_rtt=285.3ms equity=44.0740USDT state=WATCHING
+SHADOW STATUS trades=90 W/L/F=45/40/5 pnl=-15.9260USDT books=3/3 Bquotes=268654
+Mdepth=14717 live_rtt=284.5ms equity=44.0740USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-1.585bps threshold=1.256 spread=1.056 
+requested=7345.67USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-1.585bps spread=1.056 
+signal_to_fill=181ms px=9.466 fill=7349.34/7345.67USDT (100.0%) levels=1/20 
+visible=117411.64USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=binance_target_caught 
+pnl=+1.056bps/+0.7764USDT hold=8480ms fill=7349.34/7345.67USDT (100.0%) 
+equity=44.8504USDT
+SHADOW STATUS trades=91 W/L/F=46/40/5 pnl=-15.1496USDT books=3/3 Bquotes=269371
+Mdepth=14795 live_rtt=284.4ms equity=44.8504USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+3.169bps threshold=1.256 spread=1.056 
+requested=7475.06USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+3.169bps spread=1.056 signal_to_fill=159ms
+px=9.469 fill=7471.33/7475.06USDT (100.0%) levels=1/20 visible=114652.51USDT 
+lev=200x
+SHADOW EXIT LINK_USDT LONG reason=binance_target_caught 
+pnl=+1.056bps/+0.7890USDT hold=2581ms fill=7471.33/7475.06USDT (100.0%) 
+equity=45.6394USDT
+SHADOW STATUS trades=92 W/L/F=47/40/5 pnl=-14.3606USDT books=3/3 Bquotes=269847
+Mdepth=14816 live_rtt=284.1ms equity=45.6394USDT state=WATCHING
+SHADOW STATUS trades=92 W/L/F=47/40/5 pnl=-14.3606USDT books=3/3 Bquotes=270130
+Mdepth=14832 live_rtt=284.6ms equity=45.6394USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.111bps threshold=1.256 spread=1.056 
+requested=7606.57USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.111bps spread=1.056 
+signal_to_fill=162ms px=9.472 fill=7610.37/7606.57USDT (100.0%) levels=1/20 
+visible=71375.28USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=live_adverse_cut pnl=-1.056bps/-0.8035USDT 
+hold=18138ms fill=7610.37/7606.57USDT (100.0%) equity=44.8360USDT
+SHADOW STATUS trades=93 W/L/F=47/41/5 pnl=-15.1640USDT books=3/3 Bquotes=271359
+Mdepth=14906 live_rtt=284.6ms equity=44.8360USDT state=WATCHING
+SHADOW STATUS trades=93 W/L/F=47/41/5 pnl=-15.1640USDT books=3/3 Bquotes=271817
+Mdepth=14926 live_rtt=284.6ms equity=44.8360USDT state=WATCHING
+SHADOW STATUS trades=93 W/L/F=47/41/5 pnl=-15.1640USDT books=3/3 Bquotes=272257
+Mdepth=14942 live_rtt=284.6ms equity=44.8360USDT state=WATCHING
+SHADOW STATUS trades=93 W/L/F=47/41/5 pnl=-15.1640USDT books=3/3 Bquotes=272482
+Mdepth=14963 live_rtt=284.8ms equity=44.8360USDT state=WATCHING
+SHADOW STATUS trades=93 W/L/F=47/41/5 pnl=-15.1640USDT books=3/3 Bquotes=273182
+Mdepth=14987 live_rtt=284.6ms equity=44.8360USDT state=WATCHING
+SHADOW STATUS trades=93 W/L/F=47/41/5 pnl=-15.1640USDT books=3/3 Bquotes=273463
+Mdepth=15003 live_rtt=284.4ms equity=44.8360USDT state=WATCHING
+SHADOW STATUS trades=93 W/L/F=47/41/5 pnl=-15.1640USDT books=3/3 Bquotes=273995
+Mdepth=15029 live_rtt=284.2ms equity=44.8360USDT state=WATCHING
+SHADOW STATUS trades=93 W/L/F=47/41/5 pnl=-15.1640USDT books=3/3 Bquotes=274231
+Mdepth=15052 live_rtt=284.0ms equity=44.8360USDT state=WATCHING
+SHADOW STATUS trades=93 W/L/F=47/41/5 pnl=-15.1640USDT books=3/3 Bquotes=274624
+Mdepth=15071 live_rtt=284.2ms equity=44.8360USDT state=WATCHING
+SHADOW STATUS trades=93 W/L/F=47/41/5 pnl=-15.1640USDT books=3/3 Bquotes=275312
+Mdepth=15097 live_rtt=284.4ms equity=44.8360USDT state=WATCHING
+SHADOW STATUS trades=93 W/L/F=47/41/5 pnl=-15.1640USDT books=3/3 Bquotes=275540
+Mdepth=15117 live_rtt=284.0ms equity=44.8360USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+2.112bps threshold=1.256 spread=1.056 
+requested=7472.66USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+2.112bps spread=1.056 signal_to_fill=173ms
+px=9.47 fill=7468.92/7472.66USDT (100.0%) levels=1/20 visible=105074.53USDT 
+lev=200x
+SHADOW EXIT LINK_USDT LONG reason=live_adverse_cut pnl=-1.056bps/-0.7887USDT 
+hold=4413ms fill=7468.92/7472.66USDT (100.0%) equity=44.0473USDT
+SHADOW STATUS trades=94 W/L/F=47/42/5 pnl=-15.9527USDT books=3/3 Bquotes=276293
+Mdepth=15155 live_rtt=283.9ms equity=44.0473USDT state=WATCHING
+SHADOW SIGNAL XRP_USDT LONG impulse=+1.997bps threshold=1.198 spread=0.998 
+requested=7341.21USDT
+SHADOW ENTRY XRP_USDT LONG impulse=+1.997bps spread=0.998 signal_to_fill=193ms 
+px=1.0016 fill=7337.54/7341.21USDT (100.0%) levels=1/20 visible=1014236.57USDT 
+lev=200x
+SHADOW EXIT XRP_USDT LONG reason=timeout pnl=-0.998bps/-0.7326USDT hold=60798ms
+fill=7337.54/7341.21USDT (100.0%) equity=43.3147USDT
+SHADOW STATUS trades=95 W/L/F=47/43/5 pnl=-16.6853USDT books=3/3 Bquotes=281636
+Mdepth=15429 live_rtt=285.6ms equity=43.3147USDT state=WATCHING
+SHADOW STATUS trades=95 W/L/F=47/43/5 pnl=-16.6853USDT books=3/3 Bquotes=281782
+Mdepth=15441 live_rtt=286.0ms equity=43.3147USDT state=WATCHING
+SHADOW STATUS trades=95 W/L/F=47/43/5 pnl=-16.6853USDT books=3/3 Bquotes=281995
+Mdepth=15478 live_rtt=286.1ms equity=43.3147USDT state=WATCHING
+SHADOW STATUS trades=95 W/L/F=47/43/5 pnl=-16.6853USDT books=3/3 Bquotes=282320
+Mdepth=15513 live_rtt=286.0ms equity=43.3147USDT state=WATCHING
+SHADOW STATUS trades=95 W/L/F=47/43/5 pnl=-16.6853USDT books=3/3 Bquotes=282500
+Mdepth=15530 live_rtt=285.8ms equity=43.3147USDT state=WATCHING
+SHADOW STATUS trades=95 W/L/F=47/43/5 pnl=-16.6853USDT books=3/3 Bquotes=282713
+Mdepth=15544 live_rtt=285.8ms equity=43.3147USDT state=WATCHING
+SHADOW STATUS trades=95 W/L/F=47/43/5 pnl=-16.6853USDT books=3/3 Bquotes=282966
+Mdepth=15561 live_rtt=286.0ms equity=43.3147USDT state=WATCHING
+SHADOW SIGNAL XRP_USDT SHORT impulse=-1.997bps threshold=1.198 spread=0.998 
+requested=7219.11USDT
+SHADOW ENTRY XRP_USDT SHORT impulse=-1.997bps spread=0.998 signal_to_fill=170ms
+px=1.0015 fill=7222.72/7219.11USDT (100.0%) levels=1/20 visible=1703943.34USDT 
+lev=200x
+SHADOW EXIT XRP_USDT SHORT reason=timeout pnl=+0.999bps/+0.7212USDT 
+hold=62023ms fill=7222.72/7219.11USDT (100.0%) equity=44.0359USDT
+SHADOW STATUS trades=96 W/L/F=48/43/5 pnl=-15.9641USDT books=3/3 Bquotes=286983
+Mdepth=15796 live_rtt=285.3ms equity=44.0359USDT state=WATCHING
+SHADOW STATUS trades=96 W/L/F=48/43/5 pnl=-15.9641USDT books=3/3 Bquotes=287319
+Mdepth=15808 live_rtt=285.2ms equity=44.0359USDT state=WATCHING
+SHADOW STATUS trades=96 W/L/F=48/43/5 pnl=-15.9641USDT books=3/3 Bquotes=287495
+Mdepth=15827 live_rtt=285.3ms equity=44.0359USDT state=WATCHING
+SHADOW STATUS trades=96 W/L/F=48/43/5 pnl=-15.9641USDT books=3/3 Bquotes=287885
+Mdepth=15844 live_rtt=285.3ms equity=44.0359USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+2.112bps threshold=1.256 spread=1.056 
+requested=7339.31USDT
+SHADOW ENTRY LINK_USDT LONG impulse=+2.112bps spread=1.056 signal_to_fill=176ms
+px=9.47 fill=7335.64/7339.31USDT (100.0%) levels=1/20 visible=117406.88USDT 
+lev=200x
+SHADOW EXIT LINK_USDT LONG reason=binance_target_caught 
+pnl=+2.112bps/+1.5492USDT hold=30882ms fill=7335.64/7339.31USDT (100.0%) 
+equity=45.5851USDT
+SHADOW STATUS trades=97 W/L/F=49/43/5 pnl=-14.4149USDT books=3/3 Bquotes=289786
+Mdepth=15971 live_rtt=285.0ms equity=45.5851USDT state=WATCHING
+SHADOW STATUS trades=97 W/L/F=49/43/5 pnl=-14.4149USDT books=3/3 Bquotes=290060
+Mdepth=15987 live_rtt=284.9ms equity=45.5851USDT state=WATCHING
+SHADOW STATUS trades=97 W/L/F=49/43/5 pnl=-14.4149USDT books=3/3 Bquotes=290477
+Mdepth=16009 live_rtt=284.7ms equity=45.5851USDT state=WATCHING
+SHADOW STATUS trades=97 W/L/F=49/43/5 pnl=-14.4149USDT books=3/3 Bquotes=290751
+Mdepth=16025 live_rtt=284.9ms equity=45.5851USDT state=WATCHING
+SHADOW STATUS trades=97 W/L/F=49/43/5 pnl=-14.4149USDT books=3/3 Bquotes=290994
+Mdepth=16052 live_rtt=285.4ms equity=45.5851USDT state=WATCHING
+SHADOW STATUS trades=97 W/L/F=49/43/5 pnl=-14.4149USDT books=3/3 Bquotes=291230
+Mdepth=16084 live_rtt=285.4ms equity=45.5851USDT state=WATCHING
+SHADOW STATUS trades=97 W/L/F=49/43/5 pnl=-14.4149USDT books=3/3 Bquotes=291462
+Mdepth=16102 live_rtt=285.4ms equity=45.5851USDT state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.111bps threshold=1.256 spread=1.056 
+requested=7597.52USDT
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.111bps spread=1.056 
+signal_to_fill=162ms px=9.473 fill=7601.32/7597.52USDT (100.0%) levels=1/20 
+visible=82059.00USDT lev=200x
+SHADOW EXIT LINK_USDT SHORT reason=binance_target_caught 
+pnl=+1.807bps/+1.3734USDT hold=1676ms fill=7601.32/7597.52USDT (100.0%) 
+equity=46.9585USDT
+SHADOW STATUS trades=98 W/L/F=50/43/5 pnl=-13.0415USDT books=3/3 Bquotes=291819
+Mdepth=16118 live_rtt=285.4ms equity=46.9585USDT state=WATCHING
+SHADOW STATUS trades=98 W/L/F=50/43/5 pnl=-13.0415USDT books=3/3 Bquotes=292054
+Mdepth=16135 live_rtt=285.6ms equity=46.9585USDT state=WATCHING
+SHADOW SIGNAL DOGE_USDT LONG impulse=+2.875bps threshold=1.638 spread=1.438 
+requested=7826.42USDT
+SHADOW ENTRY DOGE_USDT LONG impulse=+2.875bps spread=1.438 signal_to_fill=167ms
+px=0.06957 fill=7822.51/7826.42USDT (100.0%) levels=1/20 visible=597163.17USDT 
+lev=200x
+SHADOW EXIT DOGE_USDT LONG reason=binance_target_caught 
+pnl=+2.875bps/+2.2488USDT hold=4384ms fill=7822.51/7826.42USDT (100.0%) 
+equity=49.2073USDT
+SHADOW STATUS trades=99 W/L/F=51/43/5 pnl=-10.7927USDT books=3/3 Bquotes=292933
+Mdepth=16157 live_rtt=285.6ms equity=49.2073USDT state=WATCHING
+SHADOW STATUS trades=99 W/L/F=51/43/5 pnl=-10.7927USDT books=3/3 Bquotes=293130
+Mdepth=16175 live_rtt=285.5ms equity=49.2073USDT state=WATCHING
+SHADOW STATUS trades=99 W/L/F=51/43/5 pnl=-10.7927USDT books=3/3 Bquotes=293543
+Mdepth=16209 live_rtt=285.6ms equity=49.2073USDT state=WATCHING
+SHADOW SIGNAL XRP_USDT LONG impulse=+1.997bps threshold=1.198 spread=0.998 
+requested=8201.22USDT
+SHADOW ENTRY XRP_USDT LONG impulse=+1.997bps spread=0.998 signal_to_fill=165ms 
+px=1.0016 fill=8197.13/8201.22USDT (100.0%) levels=1/20 visible=554990.51USDT 
+lev=200x
+SHADOW EXIT XRP_USDT LONG reason=binance_target_caught 
+pnl=+1.997bps/+1.6368USDT hold=3183ms fill=8197.13/8201.22USDT (100.0%) 
+equity=50.8442USDT
+SHADOW COMPLETE trades=100 W/L/F=52/43/5 winrate=54.74% PF=0.917 
+ZERO_FEE_PNL=-9.155849USDT 
+CSV=D:\Mexc_tick_scalper\MEXC-Tick-scalper\depth_scaled_current_rtt_1bps_100_20
+260816.csv
+READ-ONLY CONFIRMED: no LIVE or Demo order adapter was constructed.

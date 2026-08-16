@@ -1,0 +1,23 @@
+LIVE MICROSPREAD -> DEMO: 3 symbol(s); event-driven Binance bookTicker + MEXC 
+LIVE depth; all order writes TESTNET only.
+Fee gate: Demo fees measured/subtracted + LIVE exact 0/0
+Excursion telemetry CSV: 
+D:\Mexc_tick_scalper\MEXC-Tick-scalper\legacy_54b_threecoin_100_excursions_2026
+0815.csv
+Residual telemetry CSV: 
+D:\Mexc_tick_scalper\MEXC-Tick-scalper\legacy_54b_threecoin_100_residuals_20260
+815.csv
+Symbols: DOGE_USDT, LINK_USDT, XRP_USDT
+Micro gate: residual >= max(0.35bps, LIVE spread+0.20bps, spread*1.05); Binance
+micro-move >= 0.020bps; basis baseline=8s excluding newest 1000ms.
+Demo sizing: available=47034.4USDT mode=10000USDT target IOC notional
+MICRO HEARTBEAT state=warming symbols=3 signal_source=live books=1 demo_books=2
+Bquotes=21 Mdepth=2 Ddepth=13 above_floor=0 max_residual=0.000bps candidates=0 
+fee_age=0ms
+MICRO SIGNAL LINK_USDT SHORT residual=-3.762bps threshold=1.275 spread=1.075 
+net=+2.487 B100=-3.762 M100=+0.000 Bage=4ms Mage=111ms DemoCross=5.0bps
+DEMO CLEANUP (microspread-failure) pass=1: closing 1 open position(s)
+  closing XAUT_USDT SHORT qty=2.294 entry=4358.7 liquidation=4361.3
+DEMO FLAT CONFIRMED (microspread-failure)
+MICROSPREAD DEMO FAILED: ambiguous Demo IOC state: account did not remain flat;
+blocking all new entries

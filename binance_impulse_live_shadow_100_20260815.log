@@ -1,0 +1,63 @@
+LIVE BINANCE IMPULSE SHADOW ONLY: public Binance/MEXC WebSockets and read-only 
+MEXC fee discovery; no execution adapter and no order endpoint.
+symbols=DOGE_USDT,LINK_USDT,XRP_USDT notional=10000USDT entry_latency=650ms 
+exit_latency=350ms slippage_each_side=0.5bps
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=0/3 Bquotes=0 Mdepth=0
+state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=149 
+Mdepth=18 state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=335 
+Mdepth=37 state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=617 
+Mdepth=50 state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=855 
+Mdepth=65 state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=1101 
+Mdepth=84 state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=1332 
+Mdepth=120 state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=1580 
+Mdepth=145 state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=1784 
+Mdepth=157 state=WATCHING
+SHADOW STATUS trades=0 W/L/F=0/0/0 pnl=+0.0000USDT books=3/3 Bquotes=1963 
+Mdepth=171 state=WATCHING
+SHADOW SIGNAL LINK_USDT SHORT impulse=-2.107bps threshold=1.253 spread=1.053
+SHADOW ENTRY LINK_USDT SHORT impulse=-2.107bps spread=1.054 
+signal_to_fill=691ms px=9.48653
+SHADOW EXIT LINK_USDT SHORT reason=live_adverse_cut pnl=-2.054bps/-2.0542USDT 
+hold=2890ms
+SHADOW STATUS trades=1 W/L/F=0/1/0 pnl=-2.0542USDT books=3/3 Bquotes=2357 
+Mdepth=193 state=WATCHING
+SHADOW STATUS trades=1 W/L/F=0/1/0 pnl=-2.0542USDT books=3/3 Bquotes=2580 
+Mdepth=207 state=WATCHING
+SHADOW SIGNAL LINK_USDT LONG impulse=+2.108bps threshold=1.254 spread=1.054
+SHADOW ENTRY LINK_USDT LONG impulse=+2.108bps spread=1.054 signal_to_fill=663ms
+px=9.49047
+SHADOW EXIT LINK_USDT LONG reason=live_adverse_cut pnl=-1.000bps/-1.0000USDT 
+hold=523ms
+SHADOW STATUS trades=2 W/L/F=0/2/0 pnl=-3.0542USDT books=3/3 Bquotes=3064 
+Mdepth=229 state=WATCHING
+SHADOW SIGNAL DOGE_USDT SHORT impulse=-2.856bps threshold=1.628 spread=1.428
+SHADOW ENTRY DOGE_USDT SHORT impulse=-2.856bps spread=1.428 
+signal_to_fill=663ms px=0.0700065
+SHADOW EXIT DOGE_USDT SHORT reason=live_adverse_cut pnl=-2.429bps/-2.4286USDT 
+hold=7911ms
+SHADOW STATUS trades=3 W/L/F=0/3/0 pnl=-5.4827USDT books=3/3 Bquotes=4448 
+Mdepth=271 state=WATCHING
+SHADOW STATUS trades=3 W/L/F=0/3/0 pnl=-5.4827USDT books=3/3 Bquotes=4800 
+Mdepth=288 state=WATCHING
+SHADOW STATUS trades=3 W/L/F=0/3/0 pnl=-5.4827USDT books=3/3 Bquotes=4998 
+Mdepth=306 state=WATCHING
+SHADOW STATUS trades=3 W/L/F=0/3/0 pnl=-5.4827USDT books=3/3 Bquotes=5227 
+Mdepth=323 state=WATCHING
+SHADOW STATUS trades=3 W/L/F=0/3/0 pnl=-5.4827USDT books=3/3 Bquotes=5507 
+Mdepth=343 state=WATCHING
+SHADOW STATUS trades=3 W/L/F=0/3/0 pnl=-5.4827USDT books=3/3 Bquotes=5683 
+Mdepth=356 state=WATCHING
+SHADOW STATUS trades=3 W/L/F=0/3/0 pnl=-5.4827USDT books=3/3 Bquotes=5946 
+Mdepth=370 state=WATCHING
+SHADOW STATUS trades=3 W/L/F=0/3/0 pnl=-5.4827USDT books=3/3 Bquotes=6145 
+Mdepth=392 state=WATCHING
+SHADOW STATUS trades=3 W/L/F=0/3/0 pnl=-5.4827USDT books=3/3 Bquotes=6397 
+Mdepth=409 state=WATCHING
