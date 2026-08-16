@@ -79,6 +79,9 @@ def _terminal_reason(
     age_ms: float,
     max_track_ms: float,
 ) -> str | None:
+    direction = _residual_direction(residual_bps)
+    if direction == -tracker.direction and abs(residual_bps) >= reversal_edge_bps:
+        return "residual_reversal"
     conv = convergence_threshold(
         tracker.signal_residual_bps,
         convergence_bps,
@@ -86,9 +89,6 @@ def _terminal_reason(
     )
     if abs(residual_bps) <= conv:
         return "convergence"
-    direction = _residual_direction(residual_bps)
-    if direction == -tracker.direction and abs(residual_bps) >= reversal_edge_bps:
-        return "residual_reversal"
     if age_ms >= max_track_ms:
         return "track_timeout"
     return None
