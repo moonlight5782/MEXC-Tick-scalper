@@ -24,6 +24,16 @@ class MicroSpreadSnapshot:
     threshold_bps: float
     reason: str
 
+    @property
+    def binance_price(self) -> float:
+        """Backward-compatible alias for the Binance mid price."""
+        return self.binance_mid
+
+    @property
+    def mexc_price(self) -> float:
+        """Backward-compatible alias for the MEXC mid price."""
+        return self.mexc_mid
+
 
 class MicroSpreadModel:
     """Detect short Binance/MEXC basis excursions instead of rare large impulses.
