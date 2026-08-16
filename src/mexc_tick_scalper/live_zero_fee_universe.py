@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 from .lead_lag import fetch_binance_usdm_symbols, mexc_to_binance_symbol
 from .market import MexcPublicMarket
@@ -20,6 +23,12 @@ class LiveZeroFeeContract:
     min_vol: float
 
 
+def _load_project_env() -> None:
+    """Load the repository-root .env without overriding explicit process env."""
+    root = Path(__file__).resolve().parents[2]
+    load_dotenv(root / ".env", override=False)
+
+
 async def discover_live_zero_fee_crosslisted() -> list[LiveZeroFeeContract]:
     """Read the real account fee table without enabling any LIVE writes.
 
@@ -27,6 +36,8 @@ async def discover_live_zero_fee_crosslisted() -> list[LiveZeroFeeContract]:
     listed on LIVE MEXC, have exact maker=0 and taker=0 for the logged-in web
     account, and have a matching Binance USD-M perpetual.
     """
+    _load_project_env()
+
     binance_symbols = await fetch_binance_usdm_symbols()
     market = MexcPublicMarket(LIVE_REST, LIVE_WS)
     contracts = await market.contracts()
