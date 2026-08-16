@@ -13,17 +13,16 @@ call .venv\Scripts\activate.bat
 
 echo.
 echo ==============================================================
-echo LIVE MARKET / PARTIAL-IOC PAPER MODE - NO REAL ORDERS
-echo Uses LIVE Binance + LIVE MEXC market data.
-echo IOC LIMIT entry is simulated with partial fills; remainder cancels.
-echo Position management uses ONLY the actually filled quantity.
-echo Entry requires strong persistent residual AND executable edge after cost.
-echo Adverse stop uses MEXC mid movement, not immediate spread crossing.
-echo NO MEXC order endpoint is called. NO REAL FUNDS ARE USED.
+echo LIVE MARKET / PERSISTENT-DEPTH PARTIAL-IOC PAPER MODE
+echo LIVE Binance + LIVE MEXC books. NO REAL ORDERS / NO REAL FUNDS.
+echo IOC fill is counted only when liquidity survives 2 MEXC depth updates.
+echo Unfilled IOC remainder cancels; only actual simulated fill is managed.
+echo Exit decision is irreversible and can flatten in partial chunks.
+echo Profit factor is calculated in USDT, weighted by actual fill size.
 echo ==============================================================
 echo.
 
-python -m mexc_tick_scalper.prelive_persistent_ioc_shadow --session-seconds 1800 --max-signals 300 --target-notional-usdt 10000
+python -m mexc_tick_scalper.prelive_persistent_ioc_shadow_v2 --session-seconds 1800 --max-signals 300 --target-notional-usdt 10000
 
 echo.
 pause
