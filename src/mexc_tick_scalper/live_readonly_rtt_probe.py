@@ -4,12 +4,19 @@ import argparse
 import asyncio
 import statistics
 import time
+from pathlib import Path
 
+from dotenv import load_dotenv
 from rich.console import Console
 
 from .web_execution import MexcWebExecutionAdapter, WebExecutionConfig
 
 console = Console()
+
+
+def _load_env() -> None:
+    root = Path(__file__).resolve().parents[2]
+    load_dotenv(root / ".env", override=False)
 
 
 def _percentile(values: list[float], q: float) -> float:
@@ -26,6 +33,7 @@ def _percentile(values: list[float], q: float) -> float:
 
 
 async def run(args: argparse.Namespace) -> None:
+    _load_env()
     cfg = WebExecutionConfig.from_env(write_enabled=False)
     samples: list[float] = []
 
