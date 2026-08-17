@@ -38,9 +38,18 @@ Preserve the frozen validated baseline unless an experiment is explicitly labele
 ## Exit semantics
 
 - Manage only actual IOC-filled quantity.
-- Convergence / leader-retrace / residual-reversal logic remains part of the validated baseline.
-- Do not transform the strategy into conventional fixed TP/SL trading without an explicitly separate experiment.
-- External risk guards (bad market data, extreme spread/cost, liquidation/session safety) may reject an entry, but must not silently redefine the alpha model.
+- Exit logic is event-driven; do **not** replace it with a conventional fixed take-profit/stop-loss pair unless running an explicitly separate experiment.
+- **Positive trailing / floating take-profit is mandatory.** Once executable PnL moves sufficiently into profit, the trailing level follows the best executable profit and exits on retracement. Baseline trailing distance is 1.5 bps, widened to at least the live spread when necessary.
+- **Emergency adverse exit is mandatory.** If the MEXC mid moves against the position by the baseline adverse threshold, trigger irreversible exit immediately (`mid_adverse_cut`; baseline 3.0 bps after minimum hold).
+- **Leader retrace emergency exit is mandatory.** If Binance, the leader, retraces against the trade by the baseline threshold, exit (`leader_retrace`; baseline 1.5 bps).
+- **Residual reversal exit is mandatory.** If the residual flips to the opposite direction with sufficient magnitude, exit (`residual_reversal`; baseline 0.75 bps).
+- Normal convergence remains the primary profitable exit when MEXC catches up (`mexc_catchup_convergence`).
+- If expected catch-up fails to make progress, exit (`no_progress`; baseline 3000 ms with <0.5 bps progress).
+- Hard maximum holding time remains a final safety fallback (`timeout`; baseline 15000 ms).
+- Once any exit reason triggers, it is **irreversible**: do not cancel the exit because the signal later recovers.
+- Flattening may occur in partial chunks across successive LIVE MEXC book updates when the whole actually-filled position cannot be executed at once.
+- Convergence / leader-retrace / residual-reversal / positive-trailing / adverse-cut logic are part of the validated baseline and must survive wrappers and liquidation instrumentation unchanged.
+- External risk guards (bad market data, extreme spread/cost, liquidation/session safety) may reject an entry, but must not silently redefine the alpha model or disable these exits.
 
 ## Liquidation validation
 
@@ -57,6 +66,9 @@ Any new runner or wrapper must have tests proving:
 2. partial IOC fill cancels remainder and never tops up;
 3. actual filled quantity is the only managed position quantity;
 4. max leverage does not imply using the full account as margin;
-5. liquidation/risk instrumentation does not alter the frozen baseline signal logic.
+5. liquidation/risk instrumentation does not alter the frozen baseline signal logic;
+6. positive trailing remains active and can close a profitable trade on retracement;
+7. adverse-cut / leader-retrace / residual-reversal emergency exits remain active and irreversible;
+8. partial flattening after an exit trigger manages only the actual remaining quantity.
 
 This contract exists specifically to prevent regressions when adding account sizing, liquidation, latency, or telemetry layers.
