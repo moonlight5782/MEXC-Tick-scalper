@@ -3,17 +3,17 @@ setlocal
 cd /d "%~dp0"
 call .venv\Scripts\activate.bat
 
-REM Reference behavior: successful multi-pair LIVE-paper BASELINE_V1 runner.
-REM Demo test scans multiple Testnet+LIVE+Binance pairs concurrently.
-REM BASELINE_V1 thresholds are not loosened.
-REM Demo entry+exit fees are deducted from reported Demo PnL.
+REM Source of truth: unchanged successful multi-pair LIVE-paper BASELINE_V1 runner.
+REM Testnet does NOT restrict which LIVE symbols may signal.
+REM Demo is execution-only: real IOC/partial-fill/close/latency/fee accounting through MEXC Demo web token.
+REM BOTH Demo entry and exit fees are deducted.
+REM Proxy price PnL is execution telemetry, not alpha evidence.
 REM No LIVE orders are sent.
 
-.venv\Scripts\python.exe -m mexc_tick_scalper.demo_baseline_v1_multipair ^
+.venv\Scripts\python.exe -m mexc_tick_scalper.demo_live_baseline_execution_proxy ^
   --target-closed-trades 100 ^
   --session-seconds 86400 ^
   --max-signals 3000 ^
-  --demo-universe-size 20 ^
   --activity-sample-seconds 4 ^
   --demo-leverage 0 ^
   --demo-max-notional-usdt 0 ^
