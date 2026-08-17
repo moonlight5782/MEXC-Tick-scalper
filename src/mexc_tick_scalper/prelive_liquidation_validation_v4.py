@@ -26,8 +26,6 @@ class FixedInitialMarginBudget:
         return min(max(0.0, float(balance)), self.initial_margin_usdt)
 
     def __format__(self, spec: str) -> str:
-        # v2 still labels this field margin_fraction in its banner.
-        # Show the equivalent starting fraction only for display compatibility.
         if spec == ".0%":
             frac = self.initial_margin_usdt / max(self.starting_balance_usdt, 1e-12)
             return format(frac, spec)
@@ -37,8 +35,6 @@ class FixedInitialMarginBudget:
         return self.initial_margin_usdt > float(other)
 
     def __le__(self, other) -> bool:
-        # Compatibility with the old v2 parser validation; v4 validates the
-        # actual dollar budget directly before installing this adapter.
         return True
 
 
@@ -58,9 +54,6 @@ async def run(args) -> None:
         "min(initial_margin, current_balance) * leverage."
     )
 
-    # v2/base currently route the risk budget through margin_fraction.  Use a
-    # fixed-dollar adapter so both live entry sizing and the final report obey
-    # the same original isolated-margin rule.
     args.margin_fraction = FixedInitialMarginBudget(initial_margin, args.balance_usdt)
     await v3.run(args)
 
@@ -74,7 +67,7 @@ def build_parser():
     p.add_argument(
         "--initial-margin-usdt",
         type=float,
-        default=50.0,
+        default=60.0,
         help="Maximum isolated position margin per trade; capped by current account balance",
     )
     p.add_argument("--max-arrival-spread-bps", type=float, default=20.0)
