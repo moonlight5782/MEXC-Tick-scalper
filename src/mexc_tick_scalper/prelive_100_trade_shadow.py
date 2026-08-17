@@ -1,0 +1,61 @@
+from __future__ import annotations
+
+import argparse
+import asyncio
+
+from rich.console import Console
+
+from . import prelive_persistent_ioc_shadow_v2 as v2
+
+console = Console()
+
+
+class TargetClosedTradesReached(RuntimeError):
+    pass
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = v2.build_parser()
+    p.description = "LIVE-data arrival-book IOC paper test that stops after an exact number of closed trades"
+    p.add_argument("--target-closed-trades", type=int, default=100)
+    return p
+
+
+async def run(args: argparse.Namespace) -> None:
+    target = max(1, int(args.target_closed_trades))
+    original_close = v2._close_trade
+    last_stats: v2.Stats | None = None
+
+    def close_and_stop(stats: v2.Stats, pos: v2.Position, now_ms: int) -> None:
+        nonlocal last_stats
+        original_close(stats, pos, now_ms)
+        last_stats = stats
+        closed = stats.wins + stats.losses + stats.flats
+        if closed >= target:
+            raise TargetClosedTradesReached
+
+    v2._close_trade = close_and_stop
+    try:
+        console.print(
+            f"[bold cyan]EXACT {target}-CLOSED-TRADE LIVE PAPER TEST[/bold cyan] - NO REAL ORDERS"
+        )
+        console.print(
+            "Strategy parameters are unchanged from the arrival-book partial-IOC runner; "
+            "only the stop condition is different."
+        )
+        await v2.run(args)
+    except TargetClosedTradesReached:
+        if last_stats is not None:
+            console.print(f"\n[bold]FINAL EXACT {target}-TRADE REPORT[/bold]")
+            console.print(v2._summary(last_stats))
+    finally:
+        v2._close_trade = original_close
+
+
+def main() -> None:
+    args = build_parser().parse_args()
+    asyncio.run(run(args))
+
+
+if __name__ == "__main__":
+    main()
