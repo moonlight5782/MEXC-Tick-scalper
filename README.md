@@ -1,69 +1,59 @@
 # MEXC Tick Scalper
 
-Adaptive zero-fee futures tick-scalping research bot for MEXC.
+Current development stage: **known-good lead/lag strategy → real MEXC Testnet execution validation**.
 
-## Core rules
+## Source of truth
 
-- Trade only when **effective maker fee = 0 and effective taker fee = 0** on real trading.
-- If a fee appears, do not open new trades; keep monitoring the symbol and re-enable only after 0% maker + 0% taker is confirmed again.
-- Market selection is dynamic: symbols are ranked by current microstructure and shadow/replay performance, not hard-coded coin names.
-- Entries use short-term momentum and IOC execution semantics.
-- No pyramiding or martingale.
-- Exit follows the favorable extreme and closes on the first configured adverse tick reversal.
-- Unknown fee status, stale market data, disconnected market feed, or unknown position state blocks new entries.
+Read [`PROJECT_HANDOFF.md`](PROJECT_HANDOFF.md) before changing strategy or execution code. It contains the complete architecture, frozen invariants, Testnet risk contract, known limitations, acceptance criteria, and handoff instructions.
 
-## Current status
+## Known-good strategy
 
-The repository contains scanner, tick recorder, shadow replay, walk-forward backtest, adaptive parameter search, fee/risk gates, paper execution, web-session execution, and a dedicated MEXC Futures Demo Trading mode.
+Immutable reference branch:
 
-Real trading remains disabled by default. Demo mode is hard-bound to `futures.testnet.mexc.com` and rejects live MEXC hosts.
-
-## Quick start
-
-```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
-pip install -e .
-cp config.example.yaml config.yaml
-mexc-scalper scan --config config.yaml
+```text
+known-good-100trade-372c3b2
+372c3b286eb82aa4b87d806999f8db47173a2b3e
 ```
 
-Record fresh ticks and run walk-forward validation:
+This is the code state that completed the validated LIVE-data paper run of 100 closed trades. Do not modify that branch.
 
-```bash
-mexc-scalper record --symbol BTC_USDT --seconds 3600 --output data/BTC_USDT.csv --config config.yaml
-mexc-scalper backtest --symbol BTC_USDT --input data/BTC_USDT.csv --config config.yaml
+## Active Testnet branch
+
+```text
+testnet-known-good-v1
 ```
 
-## MEXC Demo Trading
+The active Testnet runner preserves the known-good signal/entry/exit semantics and replaces virtual execution with real same-symbol MEXC Testnet IOC execution plus liquidation/emergency safeguards.
 
-MEXC Demo Trading uses the separate testnet environment at `futures.testnet.mexc.com`.
+### Supported launchers
 
-Copy `.env.example` to `.env` and set `MEXC_DEMO_WEB_TOKEN` from an authenticated Demo Trading browser session. Demo credentials are intentionally separate from live credentials.
+Known-good paper reference:
 
-Read-only session check:
-
-```bash
-mexc-scalper demo-check --symbol BTC_USDT
+```powershell
+.\start_live_shadow.bat
 ```
 
-One small simulated IOC entry followed immediately by a market flatten:
+Real Testnet validation:
 
-```bash
-mexc-scalper demo-roundtrip \
-  --symbol BTC_USDT \
-  --side long \
-  --notional-usdt 10 \
-  --leverage 5 \
-  --confirm-demo-order
+```powershell
+.\start_testnet_known_good_v1.bat
 ```
 
-`demo-roundtrip` refuses to place an order unless `--confirm-demo-order` is supplied, refuses any existing position on the selected symbol, and the Demo configuration refuses any host other than `futures.testnet.mexc.com`.
+The Testnet launcher uses LIVE Binance + LIVE MEXC public market data for signals and sends order writes only to `futures.testnet.mexc.com`.
+
+## Critical IOC rule
+
+Each entry makes one IOC request for the target notional. If only part can fill inside the IOC limit, only that actual fill is managed; the remainder is cancelled. There is no top-up/chase/retry to reach the requested notional.
+
+Example: request $10,000, actual IOC fill ~$2,000 → manage only ~$2,000.
 
 ## Safety
 
-`live_enabled` is `false` by default. Secrets, cookies, API keys, session IDs and `u_id`/WEB token values must never be committed to GitHub.
+- Never commit or share `MEXC_DEMO_WEB_TOKEN`.
+- No LIVE order writes are allowed during this stage.
+- Do not use proxy symbols.
+- Do not enable exchange-maximum leverage automatically.
+- Do not change alpha thresholds to solve exchange/Testnet execution bugs.
+- A Testnet trade is valid only when the remote Testnet order/position confirms an actual fill.
 
-The intended rollout is: walk-forward backtest -> fresh shadow/replay -> Demo Trading -> minimal real exposure -> scale only after live results match the validated strategy.
-
-This software is experimental and does not guarantee profit.
+This software is experimental. The known-good paper result is not a guarantee of future or Testnet profitability.
