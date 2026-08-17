@@ -6,6 +6,7 @@ import asyncio
 from rich.console import Console
 
 from . import prelive_persistent_ioc_shadow_v2 as v2
+from .baseline_v1 import apply_baseline_v1
 
 console = Console()
 
@@ -16,13 +17,14 @@ class TargetClosedTradesReached(RuntimeError):
 
 def build_parser() -> argparse.ArgumentParser:
     p = v2.build_parser()
-    p.description = "LIVE-data arrival-book IOC paper test that stops after an exact number of closed trades"
+    p.description = "LIVE-data arrival-book IOC paper test using frozen baseline v1 and stopping after an exact number of closed trades"
     p.add_argument("--target-closed-trades", type=int, default=100)
     return p
 
 
 async def run(args: argparse.Namespace) -> None:
     target = max(1, int(args.target_closed_trades))
+    apply_baseline_v1(args)
     original_close = v2._close_trade
     last_stats: v2.Stats | None = None
 
@@ -37,16 +39,16 @@ async def run(args: argparse.Namespace) -> None:
     v2._close_trade = close_and_stop
     try:
         console.print(
-            f"[bold cyan]EXACT {target}-CLOSED-TRADE LIVE PAPER TEST[/bold cyan] - NO REAL ORDERS"
+            f"[bold cyan]EXACT {target}-CLOSED-TRADE LIVE PAPER TEST / FROZEN BASELINE V1[/bold cyan] - NO REAL ORDERS"
         )
         console.print(
-            "Strategy parameters are unchanged from the arrival-book partial-IOC runner; "
-            "only the stop condition is different."
+            "Trading parameters are forcibly loaded from baseline_v1.py; only test duration, signal ceiling, "
+            "lifetime CSV path and closed-trade stop condition remain run controls."
         )
         await v2.run(args)
     except TargetClosedTradesReached:
         if last_stats is not None:
-            console.print(f"\n[bold]FINAL EXACT {target}-TRADE REPORT[/bold]")
+            console.print(f"\n[bold]FINAL EXACT {target}-TRADE BASELINE V1 REPORT[/bold]")
             console.print(v2._summary(last_stats))
     finally:
         v2._close_trade = original_close
