@@ -11,9 +11,10 @@ from dataclasses import dataclass
 from rich.console import Console
 
 from . import demo_hybrid_test as demo
+from .demo_discovery import _fetch_contracts
 from .demo_smoke import _assert_demo_safety
 from .demo_tick_test import _trade_pnl
-from .execution import OrderSide, PositionSnapshot
+from .execution import OrderSide
 from .web_execution import MexcWebError, MexcWebExecutionAdapter, WebExecutionConfig
 
 console = Console()
@@ -34,6 +35,31 @@ class MirroredPosition:
     leverage: int
     qty: float
     entry_time: float
+
+
+async def _usable_demo_symbols(adapter: MexcWebExecutionAdapter) -> list[str]:
+    """Return Testnet contracts that physically exist and have a two-sided book.
+
+    This is an execution-only allowlist. The child BASELINE_V1 runner still
+    applies LIVE exact-0/0, Binance cross-listing, persistent-lag and every
+    frozen signal/arrival/cost gate before a symbol can produce an ENTRY.
+    """
+    contracts = await _fetch_contracts(adapter)
+    usable: list[str] = []
+    for row in contracts:
+        symbol = str(row.get("symbol") or "").upper()
+        if not symbol:
+            continue
+        try:
+            ask, bid = await asyncio.gather(
+                adapter.get_best_price(symbol, OrderSide.LONG),
+                adapter.get_best_price(symbol, OrderSide.SHORT),
+            )
+        except MexcWebError:
+            continue
+        if ask > 0 and bid > 0 and ask >= bid:
+            usable.append(symbol)
+    return sorted(set(usable))
 
 
 class DemoMirror:
@@ -138,8 +164,6 @@ class DemoMirror:
     async def exit(self, symbol: str, reason: str) -> None:
         tracked = self.positions.get(symbol)
         if tracked is None:
-            # A baseline trade can be unavailable/unfilled on Testnet. That must
-            # not alter the LIVE baseline process; simply record the mirror miss.
             return
 
         try:
@@ -153,20 +177,12 @@ class DemoMirror:
             fill = await demo._flatten_position(self.adapter, remote, f"baseline_v1_{reason}")
             total_fees = tracked.entry_fee_usdt + float(fill.fee_usdt)
             demo_pnl, price_pct, demo_roe = _trade_pnl(
-                tracked.side,
-                tracked.entry_price,
-                fill.avg_price,
-                fill.filled_qty,
-                tracked.leverage,
-                total_fees,
+                tracked.side, tracked.entry_price, fill.avg_price, fill.filled_qty,
+                tracked.leverage, total_fees,
             )
             zero_fee_pnl, _, zero_fee_roe = _trade_pnl(
-                tracked.side,
-                tracked.entry_price,
-                fill.avg_price,
-                fill.filled_qty,
-                tracked.leverage,
-                0.0,
+                tracked.side, tracked.entry_price, fill.avg_price, fill.filled_qty,
+                tracked.leverage, 0.0,
             )
             self.demo_pnl_usdt += demo_pnl
             self.zero_fee_pnl_usdt += zero_fee_pnl
@@ -185,7 +201,6 @@ class DemoMirror:
             self.positions.pop(symbol, None)
         except MexcWebError as exc:
             console.print(f"[red]DEMO MIRROR EXIT ERROR[/red] {symbol}: {exc}")
-            # Keep the position tracked so final cleanup can try again.
 
     async def flatten_all(self) -> None:
         for symbol in list(self.positions):
@@ -198,12 +213,8 @@ class DemoMirror:
                     fill = await demo._flatten_position(self.adapter, remote, "mirror_cleanup")
                     total_fees = tracked.entry_fee_usdt + float(fill.fee_usdt)
                     pnl, _, _ = _trade_pnl(
-                        tracked.side,
-                        tracked.entry_price,
-                        fill.avg_price,
-                        fill.filled_qty,
-                        tracked.leverage,
-                        total_fees,
+                        tracked.side, tracked.entry_price, fill.avg_price, fill.filled_qty,
+                        tracked.leverage, total_fees,
                     )
                     self.demo_pnl_usdt += pnl
                     console.print(f"[yellow]DEMO MIRROR CLEANUP[/yellow] {symbol} pnl_after_fees={pnl:+.6f}USDT")
@@ -220,33 +231,42 @@ async def run(args: argparse.Namespace) -> int:
 
     console.print("[bold cyan]FROZEN BASELINE V1 -> MEXC DEMO MIRROR[/bold cyan]")
     console.print(
-        "Signal/pair/entry/exit decisions come ONLY from prelive_100_trade_shadow + BASELINE_V1 on LIVE Binance/MEXC."
+        "Strategy remains BASELINE_V1. Testnet only supplies an execution-availability allowlist and real IOC/reduce-only orders."
     )
     console.print(
-        "Demo does not choose pairs and does not change thresholds. It only mirrors baseline ENTRY/EXIT decisions "
-        "with real Testnet IOC/reduce-only orders."
+        "LIVE exact-0/0 + Binance cross-list + persistent lag + all signal/RTT/cost gates remain unchanged."
     )
     console.print(
-        "Demo commissions are allowed; reported Demo PnL subtracts BOTH entry and exit fees. "
-        "No real LIVE orders are sent."
+        "Demo commissions are allowed; reported Demo PnL subtracts BOTH entry and exit fees. No real LIVE orders are sent."
     )
-
-    command = [
-        sys.executable,
-        "-u",
-        "-m",
-        "mexc_tick_scalper.prelive_100_trade_shadow",
-        "--target-closed-trades",
-        str(int(args.target_closed_trades)),
-        "--session-seconds",
-        str(int(args.session_seconds)),
-        "--max-signals",
-        str(int(args.max_signals)),
-    ]
-    if args.lifetime_csv:
-        command += ["--lifetime-csv", args.lifetime_csv]
 
     async with MexcWebExecutionAdapter(cfg) as adapter:
+        demo_symbols = await _usable_demo_symbols(adapter)
+        if not demo_symbols:
+            raise MexcWebError("Testnet has no usable contracts with a two-sided book")
+
+        console.print(
+            f"[cyan]TESTNET EXECUTION UNIVERSE[/cyan] usable_contracts={len(demo_symbols)}. "
+            "Frozen baseline will internally intersect this with LIVE exact-0/0 + persistent-lag eligibility."
+        )
+
+        command = [
+            sys.executable,
+            "-u",
+            "-m",
+            "mexc_tick_scalper.prelive_100_trade_shadow",
+            "--target-closed-trades",
+            str(int(args.target_closed_trades)),
+            "--session-seconds",
+            str(int(args.session_seconds)),
+            "--max-signals",
+            str(int(args.max_signals)),
+            "--symbol-allowlist",
+            ",".join(demo_symbols),
+        ]
+        if args.lifetime_csv:
+            command += ["--lifetime-csv", args.lifetime_csv]
+
         mirror = DemoMirror(adapter, args)
         proc = await asyncio.create_subprocess_exec(
             *command,
@@ -266,9 +286,7 @@ async def run(args: argparse.Namespace) -> int:
                 entry = ENTRY_RE.search(line)
                 if entry:
                     await mirror.entry(
-                        entry.group("symbol"),
-                        entry.group("side"),
-                        float(entry.group("filled")),
+                        entry.group("symbol"), entry.group("side"), float(entry.group("filled")),
                     )
                     continue
 
@@ -298,7 +316,7 @@ async def run(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Mirror the frozen successful baseline-v1 LIVE-paper decisions into real MEXC Testnet execution"
+        description="Mirror frozen BASELINE_V1 decisions into real MEXC Testnet, restricted to contracts that exist on Testnet"
     )
     p.add_argument("--target-closed-trades", type=int, default=100)
     p.add_argument("--session-seconds", type=int, default=86400)
@@ -306,10 +324,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--lifetime-csv", default="")
     p.add_argument("--demo-leverage", type=int, default=0, help="0 = Testnet contract maximum; execution-only setting")
     p.add_argument(
-        "--demo-max-notional-usdt",
-        type=float,
-        default=0.0,
-        help="0 = mirror the baseline paper-filled notional; positive value caps only the Testnet mirror size",
+        "--demo-max-notional-usdt", type=float, default=0.0,
+        help="0 = mirror baseline paper-filled notional; positive value caps only Testnet mirror size",
     )
     p.add_argument("--demo-ioc-cross-bps", type=float, default=1.0)
     return p
