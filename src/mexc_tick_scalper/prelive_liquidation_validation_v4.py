@@ -13,9 +13,10 @@ console = Console()
 class FixedInitialMarginBudget:
     """Adapter for legacy margin_fraction plumbing.
 
-    v2 multiplies current balance by args.margin_fraction.  This object makes
+    v2 multiplies current balance by args.margin_fraction. This object makes
     that multiplication return min(configured initial margin, current balance),
-    restoring the original isolated-margin rule without changing IOC execution.
+    so liquidation experiments can vary isolated margin without changing the
+    frozen strategy's signal/execution thresholds.
     """
 
     def __init__(self, initial_margin_usdt: float, starting_balance_usdt: float) -> None:
@@ -41,17 +42,14 @@ class FixedInitialMarginBudget:
 async def run(args) -> None:
     initial_margin = min(float(args.initial_margin_usdt), float(args.balance_usdt))
     console.print(
-        "[bold cyan]V4 ISOLATED-MARGIN RESTORE[/bold cyan] "
-        f"bank=${args.balance_usdt:.2f}; initial_margin_per_trade=${initial_margin:.2f}; "
+        "[bold cyan]V4 ISOLATED-MARGIN LIQUIDATION EXPERIMENT[/bold cyan] "
+        f"bank=${args.balance_usdt:.2f}; experimental_initial_margin=${initial_margin:.2f}; "
         f"leverage={'MEXC_MAX' if args.leverage <= 0 else str(args.leverage)+'x'}"
     )
+    console.print("Initial margin here is an experiment parameter, NOT a frozen baseline-v1 strategy parameter.")
     console.print(
         "Requested notional remains the frozen baseline target. IOC fills only liquidity inside the limit; "
         "the unfilled remainder is cancelled and is NEVER topped up."
-    )
-    console.print(
-        "Maximum requested notional per trade is additionally capped by "
-        "min(initial_margin, current_balance) * leverage."
     )
 
     args.margin_fraction = FixedInitialMarginBudget(initial_margin, args.balance_usdt)
@@ -61,14 +59,13 @@ async def run(args) -> None:
 def build_parser():
     p = base.build_parser()
     p.description = (
-        "Frozen baseline-v1 LIVE paper validation with fixed isolated initial margin, "
-        "partial IOC/no-top-up execution, real MEXC fair-price liquidation tracking, and sanity guards"
+        "Frozen baseline-v1 LIVE paper strategy with separately configurable isolated-margin liquidation experiment"
     )
     p.add_argument(
         "--initial-margin-usdt",
         type=float,
-        default=60.0,
-        help="Maximum isolated position margin per trade; capped by current account balance",
+        default=50.0,
+        help="Experimental isolated position margin for liquidation replay; not a baseline-v1 strategy threshold",
     )
     p.add_argument("--max-arrival-spread-bps", type=float, default=20.0)
     p.add_argument("--max-roundtrip-cost-bps", type=float, default=25.0)
