@@ -11,7 +11,7 @@ This document exists to prevent experiments, Demo wrappers, liquidation instrume
 
 ## Pair selection
 
-A symbol is eligible for baseline-v1 signals only when all of the following hold:
+A symbol is eligible for **production baseline-v1 trading** only when all of the following hold:
 
 1. It is currently available on MEXC Futures and cross-listed on Binance USD-M so Binance can act as the leader.
 2. The LIVE MEXC account currently confirms exact maker=0 and taker=0 for the contract.
@@ -20,7 +20,7 @@ A symbol is eligible for baseline-v1 signals only when all of the following hold
    - median lag lifetime >= 300 ms;
    - at least 50% of observed lag signals survive the measured execution RTT;
    - median signal-strength ratio >= 1.50x.
-4. Demo/Testnet activity, Demo fees, or Demo ranking **must never determine production pair selection**. For a Demo execution check, Testnet availability is only an additional execution constraint after the LIVE baseline has selected the symbol.
+4. Demo/Testnet activity or Demo fees must never redefine this production eligibility rule.
 
 ## Frozen signal / entry rules
 
@@ -70,19 +70,21 @@ Older staged-hybrid trailing experiments are historical and must not silently re
 
 ## Demo / TESTNET validation
 
-We already validated baseline-v1 alpha and arrival-book behavior on LIVE Binance + LIVE MEXC market data. Demo is therefore used only to check exchange execution mechanics without changing the strategy.
+We already validated baseline-v1 alpha and arrival-book behavior on LIVE Binance + LIVE MEXC market data. Demo is therefore used to check exchange execution mechanics.
 
-For a correct Demo forward execution test:
+For the dedicated Demo execution test:
 
-- pair selection and signal generation must come from the unchanged LIVE baseline-v1 universe and filters above;
-- only symbols that are also available/usable on MEXC Testnet can be mirrored to Demo;
+- the **production-only** exact-0/0 fee gate and historical persistent-profile gate may be bypassed solely for choosing a usable Testnet test symbol;
+- the selected test symbol must exist on MEXC Testnet, LIVE MEXC, and Binance USD-M so the same Binance->MEXC lead-lag signal can still be computed;
+- when no explicit symbol is supplied, choose an actually active Testnet symbol rather than a dead zero-fee contract;
+- once the symbol is chosen, all frozen BASELINE_V1 signal/RTT/retention/IOC/slippage/executable-cost/exit thresholds remain unchanged;
 - Testnet order writes must remain physically restricted to `futures.testnet.mexc.com`;
 - use real IOC entry and reduce-only/position-safe flattening;
 - accept actual Demo partial fills and never top up the remainder;
 - record actual submit/ACK/fill latency and remote-position reconciliation;
 - Demo fees may be non-zero; report PnL after subtracting **both opening and closing commissions**;
-- Demo fee status must not redefine LIVE baseline eligibility;
-- a zero-fee counterfactual may be reported separately, but it does not replace the actual Demo fee-paid result.
+- also report a separate zero-fee counterfactual for comparison with the production exact-0/0 universe;
+- Demo results validate execution behavior and should not be used to redefine production pair eligibility.
 
 ## Regression rule
 
