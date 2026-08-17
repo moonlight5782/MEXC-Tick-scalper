@@ -1,90 +1,89 @@
-# MEXC Tick Scalper — Strategy Execution Contract
+# MEXC Tick Scalper — Frozen Baseline V1 Contract
 
-This file records non-negotiable execution semantics that must be preserved across experiments, wrappers, liquidation tests, and refactors.
+This document exists to prevent experiments, Demo wrappers, liquidation instrumentation, or old-bot reconstruction work from silently changing the validated strategy.
 
-## Position / margin
+## Source of truth
 
-- Futures margin mode: **ISOLATED only**.
-- Total account balance is **not** the per-trade margin budget.
-- Target production per-trade initial margin is **$60 USDT** for the $100-bank configuration; smaller $10–20 margins are validation-only stages.
-- Per-trade initial margin remains explicitly configurable (`initial_margin_usdt`) and is capped by remaining account balance.
-- Effective leverage is configurable; `0` means use the current MEXC maximum for that symbol.
-- Maximum notional before book execution is `min(initial_margin_usdt, current_balance) * leverage`.
-- No pyramiding, no martingale, no adding to an already-open position.
+- The strategy source of truth is `src/mexc_tick_scalper/baseline_v1.py` together with `prelive_persistent_ioc_shadow_v2.py`.
+- `baseline_v1.py` was frozen after the successful 100-closed-trade LIVE-paper arrival-book IOC validation.
+- Do not copy parameters from the older reconstructed bot, older hybrid/Demo strategies, or later risk experiments into baseline v1.
+- The old approximately-$60 account/bot reconstruction is historical evidence only. **$60 is not a baseline-v1 production margin rule.**
 
-## IOC entry semantics
+## Pair selection
 
-- Entry is a marketable **IOC LIMIT** against the current exchange book at order-arrival time.
-- Frozen requested strategy target can remain `$10,000`, but the risk/margin cap is applied before walking the book.
-- IOC limit cross is capped by the validated baseline (`<= 1.00 bps`) in LIVE/paper validation.
-- Only price levels inside the IOC limit may fill.
-- **Partial fill is accepted.**
-- **The unfilled remainder is cancelled immediately and is NEVER topped up.**
-- Position management and PnL use only the actually filled quantity/notional.
-- Do not wait for more liquidity merely to complete the requested amount.
+A symbol is eligible for baseline-v1 signals only when all of the following hold:
 
-Example: if the strategy requests $10,000 notional but only $2,000 is executable inside the IOC limit, open $2,000 and cancel the remaining $8,000. Do not chase or refill.
+1. It is currently available on MEXC Futures and cross-listed on Binance USD-M so Binance can act as the leader.
+2. The LIVE MEXC account currently confirms exact maker=0 and taker=0 for the contract.
+3. It passes the persistent-lag profile built from the measured lifetime diagnostic:
+   - at least 4 observed signals;
+   - median lag lifetime >= 300 ms;
+   - at least 50% of observed lag signals survive the measured execution RTT;
+   - median signal-strength ratio >= 1.50x.
+4. Demo/Testnet activity, Demo fees, or Demo ranking **must never determine production pair selection**. For a Demo execution check, Testnet availability is only an additional execution constraint after the LIVE baseline has selected the symbol.
 
-## Alpha / entry baseline
+## Frozen signal / entry rules
 
-Preserve the frozen validated baseline unless an experiment is explicitly labeled as a strategy change:
+The exact values in `baseline_v1.py` remain authoritative. Key rules include:
 
-- LIVE Binance + LIVE MEXC market data.
-- Residual >= 8 bps.
-- Signal strength >= 3.0x.
-- Remaining executable edge must cover actual partial-fill roundtrip cost by +2 bps and 1.5x.
-- Arrival-time LIVE MEXC book; no artificial extra depth-update wait.
-- Exact zero-fee universe only for **production trading eligibility**.
+- requested target notional: $10,000 before IOC partial-fill reality;
+- residual >= 8 bps;
+- signal strength >= 3.0x;
+- Binance move >= 1.0 bps and leader advantage >= 1.0 bps;
+- lead ratio >= 1.35;
+- confirmation: 2 updates and >=15 ms;
+- residual retention at arrival >=60%;
+- Binance impulse retention at arrival >=75%;
+- executable edge after spread >=2 bps;
+- IOC cross <=1.0 bps;
+- average entry slippage <=1.0 bps;
+- minimum actually-filled notional $50;
+- residual must cover actual round-trip execution cost by both +2 bps and 1.5x;
+- Binance quote age <=300 ms;
+- MEXC arrival book age <=750 ms.
 
-## Exit semantics
+## IOC execution semantics
 
-- Manage only actual IOC-filled quantity.
-- Exit logic is event-driven; do **not** replace it with a conventional fixed take-profit/stop-loss pair unless running an explicitly separate experiment.
-- **Staged positive trailing / floating take-profit is mandatory.** The previously validated winner protection locks +0.5 bps after 3 bps MFE, raises the protected floor to +2 bps after 5 bps MFE, and from 6 bps MFE switches to a monotonic ratcheting trailing stop. The stop never moves backward.
-- Baseline convergence runner also retains its 1.5 bps positive trailing distance widened to at least spread where applicable; wrappers must not disable staged winner protection when using the hybrid exit policy.
-- **Emergency executable-price exit is mandatory.** If the price at which the remaining position can actually be closed deteriorates beyond the emergency threshold, flatten immediately. This guard exists specifically for book blow-outs that a mid-price stop can miss.
-- **Emergency adverse exit is mandatory.** If the MEXC mid moves against the position by the baseline adverse threshold, trigger irreversible exit immediately (`mid_adverse_cut`; baseline 3.0 bps after minimum hold).
-- **Leader retrace emergency exit is mandatory.** If Binance, the leader, retraces against the trade by the baseline threshold, exit (`leader_retrace`; baseline 1.5 bps).
-- **Residual reversal exit is mandatory.** If the residual flips to the opposite direction with sufficient magnitude, exit (`residual_reversal`; baseline 0.75 bps).
-- Normal convergence remains the primary profitable exit when MEXC catches up (`mexc_catchup_convergence`).
-- If expected catch-up fails to make progress, exit (`no_progress`; baseline 3000 ms with <0.5 bps progress).
-- Hard maximum holding time remains a final safety fallback (`timeout`; baseline 15000 ms).
-- Once any exit reason triggers, it is **irreversible**: do not cancel the exit because the signal later recovers.
-- Flattening may occur in partial chunks across successive exchange book updates when the whole actually-filled position cannot be executed at once.
-- Convergence / leader-retrace / residual-reversal / positive-trailing / adverse-cut logic are part of the validated baseline and must survive wrappers and liquidation instrumentation unchanged.
-- External risk guards (bad market data, extreme spread/cost, liquidation/session safety) may reject an entry, but must not silently redefine the alpha model or disable these exits.
+- Entry uses the current MEXC order book at simulated/real order-arrival time.
+- IOC partial fill is accepted.
+- The unfilled remainder is cancelled immediately.
+- **Never top up, chase, average, pyramid, or send another order merely to complete the original $10,000 request.**
+- Position management uses only the actually filled quantity.
 
-## Demo / TESTNET execution validation
+Example: request $10,000; only $2,000 is executable inside the IOC limit; manage $2,000 and cancel the remaining $8,000.
 
-- TESTNET/Demo is used to validate **real order lifecycle and execution mechanics**, not to re-prove alpha on illiquid Demo zero-fee symbols.
-- Demo contracts may have non-zero fees. Do **not** reject an otherwise useful active Demo pair solely because Demo fees are non-zero.
-- The primary Demo result is **net after both actual entry and actual exit fees** (`entry_fee + exit_fee`).
-- A secondary `zero_fee_pnl` may be reported as a counterfactual for transferring the same observed fills to the LIVE exact-0/0 production universe, but it must never replace the actual fee-paid Demo PnL in the execution-validation verdict.
-- Demo writes must remain physically restricted to `futures.testnet.mexc.com`.
-- Demo entry must use real IOC semantics; Demo exit must use real reduce-only flattening and remote-position reconciliation.
-- Record actual IOC POST/confirmation latency and compare remote position quantity with requested/fill quantity.
-- Never stack a new position while a previous IOC result is uncertain or while any remote position remains open.
+## Frozen exits
 
-## Liquidation validation
+Baseline-v1 exit logic remains unchanged:
 
-- Liquidation tests must add realism without changing the above execution semantics.
-- Track MEXC Fair/Mark Price during the open trade and compare it with the isolated-margin liquidation price.
-- A trade that crosses liquidation before the strategy exit is counted as liquidated even if price later recovers.
-- Missing Fair Price coverage must be reported as unknown/incomplete, never silently treated as survived.
+- `mid_adverse_cut`: 3.0 bps adverse MEXC-mid movement after the 50 ms minimum hold;
+- `leader_retrace`: 1.5 bps Binance retrace against the position;
+- `residual_reversal`: opposite residual >=0.75 bps;
+- `mexc_catchup_convergence`: MEXC catches up and residual converges;
+- `no_progress`: after 3000 ms with <0.5 bps progress;
+- positive trailing: 1.5 bps distance, widened to at least the current spread;
+- hard timeout: 15000 ms.
+
+Once an exit reason fires it is irreversible. Flattening may happen in partial chunks on successive MEXC book updates and applies only to remaining actually-filled quantity.
+
+Older staged-hybrid trailing experiments are historical and must not silently replace baseline-v1 `PositiveTrailing` unless a separately named baseline-v2 experiment is created and validated.
+
+## Demo / TESTNET validation
+
+We already validated baseline-v1 alpha and arrival-book behavior on LIVE Binance + LIVE MEXC market data. Demo is therefore used only to check exchange execution mechanics without changing the strategy.
+
+For a correct Demo forward execution test:
+
+- pair selection and signal generation must come from the unchanged LIVE baseline-v1 universe and filters above;
+- only symbols that are also available/usable on MEXC Testnet can be mirrored to Demo;
+- Testnet order writes must remain physically restricted to `futures.testnet.mexc.com`;
+- use real IOC entry and reduce-only/position-safe flattening;
+- accept actual Demo partial fills and never top up the remainder;
+- record actual submit/ACK/fill latency and remote-position reconciliation;
+- Demo fees may be non-zero; report PnL after subtracting **both opening and closing commissions**;
+- Demo fee status must not redefine LIVE baseline eligibility;
+- a zero-fee counterfactual may be reported separately, but it does not replace the actual Demo fee-paid result.
 
 ## Regression rule
 
-Any new runner or wrapper must have tests proving:
-
-1. fixed isolated initial-margin cap is separate from total account balance;
-2. target production margin for the $100-bank configuration defaults to $60, not the whole bank;
-3. partial IOC fill cancels remainder and never tops up;
-4. actual filled quantity is the only managed position quantity;
-5. max leverage does not imply using the full account as margin;
-6. liquidation/risk instrumentation does not alter the frozen baseline signal logic;
-7. staged positive trailing remains active and monotonic;
-8. adverse-cut / leader-retrace / residual-reversal / executable-price emergency exits remain active and irreversible;
-9. partial flattening after an exit trigger manages only the actual remaining quantity;
-10. Demo execution PnL subtracts both entry and exit fees and reports zero-fee PnL only as a secondary counterfactual.
-
-This contract exists specifically to prevent regressions when adding account sizing, liquidation, latency, or telemetry layers.
+Any Demo or liquidation wrapper must prove that it imports/applies `BASELINE_V1` rather than re-declaring a similar-looking set of thresholds. If a wrapper needs different thresholds, that is a new experiment and must not be labeled baseline v1.
