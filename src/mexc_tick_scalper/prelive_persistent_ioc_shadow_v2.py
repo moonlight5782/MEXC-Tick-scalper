@@ -20,7 +20,7 @@ from .persistent_lag_profile import build_profiles, latest_lifetime_csv, select_
 from .prelive_latency_diagnostic import _exit_depth_for_qty
 from .prelive_measured_rtt_diagnostic import measure_live_private_rtt, _percentile
 from .prelive_persistent_catchup_shadow import Signal, delayed_catchup_entry_ok, directional_move_bps
-from .prelive_persistent_ioc_shadow import IocFill, immediate_roundtrip_cost_bps, virtual_ioc_fill
+from .prelive_persistent_ioc_shadow import immediate_roundtrip_cost_bps, virtual_ioc_fill
 
 console = Console()
 
@@ -29,7 +29,6 @@ console = Console()
 class Pending:
     signal: Signal
     execute_at: float
-    arrival_wall_ms: int
 
 
 @dataclass(slots=True)
@@ -84,67 +83,17 @@ def _valid_snapshot(snap) -> bool:
     return snap.reason not in {"warming_up", "warming_baseline", "warming_horizon", "stale_binance", "stale_mexc"}
 
 
-def _fill_for_qty_at_limit(book: LiveBook, *, direction: int, qty: float, limit_price: float, contract_size: float) -> IocFill:
-    if qty <= 0 or contract_size <= 0:
-        return IocFill(0.0, 0.0, qty, limit_price)
-    levels = book.asks if direction > 0 else book.bids
-    remaining = qty
-    filled = 0.0
-    quote = 0.0
-    for price, contracts in levels:
-        allowed = price <= limit_price + 1e-15 if direction > 0 else price >= limit_price - 1e-15
-        if not allowed or price <= 0 or contracts <= 0:
-            continue
-        available = float(contracts) * float(contract_size)
-        take = min(remaining, available)
-        if take <= 0:
-            continue
-        filled += take
-        quote += take * float(price)
-        remaining -= take
-        if remaining <= 1e-12:
-            break
-    return IocFill(filled, quote / filled if filled > 0 else 0.0, qty, limit_price)
-
-
-def persistent_ioc_fill(
-    previous_book: LiveBook,
-    current_book: LiveBook,
-    *,
-    direction: int,
-    target_notional_usdt: float,
-    contract_size: float,
-    cross_bps: float,
-) -> IocFill:
-    """Conservative IOC fill from liquidity surviving two distinct LIVE books.
-
-    Both snapshots must independently show fillable liquidity inside the same
-    current IOC limit. The simulated fill is capped by the smaller displayed
-    quantity, then priced against the current book only.
-    """
-    current = virtual_ioc_fill(
-        current_book, direction=direction, target_notional_usdt=target_notional_usdt,
-        contract_size=contract_size, cross_bps=cross_bps,
-    )
-    if current.qty <= 0:
-        return current
-    prev_cap = _fill_for_qty_at_limit(
-        previous_book, direction=direction, qty=current.requested_qty,
-        limit_price=current.limit_price, contract_size=contract_size,
-    )
-    persistent_qty = min(current.qty, prev_cap.qty)
-    if persistent_qty <= 0:
-        return IocFill(0.0, 0.0, current.requested_qty, current.limit_price)
-    priced = _fill_for_qty_at_limit(
-        current_book, direction=direction, qty=persistent_qty,
-        limit_price=current.limit_price, contract_size=contract_size,
-    )
-    return IocFill(priced.qty, priced.avg_price, current.requested_qty, current.limit_price)
-
-
 def executable_edge_ok(residual_bps: float, cost_bps: float, min_net_bps: float, min_ratio: float) -> tuple[bool, float]:
     required = max(cost_bps + min_net_bps, cost_bps * min_ratio)
     return abs(residual_bps) >= required, required
+
+
+def entry_slippage_bps(direction: int, book: LiveBook, fill_price: float) -> float:
+    """Average IOC entry slippage from the live best executable quote."""
+    best = book.ask if direction > 0 else book.bid
+    if best <= 0 or fill_price <= 0:
+        return math.inf
+    return max(0.0, _signed_move_bps(direction, best, fill_price))
 
 
 def _summary(s: Stats) -> str:
@@ -196,11 +145,15 @@ async def run(args: argparse.Namespace) -> None:
         samples=args.rtt_samples, warmup_samples=args.rtt_warmup_samples, interval_ms=args.rtt_interval_ms,
     )
     rtt = statistics.median(rtts)
-    console.print("[bold cyan]LIVE PAPER PERSISTENT-DEPTH PARTIAL-IOC[/bold cyan] - NO REAL ORDERS")
+    console.print("[bold cyan]LIVE PAPER ARRIVAL-BOOK PARTIAL-IOC[/bold cyan] - NO REAL ORDERS")
     console.print(f"Measured private RTT median={rtt:.1f}ms p95={_percentile(rtts,.95):.1f}ms")
     console.print(
-        f"Entry requires residual>={args.min_absolute_residual_bps:.1f}bps, strength>={args.min_signal_strength_ratio:.1f}x, "
-        f"IOC liquidity surviving 2 LIVE depth updates, cost+{args.min_executable_net_edge_bps:.1f}bps and {args.min_edge_to_cost_ratio:.1f}x."
+        f"Entry uses the CURRENT LIVE MEXC book at simulated order-arrival time; no extra depth-update wait. "
+        f"IOC limit cross<={args.ioc_cross_bps:.2f}bps, avg entry slippage<={args.max_entry_slippage_bps:.2f}bps."
+    )
+    console.print(
+        f"Signal requires residual>={args.min_absolute_residual_bps:.1f}bps, strength>={args.min_signal_strength_ratio:.1f}x; "
+        f"remaining edge must beat executable roundtrip cost +{args.min_executable_net_edge_bps:.1f}bps and {args.min_edge_to_cost_ratio:.1f}x."
     )
 
     symbols = [x.mexc_symbol for x in contracts]
@@ -241,68 +194,71 @@ async def run(args: argparse.Namespace) -> None:
 
             if pending is not None and pos is None and now >= pending.execute_at:
                 sig = pending.signal
-                current = mexc.books.get(sig.symbol); previous = mexc.previous_books.get(sig.symbol)
-                # Require two distinct MEXC books observed after the measured arrival checkpoint.
-                if current is None or previous is None or previous.recv_ms < pending.arrival_wall_ms:
-                    if (now - pending.execute_at) * 1000.0 >= args.arrival_book_wait_ms:
-                        stats.expired += 1; pending = None
+                pending = None
+                current = mexc.books.get(sig.symbol)
+                snap = models[sig.symbol].snapshot(now_ms=now_ms, threshold_bps=0.0)
+                if (
+                    current is None or now_ms - current.recv_ms > args.max_book_age_ms
+                    or not fee_cache.fresh_zero(sig.symbol, now_ms) or not _valid_snapshot(snap)
+                ):
+                    stats.expired += 1
                 else:
-                    pending = None
-                    snap = models[sig.symbol].snapshot(now_ms=now_ms, threshold_bps=0.0)
-                    if (
-                        now_ms - current.recv_ms > args.max_book_age_ms or not fee_cache.fresh_zero(sig.symbol, now_ms)
-                        or not _valid_snapshot(snap)
-                    ):
+                    ok, _, _, _ = delayed_catchup_entry_ok(
+                        signal=sig, current_residual_bps=snap.edge_bps,
+                        current_binance_price=snap.binance_mid, current_spread_bps=current.spread_bps,
+                        min_residual_retention=args.min_residual_retention,
+                        min_impulse_retention=args.min_impulse_retention,
+                        min_remaining_edge_bps=args.min_absolute_residual_bps,
+                        min_edge_after_spread_bps=args.min_edge_after_spread_bps,
+                    )
+                    if not ok:
                         stats.expired += 1
                     else:
-                        ok, _, _, _ = delayed_catchup_entry_ok(
-                            signal=sig, current_residual_bps=snap.edge_bps,
-                            current_binance_price=snap.binance_mid, current_spread_bps=current.spread_bps,
-                            min_residual_retention=args.min_residual_retention,
-                            min_impulse_retention=args.min_impulse_retention,
-                            min_remaining_edge_bps=args.min_absolute_residual_bps,
-                            min_edge_after_spread_bps=args.min_edge_after_spread_bps,
+                        contract = by_symbol[sig.symbol]
+                        fill = virtual_ioc_fill(
+                            current, direction=sig.direction,
+                            target_notional_usdt=args.target_notional_usdt,
+                            contract_size=contract.contract_size, cross_bps=args.ioc_cross_bps,
                         )
-                        if not ok:
+                        notional = fill.qty * fill.avg_price
+                        slip = entry_slippage_bps(sig.direction, current, fill.avg_price)
+                        if fill.qty <= 0 or notional < args.min_filled_notional_usdt:
+                            stats.no_fill += 1
+                        elif slip > args.max_entry_slippage_bps + 1e-9:
                             stats.expired += 1
-                        else:
-                            contract = by_symbol[sig.symbol]
-                            fill = persistent_ioc_fill(
-                                previous, current, direction=sig.direction,
-                                target_notional_usdt=args.target_notional_usdt,
-                                contract_size=contract.contract_size, cross_bps=args.ioc_cross_bps,
+                            console.print(
+                                f"[yellow]SKIP SLIP[/yellow] {sig.symbol} avg_slip={slip:.2f}bps "
+                                f"limit={args.max_entry_slippage_bps:.2f}bps fill={fill.fill_ratio:.1%}"
                             )
-                            notional = fill.qty * fill.avg_price
-                            if fill.qty <= 0 or notional < args.min_filled_notional_usdt:
-                                stats.no_fill += 1
+                        else:
+                            cost = immediate_roundtrip_cost_bps(
+                                current, direction=sig.direction, entry_price=fill.avg_price,
+                                qty=fill.qty, contract_size=contract.contract_size,
+                            )
+                            edge_ok, required = executable_edge_ok(
+                                snap.edge_bps, cost, args.min_executable_net_edge_bps, args.min_edge_to_cost_ratio,
+                            )
+                            if not edge_ok:
+                                stats.expired += 1
+                                console.print(
+                                    f"[yellow]SKIP COST[/yellow] {sig.symbol} residual={abs(snap.edge_bps):.2f}bps "
+                                    f"cost={cost:.2f} required={required:.2f} fill={fill.fill_ratio:.1%}"
+                                )
                             else:
-                                cost = immediate_roundtrip_cost_bps(
-                                    current, direction=sig.direction, entry_price=fill.avg_price,
-                                    qty=fill.qty, contract_size=contract.contract_size,
+                                stats.entries += 1; stats.fills.append(fill.fill_ratio); stats.notionals.append(notional)
+                                pos = Position(
+                                    signal=sig, entry_ts_ms=now_ms, original_qty=fill.qty, remaining_qty=fill.qty,
+                                    entry_price=fill.avg_price, entry_mid=current.mid,
+                                    entry_binance_price=snap.binance_mid, entry_residual_bps=snap.edge_bps,
+                                    entry_notional=notional, entry_fill_ratio=fill.fill_ratio,
+                                    trailing=PositiveTrailing(distance_bps=max(args.trailing_distance_bps, current.spread_bps)),
                                 )
-                                edge_ok, required = executable_edge_ok(
-                                    snap.edge_bps, cost, args.min_executable_net_edge_bps, args.min_edge_to_cost_ratio,
+                                console.print(
+                                    f"[green]ENTRY[/green] {sig.symbol} {'LONG' if sig.direction>0 else 'SHORT'} "
+                                    f"requested=${args.target_notional_usdt:.0f} filled=${notional:.0f} ({fill.fill_ratio:.1%}) "
+                                    f"spread={current.spread_bps:.2f}bps slip={slip:.2f}bps "
+                                    f"residual={snap.edge_bps:+.2f}bps cost={cost:.2f}bps"
                                 )
-                                if not edge_ok:
-                                    stats.expired += 1
-                                    console.print(
-                                        f"[yellow]SKIP COST[/yellow] {sig.symbol} residual={abs(snap.edge_bps):.2f}bps "
-                                        f"cost={cost:.2f} required={required:.2f} persistent_fill={fill.fill_ratio:.1%}"
-                                    )
-                                else:
-                                    stats.entries += 1; stats.fills.append(fill.fill_ratio); stats.notionals.append(notional)
-                                    pos = Position(
-                                        signal=sig, entry_ts_ms=now_ms, original_qty=fill.qty, remaining_qty=fill.qty,
-                                        entry_price=fill.avg_price, entry_mid=current.mid,
-                                        entry_binance_price=snap.binance_mid, entry_residual_bps=snap.edge_bps,
-                                        entry_notional=notional, entry_fill_ratio=fill.fill_ratio,
-                                        trailing=PositiveTrailing(distance_bps=max(args.trailing_distance_bps, current.spread_bps)),
-                                    )
-                                    console.print(
-                                        f"[green]ENTRY[/green] {sig.symbol} {'LONG' if sig.direction>0 else 'SHORT'} "
-                                        f"requested=${args.target_notional_usdt:.0f} persistent_fill=${notional:.0f} "
-                                        f"({fill.fill_ratio:.1%}) residual={snap.edge_bps:+.2f}bps cost={cost:.2f}bps"
-                                    )
 
             if pos is not None:
                 book = mexc.books.get(pos.signal.symbol)
@@ -339,8 +295,8 @@ async def run(args: argparse.Namespace) -> None:
                         elif age_ms >= args.max_hold_ms:
                             pos.exit_reason = "timeout"
 
-                    # Once an exit is triggered it is irreversible. Consume each real
-                    # MEXC book snapshot at most once, allowing partial flattening only.
+                    # Once exit triggers it remains active. Each real MEXC book update
+                    # can provide at most one partial flatten chunk.
                     if pos.exit_reason is not None and book.recv_ms != pos.last_exit_book_recv_ms:
                         pos.last_exit_book_recv_ms = book.recv_ms
                         chunk_qty, exit_vwap = _exit_depth_for_qty(
@@ -394,11 +350,10 @@ async def run(args: argparse.Namespace) -> None:
                         leader_advantage_bps=d.leader_advantage_bps, binance_move_bps=d.binance_move_bps,
                         mexc_move_bps=d.mexc_move_bps, binance_price=snap.binance_mid, mexc_price=snap.mexc_mid,
                     )
-                    arrival_wall_ms = now_ms + int(round(rtt))
-                    pending = Pending(sig, time.monotonic() + rtt / 1000.0, arrival_wall_ms)
+                    pending = Pending(sig, time.monotonic() + rtt / 1000.0)
                     console.print(
                         f"SIGNAL #{stats.signals} {symbol} {'LONG' if d.direction>0 else 'SHORT'} "
-                        f"residual={d.residual_bps:+.2f}bps strength={strength:.2f}x spread={book.spread_bps:.2f}bps"
+                        f"residual={d.residual_bps:+.2f}bps strength={strength:.2f}x live_spread={book.spread_bps:.2f}bps"
                     )
 
             report_key = (stats.signals, stats.entries, stats.expired, stats.no_fill, stats.wins, stats.losses, stats.flats, round(stats.pnl_usdt, 6))
@@ -418,12 +373,12 @@ async def run(args: argparse.Namespace) -> None:
             pass
         await binance.close(); await mexc.close()
 
-    console.print("\n[bold]FINAL LIVE PERSISTENT-DEPTH IOC PAPER REPORT[/bold]")
+    console.print("\n[bold]FINAL LIVE ARRIVAL-BOOK IOC PAPER REPORT[/bold]")
     console.print(_summary(stats))
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="LIVE-data paper trader using persistent two-book partial IOC fills")
+    p = argparse.ArgumentParser(description="LIVE-data paper trader using the current MEXC book at simulated IOC arrival")
     p.add_argument("--session-seconds", type=float, default=1800.0); p.add_argument("--max-signals", type=int, default=300)
     p.add_argument("--target-notional-usdt", type=float, default=10000.0); p.add_argument("--lifetime-csv", default="")
     p.add_argument("--pair-min-signals", type=int, default=4); p.add_argument("--pair-min-median-lifetime-ms", type=float, default=300.0)
@@ -437,9 +392,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--confirm-updates", type=int, default=2); p.add_argument("--confirm-ms", type=int, default=15); p.add_argument("--rearm-fraction", type=float, default=0.35)
     p.add_argument("--min-signal-strength-ratio", type=float, default=3.0); p.add_argument("--min-absolute-residual-bps", type=float, default=8.0)
     p.add_argument("--min-residual-retention", type=float, default=0.60); p.add_argument("--min-impulse-retention", type=float, default=0.75)
-    p.add_argument("--min-edge-after-spread-bps", type=float, default=2.0); p.add_argument("--ioc-cross-bps", type=float, default=1.0)
+    p.add_argument("--min-edge-after-spread-bps", type=float, default=2.0)
+    p.add_argument("--ioc-cross-bps", type=float, default=1.0)
+    p.add_argument("--max-entry-slippage-bps", type=float, default=1.0)
     p.add_argument("--min-filled-notional-usdt", type=float, default=50.0); p.add_argument("--min-executable-net-edge-bps", type=float, default=2.0)
-    p.add_argument("--min-edge-to-cost-ratio", type=float, default=1.50); p.add_argument("--arrival-book-wait-ms", type=float, default=750.0)
+    p.add_argument("--min-edge-to-cost-ratio", type=float, default=1.50)
     p.add_argument("--max-binance-age-ms", type=float, default=300.0); p.add_argument("--max-mexc-age-ms", type=float, default=2000.0)
     p.add_argument("--max-book-age-ms", type=float, default=750.0); p.add_argument("--warmup-seconds", type=float, default=10.0); p.add_argument("--depth-limit", type=int, default=20)
     p.add_argument("--min-hold-ms", type=int, default=50); p.add_argument("--max-hold-ms", type=int, default=15000)
