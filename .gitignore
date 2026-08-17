@@ -26,6 +26,12 @@ data/
 *_excursions_*.csv
 live_lead_lag_*.csv
 live_shadow_trades_*.csv
+prelive_lag_lifetime_*.csv
+fair_price_trace_*.csv
+liquidation_validation_*.csv
+liquidation_replay_*.csv
+*_testnet_*.csv
+*_demo_*.csv
 xaut_*_residuals_*.csv
 xaut_*_excursions_*.csv
 
