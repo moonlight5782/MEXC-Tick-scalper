@@ -1,4 +1,5 @@
 from mexc_tick_scalper.demo_baseline_v1_mirror import ENTRY_RE, EXIT_RE
+from mexc_tick_scalper.prelive_100_trade_shadow import _parse_symbol_allowlist
 
 
 def test_entry_parser_matches_frozen_runner_output():
@@ -19,3 +20,14 @@ def test_exit_parser_matches_frozen_runner_output():
     assert match is not None
     assert match.group("symbol") == "BANK_USDT"
     assert match.group("reason") == "mexc_catchup_convergence"
+
+
+def test_symbol_allowlist_is_execution_only_and_normalized():
+    assert _parse_symbol_allowlist("ethfi_usdt, BANK_USDT,ethfi_usdt") == {
+        "ETHFI_USDT",
+        "BANK_USDT",
+    }
+
+
+def test_empty_symbol_allowlist_preserves_full_frozen_universe():
+    assert _parse_symbol_allowlist("") == set()
