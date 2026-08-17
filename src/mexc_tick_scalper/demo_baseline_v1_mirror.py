@@ -11,13 +11,18 @@ from dataclasses import dataclass
 from rich.console import Console
 
 from . import demo_hybrid_test as demo
+from .demo_activity import sample_many
 from .demo_discovery import _fetch_contracts
 from .demo_smoke import _assert_demo_safety
 from .demo_tick_test import _trade_pnl
 from .execution import OrderSide
+from .lead_lag import fetch_binance_usdm_symbols, mexc_to_binance_symbol
+from .market import MexcPublicMarket
 from .web_execution import MexcWebError, MexcWebExecutionAdapter, WebExecutionConfig
 
 console = Console()
+LIVE_REST = "https://contract.mexc.com"
+LIVE_WS = "wss://contract.mexc.com/edge"
 
 ENTRY_RE = re.compile(
     r"\bENTRY\s+(?P<symbol>[A-Z0-9_]+)\s+(?P<side>LONG|SHORT)\s+"
@@ -38,12 +43,6 @@ class MirroredPosition:
 
 
 async def _usable_demo_symbols(adapter: MexcWebExecutionAdapter) -> list[str]:
-    """Return Testnet contracts that physically exist and have a two-sided book.
-
-    This is an execution-only allowlist. The child BASELINE_V1 runner still
-    applies LIVE exact-0/0, Binance cross-listing, persistent-lag and every
-    frozen signal/arrival/cost gate before a symbol can produce an ENTRY.
-    """
     contracts = await _fetch_contracts(adapter)
     usable: list[str] = []
     for row in contracts:
@@ -60,6 +59,52 @@ async def _usable_demo_symbols(adapter: MexcWebExecutionAdapter) -> list[str]:
         if ask > 0 and bid > 0 and ask >= bid:
             usable.append(symbol)
     return sorted(set(usable))
+
+
+async def _select_demo_test_symbol(adapter: MexcWebExecutionAdapter, requested: str = "") -> str:
+    demo_symbols = await _usable_demo_symbols(adapter)
+    if not demo_symbols:
+        raise MexcWebError("Testnet has no usable contracts with a two-sided book")
+
+    binance_symbols = await fetch_binance_usdm_symbols()
+    live_rows = await MexcPublicMarket(LIVE_REST, LIVE_WS).contracts()
+    live_symbols = {str(row.get("symbol") or "").upper() for row in live_rows}
+    candidates = [
+        symbol for symbol in demo_symbols
+        if symbol in live_symbols and mexc_to_binance_symbol(symbol) in binance_symbols
+    ]
+    if requested:
+        wanted = requested.upper()
+        if wanted not in candidates:
+            raise MexcWebError(
+                f"requested Demo symbol {wanted} must exist on Testnet + LIVE MEXC and have a Binance USD-M leader"
+            )
+        return wanted
+    if not candidates:
+        raise MexcWebError("no Testnet symbol is also available on LIVE MEXC + Binance USD-M")
+
+    console.print(
+        f"[cyan]DEMO PAIR SELECTION[/cyan] {len(candidates)} Testnet contracts can use the same Binance->MEXC signal. "
+        "Measuring Testnet activity; Demo fee does NOT filter candidates."
+    )
+    activity = await sample_many(candidates, seconds=4.0)
+    ranked = sorted(
+        candidates,
+        key=lambda symbol: (
+            activity[symbol].activity_rate,
+            activity[symbol].change_rate,
+            activity[symbol].book_change_rate,
+        ),
+        reverse=True,
+    )
+    selected = ranked[0]
+    stat = activity[selected]
+    console.print(
+        f"[bold green]DEMO TEST PAIR[/bold green] {selected} "
+        f"activity={stat.activity_rate:.2f}/s trade_changes={stat.change_rate:.2f}/s "
+        f"book_changes={stat.book_change_rate:.2f}/s"
+    )
+    return selected
 
 
 class DemoMirror:
@@ -120,7 +165,7 @@ class DemoMirror:
                 price=limit_price,
                 qty=requested_qty,
                 leverage=leverage,
-                client_order_id=f"baseline-v1-mirror-{time.time_ns()}",
+                client_order_id=f"baseline-v1-demo-{time.time_ns()}",
                 timing_marks=timing,
             )
             ended_ms = time.time_ns() / 1_000_000.0
@@ -131,7 +176,7 @@ class DemoMirror:
 
             if remote is None:
                 console.print(
-                    f"[yellow]DEMO MIRROR NO FILL[/yellow] {symbol} {side_text} "
+                    f"[yellow]DEMO NO FILL[/yellow] {symbol} {side_text} "
                     f"paper_filled=${paper_filled_notional:.0f} demo_requested=${notional:.0f} "
                     f"post={post_ms:.1f}ms confirm={confirm_ms:.1f}ms"
                 )
@@ -140,36 +185,31 @@ class DemoMirror:
 
             entry_price = remote.entry_price or fill.avg_price or best
             self.positions[symbol] = MirroredPosition(
-                symbol=symbol,
-                side=side,
-                entry_price=entry_price,
-                entry_fee_usdt=float(fill.fee_usdt),
-                leverage=leverage,
-                qty=remote.qty,
-                entry_time=time.monotonic(),
+                symbol=symbol, side=side, entry_price=entry_price,
+                entry_fee_usdt=float(fill.fee_usdt), leverage=leverage,
+                qty=remote.qty, entry_time=time.monotonic(),
             )
             self.mirrored_entries += 1
             fill_ratio = remote.qty / requested_qty if requested_qty > 0 else 0.0
             console.print(
-                f"[bold green]DEMO MIRROR ENTRY[/bold green] {symbol} {side_text} "
+                f"[bold green]DEMO ENTRY[/bold green] {symbol} {side_text} "
                 f"paper_filled=${paper_filled_notional:.0f} demo_requested=${notional:.0f} "
                 f"actual_qty={remote.qty:g} fill_ratio={fill_ratio:.1%} entry={entry_price:g} "
                 f"lev={leverage}x entry_fee=${fill.fee_usdt:.6f} "
                 f"post={post_ms:.1f}ms confirm={confirm_ms:.1f}ms"
             )
         except MexcWebError as exc:
-            console.print(f"[yellow]DEMO MIRROR SKIP[/yellow] {symbol}: {exc}")
+            console.print(f"[yellow]DEMO ENTRY SKIP[/yellow] {symbol}: {exc}")
             self.skipped += 1
 
     async def exit(self, symbol: str, reason: str) -> None:
         tracked = self.positions.get(symbol)
         if tracked is None:
             return
-
         try:
             remote = await self.adapter.get_position(symbol)
             if remote is None:
-                console.print(f"[yellow]DEMO MIRROR POSITION MISSING[/yellow] {symbol} at baseline EXIT {reason}")
+                console.print(f"[yellow]DEMO POSITION MISSING[/yellow] {symbol} at strategy EXIT {reason}")
                 self.positions.pop(symbol, None)
                 self.skipped += 1
                 return
@@ -189,18 +229,18 @@ class DemoMirror:
             self.mirrored_exits += 1
             duration = time.monotonic() - tracked.entry_time
             console.print(
-                f"[bold cyan]DEMO MIRROR EXIT[/bold cyan] {symbol} reason={reason} "
+                f"[bold cyan]DEMO EXIT[/bold cyan] {symbol} reason={reason} "
                 f"exit={fill.avg_price:g} exit_fee=${fill.fee_usdt:.6f} total_fees=${total_fees:.6f}"
             )
             console.print(
-                f"[bold]DEMO MIRROR RESULT[/bold] net_after_both_fees={demo_pnl:+.6f}USDT "
+                f"[bold]DEMO RESULT[/bold] net_after_both_fees={demo_pnl:+.6f}USDT "
                 f"zero_fee_counterfactual={zero_fee_pnl:+.6f}USDT price={price_pct:+.4f}% "
                 f"demo_ROE={demo_roe:+.2f}% zero_fee_ROE={zero_fee_roe:+.2f}% duration={duration:.3f}s "
                 f"session_net={self.demo_pnl_usdt:+.6f}USDT"
             )
             self.positions.pop(symbol, None)
         except MexcWebError as exc:
-            console.print(f"[red]DEMO MIRROR EXIT ERROR[/red] {symbol}: {exc}")
+            console.print(f"[red]DEMO EXIT ERROR[/red] {symbol}: {exc}")
 
     async def flatten_all(self) -> None:
         for symbol in list(self.positions):
@@ -217,9 +257,9 @@ class DemoMirror:
                         tracked.leverage, total_fees,
                     )
                     self.demo_pnl_usdt += pnl
-                    console.print(f"[yellow]DEMO MIRROR CLEANUP[/yellow] {symbol} pnl_after_fees={pnl:+.6f}USDT")
+                    console.print(f"[yellow]DEMO CLEANUP[/yellow] {symbol} pnl_after_fees={pnl:+.6f}USDT")
             except Exception as exc:
-                console.print(f"[red]DEMO MIRROR CLEANUP FAILED[/red] {symbol}: {type(exc).__name__}: {exc}")
+                console.print(f"[red]DEMO CLEANUP FAILED[/red] {symbol}: {type(exc).__name__}: {exc}")
             finally:
                 self.positions.pop(symbol, None)
 
@@ -229,40 +269,25 @@ async def run(args: argparse.Namespace) -> int:
     cfg = WebExecutionConfig.demo_from_env(write_enabled=True)
     _assert_demo_safety(cfg)
 
-    console.print("[bold cyan]FROZEN BASELINE V1 -> MEXC DEMO MIRROR[/bold cyan]")
+    console.print("[bold cyan]FROZEN BASELINE V1 / REAL MEXC DEMO EXECUTION TEST[/bold cyan]")
     console.print(
-        "Strategy remains BASELINE_V1. Testnet only supplies an execution-availability allowlist and real IOC/reduce-only orders."
+        "This is NOT production pair selection: Demo fee=0/0 and historical persistent-profile are not required."
     )
     console.print(
-        "LIVE exact-0/0 + Binance cross-list + persistent lag + all signal/RTT/cost gates remain unchanged."
+        "The chosen Testnet pair still uses the same BASELINE_V1 signal, measured RTT, retention, IOC/slippage/cost and exit thresholds."
     )
     console.print(
-        "Demo commissions are allowed; reported Demo PnL subtracts BOTH entry and exit fees. No real LIVE orders are sent."
+        "Real Demo IOC/reduce-only orders are sent through the Demo web token. BOTH opening and closing commissions are deducted."
     )
 
     async with MexcWebExecutionAdapter(cfg) as adapter:
-        demo_symbols = await _usable_demo_symbols(adapter)
-        if not demo_symbols:
-            raise MexcWebError("Testnet has no usable contracts with a two-sided book")
-
-        console.print(
-            f"[cyan]TESTNET EXECUTION UNIVERSE[/cyan] usable_contracts={len(demo_symbols)}. "
-            "Frozen baseline will internally intersect this with LIVE exact-0/0 + persistent-lag eligibility."
-        )
-
+        symbol = await _select_demo_test_symbol(adapter, args.demo_symbol)
         command = [
-            sys.executable,
-            "-u",
-            "-m",
-            "mexc_tick_scalper.prelive_100_trade_shadow",
-            "--target-closed-trades",
-            str(int(args.target_closed_trades)),
-            "--session-seconds",
-            str(int(args.session_seconds)),
-            "--max-signals",
-            str(int(args.max_signals)),
-            "--symbol-allowlist",
-            ",".join(demo_symbols),
+            sys.executable, "-u", "-m", "mexc_tick_scalper.demo_baseline_v1_signal_test",
+            "--demo-test-symbol", symbol,
+            "--target-closed-trades", str(int(args.target_closed_trades)),
+            "--session-seconds", str(int(args.session_seconds)),
+            "--max-signals", str(int(args.max_signals)),
         ]
         if args.lifetime_csv:
             command += ["--lifetime-csv", args.lifetime_csv]
@@ -285,11 +310,8 @@ async def run(args: argparse.Namespace) -> int:
 
                 entry = ENTRY_RE.search(line)
                 if entry:
-                    await mirror.entry(
-                        entry.group("symbol"), entry.group("side"), float(entry.group("filled")),
-                    )
+                    await mirror.entry(entry.group("symbol"), entry.group("side"), float(entry.group("filled")))
                     continue
-
                 exit_match = EXIT_RE.search(line)
                 if exit_match:
                     await mirror.exit(exit_match.group("symbol"), exit_match.group("reason"))
@@ -301,12 +323,11 @@ async def run(args: argparse.Namespace) -> int:
                 try:
                     await asyncio.wait_for(proc.wait(), timeout=3.0)
                 except TimeoutError:
-                    proc.kill()
-                    await proc.wait()
+                    proc.kill(); await proc.wait()
             await mirror.flatten_all()
 
         console.print(
-            f"[bold cyan]DEMO MIRROR SUMMARY[/bold cyan] entries={mirror.mirrored_entries} "
+            f"[bold cyan]DEMO SUMMARY[/bold cyan] symbol={symbol} entries={mirror.mirrored_entries} "
             f"exits={mirror.mirrored_exits} skipped={mirror.skipped} "
             f"NET_AFTER_DEMO_FEES={mirror.demo_pnl_usdt:+.6f}USDT "
             f"ZERO_FEE_COUNTERFACTUAL={mirror.zero_fee_pnl_usdt:+.6f}USDT child_exit={code}"
@@ -315,18 +336,14 @@ async def run(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
-        description="Mirror frozen BASELINE_V1 decisions into real MEXC Testnet, restricted to contracts that exist on Testnet"
-    )
+    p = argparse.ArgumentParser(description="Run frozen BASELINE_V1 mechanics on an active MEXC Testnet pair and execute real Demo orders")
     p.add_argument("--target-closed-trades", type=int, default=100)
     p.add_argument("--session-seconds", type=int, default=86400)
     p.add_argument("--max-signals", type=int, default=3000)
     p.add_argument("--lifetime-csv", default="")
+    p.add_argument("--demo-symbol", default="", help="Optional explicit Testnet symbol; blank = automatic active cross-listed pair")
     p.add_argument("--demo-leverage", type=int, default=0, help="0 = Testnet contract maximum; execution-only setting")
-    p.add_argument(
-        "--demo-max-notional-usdt", type=float, default=0.0,
-        help="0 = mirror baseline paper-filled notional; positive value caps only Testnet mirror size",
-    )
+    p.add_argument("--demo-max-notional-usdt", type=float, default=0.0, help="0 = mirror paper-filled notional; positive value caps only Demo size")
     p.add_argument("--demo-ioc-cross-bps", type=float, default=1.0)
     return p
 
@@ -342,7 +359,7 @@ def main() -> None:
     try:
         raise SystemExit(asyncio.run(run(args)))
     except MexcWebError as exc:
-        console.print(f"[red]BASELINE V1 DEMO MIRROR FAILED:[/red] {exc}")
+        console.print(f"[red]DEMO BASELINE TEST FAILED:[/red] {exc}")
         raise SystemExit(2) from exc
 
 
