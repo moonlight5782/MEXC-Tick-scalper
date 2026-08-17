@@ -18,7 +18,7 @@ REM No LIVE order writes.
   --min-liq-distance-bps 500 ^
   --emergency-liq-distance-bps 300 ^
   --max-adverse-roe-pct 8 ^
-  --risk-poll-ms 100 ^
+  --risk-poll-ms 200 ^
   --max-risk-poll-failures 5 ^
   --max-testnet-basis-bps 50
 
