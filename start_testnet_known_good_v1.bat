@@ -3,14 +3,14 @@ setlocal
 cd /d "%~dp0"
 call .venv\Scripts\activate.bat
 
-REM Known-good 372c3b2 strategy, REAL same-symbol MEXC Testnet execution.
-REM Strategy/alpha thresholds are unchanged.
-REM IOC requests $10k once; actual Testnet partial fill is managed, remainder cancels, NO top-up/chase.
-REM Testnet position/dealVol/fees/liquidationPrice are execution source of truth.
-REM Independent safeguards: leverage cap, liquidation buffer, adverse-ROE emergency exit, risk-monitor fail-safe.
-REM No LIVE order writes.
+REM Reference: 8a0bc6043385dbaf95ec8e77b93d91fd00a7f9e5
+REM Frozen BASELINE_V1 + measured private RTT + arrival-time LIVE book.
+REM Original persistent profile and LIVE exact maker=0/taker=0 eligibility are preserved.
+REM Testnet is only the final same-symbol execution intersection.
+REM Single real Testnet IOC; partial fill is managed as-is; NO top-up/chase/retry.
+REM Independent risk layer: leverage/liquidation/ROE/API fail-safe. No LIVE order writes.
 
-.venv\Scripts\python.exe -m mexc_tick_scalper.testnet_known_good_risk ^
+.venv\Scripts\python.exe -m mexc_tick_scalper.testnet_frozen_latency_runner ^
   --target-closed-trades 100 ^
   --session-seconds 86400 ^
   --max-signals 3000 ^
