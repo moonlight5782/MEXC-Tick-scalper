@@ -1,69 +1,41 @@
 # MEXC Tick Scalper
 
-Adaptive zero-fee futures tick-scalping research bot for MEXC.
+One active product line exists: `canonical-latency-arb-v1`.
 
-## Core rules
+Frozen alpha reference: `8a0bc6043385dbaf95ec8e77b93d91fd00a7f9e5`; `372c3b2` is the known-good 100-trade paper source. `BASELINE_V1` is immutable in-place.
 
-- Trade only when **effective maker fee = 0 and effective taker fee = 0** on real trading.
-- If a fee appears, do not open new trades; keep monitoring the symbol and re-enable only after 0% maker + 0% taker is confirmed again.
-- Market selection is dynamic: symbols are ranked by current microstructure and shadow/replay performance, not hard-coded coin names.
-- Entries use short-term momentum and IOC execution semantics.
-- No pyramiding or martingale.
-- Exit follows the favorable extreme and closes on the first configured adverse tick reversal.
-- Unknown fee status, stale market data, disconnected market feed, or unknown position state blocks new entries.
+## Install
 
-## Current status
-
-The repository contains scanner, tick recorder, shadow replay, walk-forward backtest, adaptive parameter search, fee/risk gates, paper execution, web-session execution, and a dedicated MEXC Futures Demo Trading mode.
-
-Real trading remains disabled by default. Demo mode is hard-bound to `futures.testnet.mexc.com` and rejects live MEXC hosts.
-
-## Quick start
-
-```bash
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
-pip install -e .
-cp config.example.yaml config.yaml
-mexc-scalper scan --config config.yaml
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e . pytest
+copy .env.example .env
 ```
 
-Record fresh ticks and run walk-forward validation:
+Put browser-session tokens only in local `.env`; never commit them.
 
-```bash
-mexc-scalper record --symbol BTC_USDT --seconds 3600 --output data/BTC_USDT.csv --config config.yaml
-mexc-scalper backtest --symbol BTC_USDT --input data/BTC_USDT.csv --config config.yaml
+## 1. Validate LIVE alpha, read-only
+
+```powershell
+.\start_canonical_shadow.bat
 ```
 
-## MEXC Demo Trading
+The launcher is clean-clone capable. If no persistent-lag profile exists locally it first collects a current read-only LIVE Binance/MEXC lifetime sample using BASELINE_V1-compatible settings, refuses to weaken thresholds when no eligible pair exists, then starts the canonical end-to-end shadow.
 
-MEXC Demo Trading uses the separate testnet environment at `futures.testnet.mexc.com`.
+The shadow uses LIVE Binance as leader, LIVE MEXC as follower, current exact 0/0 fee eligibility, frozen arrival-book IOC economics, and continuously measured current latency. It sends no orders.
 
-Copy `.env.example` to `.env` and set `MEXC_DEMO_WEB_TOKEN` from an authenticated Demo Trading browser session. Demo credentials are intentionally separate from live credentials.
+## 2. Calibrate real Testnet execution
 
-Read-only session check:
+Set a Testnet browser token in `.env` and explicitly set `MEXC_DEMO_WRITE=YES`, then run:
 
-```bash
-mexc-scalper demo-check --symbol BTC_USDT
+```powershell
+.\start_canonical_testnet_calibrator.bat
 ```
 
-One small simulated IOC entry followed immediately by a market flatten:
+This sends MEXC Testnet orders only. It measures actual IOC submit->confirm->position-visible and close submit->confirm->flat timings, actual partial fills and fees. Testnet PnL is not used to judge the LIVE Binance->MEXC alpha.
 
-```bash
-mexc-scalper demo-roundtrip \
-  --symbol BTC_USDT \
-  --side long \
-  --notional-usdt 10 \
-  --leverage 5 \
-  --confirm-demo-order
-```
+## Source of truth
 
-`demo-roundtrip` refuses to place an order unless `--confirm-demo-order` is supplied, refuses any existing position on the selected symbol, and the Demo configuration refuses any host other than `futures.testnet.mexc.com`.
+Read `CANONICAL.md` before changing strategy or execution architecture. Historical branches are research archives only; do not merge their strategy semantics wholesale into canonical.
 
-## Safety
-
-`live_enabled` is `false` by default. Secrets, cookies, API keys, session IDs and `u_id`/WEB token values must never be committed to GitHub.
-
-The intended rollout is: walk-forward backtest -> fresh shadow/replay -> Demo Trading -> minimal real exposure -> scale only after live results match the validated strategy.
-
-This software is experimental and does not guarantee profit.
+Real-money LIVE order writes are not part of the canonical workflow and are not considered validated.

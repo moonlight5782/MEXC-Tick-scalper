@@ -14,4 +14,27 @@ jobs:
           python-version: "3.11"
       - run: python -m pip install --upgrade pip
       - run: pip install -e . pytest
-      - run: pytest -q
+      - run: python -m compileall -q src/mexc_tick_scalper
+      - run: >-
+          pytest -q
+          tests/test_baseline_v1.py
+          tests/test_arrival_book_ioc_shadow.py
+          tests/test_delayed_persistent_entry.py
+          tests/test_partial_ioc_shadow.py
+          tests/test_persistent_catchup_shadow.py
+          tests/test_persistent_depth_ioc_shadow.py
+          tests/test_persistent_lag_profile.py
+          tests/test_prelive_lag_lifetime_diagnostic.py
+          tests/test_prelive_latency_diagnostic.py
+          tests/test_lead_lag_strategy.py
+          tests/test_live_lead_lag_shadow.py
+          tests/test_live_production_runner.py
+          tests/test_live_zero_fee_universe.py
+          tests/test_microspread.py
+          tests/test_web_execution.py
+          tests/test_web_fee.py
+          tests/test_canonical_latency.py
+          tests/test_canonical_env.py
+          tests/test_canonical_execution.py
+          tests/test_canonical_bootstrap.py
+          tests/test_canonical_imports.py

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mexc-tick-scalper"
 version = "0.1.0"
-description = "Adaptive zero-fee MEXC futures tick scalper research bot"
+description = "Canonical persistent Binance-to-MEXC latency-arbitrage validation and Testnet execution tooling"
 requires-python = ">=3.11"
 dependencies = [
   "aiohttp>=3.10",
@@ -13,6 +13,7 @@ dependencies = [
   "PyYAML>=6.0",
   "pydantic>=2.7",
   "pydantic-settings>=2.3",
+  "python-dotenv>=1.0",
   "rich>=13.7",
 ]
 
