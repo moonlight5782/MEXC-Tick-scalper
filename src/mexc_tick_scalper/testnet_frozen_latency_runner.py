@@ -32,7 +32,6 @@ async def _frozen_execution_universe(
     )
     persistent = {p.symbol for p in profiles}
 
-    # Exact original production discovery: LIVE MEXC account maker=0/taker=0 + Binance USD-M cross-listing.
     production = [c for c in await discover_live_zero_fee_crosslisted() if c.mexc_symbol in persistent]
     if not production:
         raise MexcWebError("Frozen baseline has no currently eligible persistent exact-0/0 LIVE pair")
@@ -90,8 +89,8 @@ def main() -> None:
     if args.emergency_liq_distance_bps >= args.min_liq_distance_bps:
         raise SystemExit("emergency_liq_distance_bps must be lower than min_liq_distance_bps")
 
-    # risk.run imported the universe helper by value, so replace that execution-boundary dependency explicitly.
     risk._same_symbol_universe = _frozen_execution_universe
+    risk.KNOWN_GOOD_COMMIT = REFERENCE_COMMIT
     console.print(f"[bold]FROZEN LATENCY REFERENCE[/bold] {REFERENCE_COMMIT}")
     console.print(
         "BASELINE_V1 is forcibly applied. Persistent profile + LIVE exact 0/0 fee eligibility + Binance cross-listing "
