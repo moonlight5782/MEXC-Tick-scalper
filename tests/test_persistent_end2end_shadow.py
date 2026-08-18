@@ -2,9 +2,10 @@ from argparse import Namespace
 
 from mexc_tick_scalper.baseline_v1 import BASELINE_V1, apply_baseline_v1
 from mexc_tick_scalper.persistent_end2end_shadow import (
+    LatencyProvider,
     LatencySample,
-    _latency_profile,
     _load_latency_samples,
+    build_parser,
 )
 
 
@@ -53,16 +54,35 @@ def test_loads_older_demo_entry_as_build_plus_confirmation(tmp_path):
     assert _load_latency_samples(path) == [LatencySample(660.0, 350.0)]
 
 
-def test_fallback_latency_is_explicit_and_coherent():
-    args = Namespace(latency_csv="", entry_latency_ms=650.0, exit_latency_ms=350.0)
-    assert _latency_profile(args) == [LatencySample(650.0, 350.0)]
+def test_realtime_is_default_and_no_fixed_latency_cli_exists():
+    parser = build_parser()
+    args = parser.parse_args([])
+    assert args.latency_csv == ""
+    assert args.latency_profile == "p75"
+    assert not hasattr(args, "entry_latency_ms")
+    assert not hasattr(args, "exit_latency_ms")
 
 
-def test_invalid_latency_does_not_silently_become_zero():
-    args = Namespace(latency_csv="", entry_latency_ms=0.0, exit_latency_ms=350.0)
-    try:
-        _latency_profile(args)
-    except ValueError as exc:
-        assert "positive" in str(exc)
-    else:
-        raise AssertionError("zero entry latency must be rejected")
+def test_latency_provider_replay_is_only_explicit_non_realtime_mode(tmp_path):
+    path = tmp_path / "latency.csv"
+    path.write_text(
+        "signal_to_fill_ms,exit_decision_to_fill_ms\n173,339\n",
+        encoding="utf-8",
+    )
+    args = Namespace(
+        latency_profile="p75",
+        latency_max_age_seconds=2.0,
+        latency_csv=str(path),
+        latency_probe_interval_ms=250.0,
+        latency_window=31,
+        latency_min_samples=5,
+    )
+    provider = LatencyProvider(args)
+    assert provider.mode == "REPLAY:1"
+    entry = provider.entry()
+    assert entry is not None
+    assert entry.value_ms == 173.0
+    assert entry.replay_exit_ms == 339.0
+    exit_ = provider.exit(entry.replay_exit_ms)
+    assert exit_ is not None
+    assert exit_.value_ms == 339.0
