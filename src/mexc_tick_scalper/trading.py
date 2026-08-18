@@ -9,12 +9,14 @@ from .exit_logic import TickExitTracker
 from .models import Tick
 from .risk import PositionPlan
 from .state import EligibilityState
+from .trailing_stop import TrailingStopTracker
 
 
 @dataclass(slots=True)
 class ManagedPosition:
     snapshot: PositionSnapshot
     exit_tracker: TickExitTracker
+    trailing_tracker: TrailingStopTracker | None = None
 
 
 class TradingController:
@@ -30,6 +32,7 @@ class TradingController:
         self.positions: dict[str, ManagedPosition] = {}
         self.last_entry_fill: OrderFill | None = None
         self.last_exit_fill: OrderFill | None = None
+        self._lock = asyncio.Lock()
 
     async def reconcile(self, symbol: str) -> PositionSnapshot | None:
         remote = await self.execution.get_position(symbol)
@@ -47,6 +50,7 @@ class TradingController:
                     entry_price=remote.entry_price,
                     reversal_ticks=self.reversal_ticks,
                 ),
+                trailing_tracker=None,
             )
         else:
             current.snapshot = remote
@@ -61,44 +65,52 @@ class TradingController:
         plan: PositionPlan,
         eligibility: EligibilityState,
     ) -> bool:
-        if not eligibility.can_open_new_position:
-            return False
-        if symbol in self.positions:
-            return False
-        if direction not in (1, -1):
-            return False
+        async with self._lock:
+            if not eligibility.can_open_new_position:
+                return False
+            if symbol in self.positions:
+                return False
+            if direction not in (1, -1):
+                return False
 
-        side = OrderSide.LONG if direction == 1 else OrderSide.SHORT
-        fill = await self.execution.open_ioc(
-            symbol=symbol,
-            side=side,
-            price=best_price,
-            qty=plan.qty,
-            leverage=plan.leverage,
-            client_order_id=f"entry-{uuid.uuid4().hex}",
-        )
-        self.last_entry_fill = fill
-        if fill.filled_qty <= 0:
-            return False
+            side = OrderSide.LONG if direction == 1 else OrderSide.SHORT
+            fill = await self.execution.open_ioc(
+                symbol=symbol,
+                side=side,
+                price=best_price,
+                qty=plan.qty,
+                leverage=plan.leverage,
+                client_order_id=f"entry-{uuid.uuid4().hex}",
+            )
+            self.last_entry_fill = fill
+            if fill.filled_qty <= 0:
+                return False
 
-        snapshot = PositionSnapshot(
-            symbol=symbol,
-            side=side,
-            qty=fill.filled_qty,
-            entry_price=fill.avg_price,
-            leverage=plan.leverage,
-            isolated=True,
-            position_id=fill.position_id,
-        )
-        self.positions[symbol] = ManagedPosition(
-            snapshot=snapshot,
-            exit_tracker=TickExitTracker(
+            snapshot = PositionSnapshot(
+                symbol=symbol,
+                side=side,
+                qty=fill.filled_qty,
+                entry_price=fill.avg_price,
+                leverage=plan.leverage,
+                isolated=True,
+                position_id=fill.position_id,
+            )
+            trailing = TrailingStopTracker(
                 side=direction,
                 entry_price=fill.avg_price,
-                reversal_ticks=self.reversal_ticks,
-            ),
-        )
-        return True
+                start_profit_bps=5.0,
+                trailing_bps=5.0,
+            )
+            self.positions[symbol] = ManagedPosition(
+                snapshot=snapshot,
+                exit_tracker=TickExitTracker(
+                    side=direction,
+                    entry_price=fill.avg_price,
+                    reversal_ticks=self.reversal_ticks,
+                ),
+                trailing_tracker=trailing,
+            )
+            return True
 
     async def _reconcile_exit_fill(
         self,
@@ -165,6 +177,28 @@ class TradingController:
         managed = self.positions.get(tick.symbol)
         if managed is None:
             return False
+
+        # First check trailing stop (in-profit dynamic stop)
+        if managed.trailing_tracker is not None:
+            try:
+                if managed.trailing_tracker.update(tick.price):
+                    # trailing signalled exit
+                    position = managed.snapshot
+                    close_side = OrderSide.SHORT if position.side is OrderSide.LONG else OrderSide.LONG
+                    fill = await self.execution.close_market_reduce_only(
+                        symbol=tick.symbol,
+                        qty=position.qty,
+                        side=close_side,
+                        client_order_id=f"exit-{uuid.uuid4().hex}",
+                    )
+                    confirmed_fill, fully_closed = await self._reconcile_exit_fill(tick.symbol, position, fill)
+                    self.last_exit_fill = confirmed_fill
+                    return fully_closed
+            except Exception:
+                # If trailing exit fails for any reason, fall through to normal exit logic
+                pass
+
+        # Fall back to tick-exit tracker logic
         if not managed.exit_tracker.on_tick(tick.price):
             return False
 
