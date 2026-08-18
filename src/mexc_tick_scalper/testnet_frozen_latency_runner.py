@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 
 from rich.console import Console
@@ -8,6 +9,7 @@ from rich.console import Console
 from .baseline_v1 import BASELINE_V1, apply_baseline_v1
 from .execution import OrderSide
 from .live_zero_fee_universe import discover_live_zero_fee_crosslisted
+from .microspread_feed import EventMexcDepthFeed
 from .persistent_lag_profile import build_profiles, latest_lifetime_csv, select_profiles
 from .testnet_known_good_v1 import (
     _same_symbol_universe as _execution_only_testnet_universe,
@@ -18,8 +20,85 @@ from .web_execution import MexcWebError, MexcWebExecutionAdapter
 
 console = Console()
 REFERENCE_COMMIT = "8a0bc6043385dbaf95ec8e77b93d91fd00a7f9e5"
+TESTNET_WS = "wss://futures.testnet.mexc.com/edge"
+TESTNET_QUOTE_MAX_AGE_MS = 1200
 _LIFETIME_CSV = ""
 _FIDELITY_MODE = "UNSET"
+_TESTNET_FEED: EventMexcDepthFeed | None = None
+_TESTNET_WAKE: asyncio.Event | None = None
+_ORIGINAL_GET_BEST_PRICE = MexcWebExecutionAdapter.get_best_price
+_ORIGINAL_OPEN_IOC = MexcWebExecutionAdapter.open_ioc
+_ORIGINAL_RISK_POSITION = risk.RiskPosition
+_LAST_IOC_SUBMIT_MONO = 0.0
+_LAST_IOC_SUBMIT_WALL_MS = 0
+
+
+async def _start_testnet_ws_cache(symbols: list[str]) -> None:
+    """Keep Testnet executable quotes local so entry does not spend a REST RTT before POST."""
+    global _TESTNET_FEED, _TESTNET_WAKE
+    if _TESTNET_FEED is not None:
+        return
+    _TESTNET_WAKE = asyncio.Event()
+    _TESTNET_FEED = EventMexcDepthFeed(
+        symbols,
+        None,
+        _TESTNET_WAKE,
+        depth_limit=5,
+        ws_url=TESTNET_WS,
+    )
+    await _TESTNET_FEED.start()
+
+    # Give the feed a bounded startup window. Missing individual symbols still fall back to REST.
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        if _TESTNET_FEED.books:
+            break
+        try:
+            await asyncio.wait_for(_TESTNET_WAKE.wait(), timeout=0.25)
+        except TimeoutError:
+            pass
+        _TESTNET_WAKE.clear()
+
+    console.print(
+        f"TESTNET WS QUOTE CACHE ready={len(_TESTNET_FEED.books)}/{len(symbols)} "
+        f"(REST fallback only for missing/stale quotes)"
+    )
+
+
+async def _cached_get_best_price(self: MexcWebExecutionAdapter, symbol: str, side: OrderSide) -> float:
+    feed = _TESTNET_FEED
+    if feed is not None:
+        book = feed.books.get(symbol.upper())
+        now_ms = int(time.time() * 1000)
+        if book is not None and now_ms - book.recv_ms <= TESTNET_QUOTE_MAX_AGE_MS:
+            return book.ask if side is OrderSide.LONG else book.bid
+    return await _ORIGINAL_GET_BEST_PRICE(self, symbol, side)
+
+
+async def _timed_open_ioc(self: MexcWebExecutionAdapter, **kwargs):
+    """Capture the position clock at IOC POST path start, not after slow reconciliation."""
+    global _LAST_IOC_SUBMIT_MONO, _LAST_IOC_SUBMIT_WALL_MS
+    _LAST_IOC_SUBMIT_MONO = time.monotonic()
+    _LAST_IOC_SUBMIT_WALL_MS = int(time.time() * 1000)
+    return await _ORIGINAL_OPEN_IOC(self, **kwargs)
+
+
+def _risk_position_from_submit(*args, **kwargs):
+    """Correct Testnet holding-time origin to the actual IOC submit attempt.
+
+    The old runner constructed RiskPosition only after order confirmation + position visibility,
+    hiding hundreds of milliseconds in which the exchange position could already exist.
+    """
+    if _LAST_IOC_SUBMIT_MONO > 0:
+        if len(args) >= 4:
+            rows = list(args)
+            rows[2] = _LAST_IOC_SUBMIT_WALL_MS
+            rows[3] = _LAST_IOC_SUBMIT_MONO
+            args = tuple(rows)
+        else:
+            kwargs["entry_ts_ms"] = _LAST_IOC_SUBMIT_WALL_MS
+            kwargs["entry_mono"] = _LAST_IOC_SUBMIT_MONO
+    return _ORIGINAL_RISK_POSITION(*args, **kwargs)
 
 
 async def _frozen_execution_universe(
@@ -66,8 +145,8 @@ async def _frozen_execution_universe(
             continue
         try:
             ask, bid = await asyncio.gather(
-                adapter.get_best_price(symbol, OrderSide.LONG),
-                adapter.get_best_price(symbol, OrderSide.SHORT),
+                _ORIGINAL_GET_BEST_PRICE(adapter, symbol, OrderSide.LONG),
+                _ORIGINAL_GET_BEST_PRICE(adapter, symbol, OrderSide.SHORT),
             )
         except MexcWebError:
             unusable.append(symbol)
@@ -89,11 +168,13 @@ async def _frozen_execution_universe(
 
     if selected:
         _FIDELITY_MODE = "FULL_FIDELITY"
+        await _start_testnet_ws_cache([c.mexc_symbol for c in selected])
         console.print("[bold green]MODE=FULL_FIDELITY[/bold green] strategy universe and Testnet execution overlap.")
         return selected, details
 
     fallback, fallback_details = await _execution_only_testnet_universe(adapter)
     _FIDELITY_MODE = "TESTNET_EXECUTION_ONLY"
+    await _start_testnet_ws_cache([c.mexc_symbol for c in fallback])
     console.print(
         "[bold yellow]MODE=TESTNET_EXECUTION_ONLY[/bold yellow] No frozen-production symbol exists on Testnet right now."
     )
@@ -112,6 +193,14 @@ def _mode_summary(original_summary):
     return wrapped
 
 
+async def _run_with_cleanup(args) -> None:
+    try:
+        await risk.run(args)
+    finally:
+        if _TESTNET_FEED is not None:
+            await _TESTNET_FEED.close()
+
+
 def main() -> None:
     global _LIFETIME_CSV
     args = risk.build_parser().parse_args()
@@ -126,14 +215,18 @@ def main() -> None:
     risk._same_symbol_universe = _frozen_execution_universe
     risk.KNOWN_GOOD_COMMIT = REFERENCE_COMMIT
     risk._summary = _mode_summary(risk._summary)
+    risk.RiskPosition = _risk_position_from_submit
+    MexcWebExecutionAdapter.get_best_price = _cached_get_best_price
+    MexcWebExecutionAdapter.open_ioc = _timed_open_ioc
+
     console.print(f"[bold]FROZEN LATENCY REFERENCE[/bold] {REFERENCE_COMMIT}")
     console.print(
         "BASELINE_V1 is forcibly applied. The original persistent profile + LIVE exact 0/0 + Binance universe is "
-        "always evaluated first. If Testnet has no overlap, the runner continues in explicitly labelled "
-        "TESTNET_EXECUTION_ONLY mode rather than weakening or pretending to validate the production universe."
+        "always evaluated first. Testnet executable quotes are cached by WebSocket so entry does not pay an extra "
+        "REST depth RTT before IOC POST. Position hold-time starts at IOC submit, not delayed position visibility."
     )
     try:
-        asyncio.run(risk.run(args))
+        asyncio.run(_run_with_cleanup(args))
     except MexcWebError as exc:
         console.print(f"[red]FROZEN TESTNET RUN FAILED:[/red] {exc}")
         raise SystemExit(2) from exc
