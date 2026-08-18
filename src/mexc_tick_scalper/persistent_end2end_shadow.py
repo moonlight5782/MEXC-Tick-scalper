@@ -11,6 +11,7 @@ from pathlib import Path
 
 from rich.console import Console
 
+from . import prelive_persistent_ioc_shadow_v2 as v2
 from .baseline_v1 import apply_baseline_v1
 from .lead_lag_strategy import LeadLagGate
 from .live_lead_lag_shadow import PositiveTrailing
@@ -22,7 +23,7 @@ from .persistent_lag_profile import build_profiles, latest_lifetime_csv, select_
 from .prelive_latency_diagnostic import _exit_depth_for_qty
 from .prelive_persistent_catchup_shadow import Signal, delayed_catchup_entry_ok, directional_move_bps
 from .prelive_persistent_ioc_shadow import immediate_roundtrip_cost_bps, virtual_ioc_fill
-from . import prelive_persistent_ioc_shadow_v2 as v2
+from .realtime_latency import RealtimeLatencyProbe
 
 console = Console()
 REFERENCE_COMMIT = "8a0bc6043385dbaf95ec8e77b93d91fd00a7f9e5"
@@ -34,11 +35,27 @@ class LatencySample:
     exit_ms: float
 
 
+@dataclass(frozen=True, slots=True)
+class EntryLatency:
+    value_ms: float
+    age_ms: float
+    replay_exit_ms: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ExitLatency:
+    value_ms: float
+    age_ms: float
+    stale_fallback: bool = False
+
+
 @dataclass(slots=True)
 class PendingEntry:
     signal: Signal
     execute_at: float
-    latency: LatencySample
+    latency_ms: float
+    latency_age_ms: float
+    replay_exit_ms: float | None
 
 
 @dataclass(slots=True)
@@ -46,6 +63,9 @@ class PendingExit:
     reason: str
     decision_ms: int
     execute_at: float
+    latency_ms: float
+    latency_age_ms: float
+    stale_fallback: bool
     arrived: bool = False
 
 
@@ -61,7 +81,9 @@ class Position:
     entry_residual_bps: float
     entry_notional: float
     entry_fill_ratio: float
-    latency: LatencySample
+    entry_latency_ms: float
+    entry_latency_age_ms: float
+    replay_exit_ms: float | None
     trailing: PositiveTrailing
     exit_pending: PendingExit | None = None
     realized_pnl_usdt: float = 0.0
@@ -77,8 +99,11 @@ class TradeRow:
     exit_decision_ms: int
     exit_arrival_ms: int
     close_ms: int
-    modeled_entry_latency_ms: float
-    modeled_exit_latency_ms: float
+    measured_entry_latency_ms: float
+    entry_latency_age_ms: float
+    measured_exit_latency_ms: float
+    exit_latency_age_ms: float
+    exit_latency_stale_fallback: bool
     entry_price: float
     exit_vwap: float
     requested_notional_usdt: float
@@ -134,29 +159,8 @@ def _summary(s: Stats) -> str:
     )
 
 
-def _percentile(values: list[float], q: float) -> float:
-    rows = sorted(values)
-    if not rows:
-        return 0.0
-    if len(rows) == 1:
-        return rows[0]
-    pos = (len(rows) - 1) * q
-    lo = int(pos)
-    hi = min(lo + 1, len(rows) - 1)
-    frac = pos - lo
-    return rows[lo] * (1.0 - frac) + rows[hi] * frac
-
-
 def _load_latency_samples(path: Path) -> list[LatencySample]:
-    """Load one coherent entry/exit latency pair per row.
-
-    Supported historical schemas:
-    - signal_to_fill_ms + exit_decision_to_fill_ms (read-only end-to-end shadow transport profile)
-    - signal_to_provisional_ms + ioc_post_roundtrip_ms (Demo telemetry)
-    - signal_to_ioc_post_ms + ioc_confirmation_ms + ioc_post_roundtrip_ms (older Demo telemetry)
-
-    We never mix an entry metric from one row/source with an exit metric from another source.
-    """
+    """Load historical paired entry/exit samples for explicit replay only."""
     out: list[LatencySample] = []
     with path.open("r", newline="", encoding="utf-8-sig") as handle:
         for row in csv.DictReader(handle):
@@ -181,12 +185,68 @@ def _load_latency_samples(path: Path) -> list[LatencySample]:
     return out
 
 
-def _latency_profile(args: argparse.Namespace) -> list[LatencySample]:
-    if args.latency_csv:
-        return _load_latency_samples(Path(args.latency_csv))
-    if args.entry_latency_ms <= 0 or args.exit_latency_ms <= 0:
-        raise ValueError("entry/exit latency must be positive when --latency-csv is not supplied")
-    return [LatencySample(args.entry_latency_ms, args.exit_latency_ms)]
+class LatencyProvider:
+    """Realtime latency by default; historical CSV only when explicitly requested."""
+
+    def __init__(self, args: argparse.Namespace) -> None:
+        self.profile = args.latency_profile
+        self.max_age_seconds = args.latency_max_age_seconds
+        self.replay = _load_latency_samples(Path(args.latency_csv)) if args.latency_csv else []
+        self.replay_index = 0
+        self.probe = None if self.replay else RealtimeLatencyProbe(
+            interval_ms=args.latency_probe_interval_ms,
+            window=args.latency_window,
+            minimum_samples=args.latency_min_samples,
+        )
+
+    @property
+    def mode(self) -> str:
+        return f"REPLAY:{len(self.replay)}" if self.replay else f"REALTIME:{self.profile}"
+
+    async def start(self) -> None:
+        if self.probe is not None:
+            await self.probe.start()
+
+    async def close(self) -> None:
+        if self.probe is not None:
+            await self.probe.close()
+
+    def entry(self) -> EntryLatency | None:
+        if self.replay:
+            row = self.replay[self.replay_index % len(self.replay)]
+            self.replay_index += 1
+            return EntryLatency(row.entry_ms, 0.0, row.exit_ms)
+        assert self.probe is not None
+        snap = self.probe.snapshot()
+        if snap is None or snap.age_seconds() > self.max_age_seconds:
+            return None
+        return EntryLatency(snap.value(self.profile), snap.age_seconds() * 1000.0, None)
+
+    def exit(self, replay_exit_ms: float | None) -> ExitLatency | None:
+        if replay_exit_ms is not None:
+            return ExitLatency(replay_exit_ms, 0.0, False)
+        assert self.probe is not None
+        snap = self.probe.snapshot()
+        if snap is None:
+            return None
+        age_ms = snap.age_seconds() * 1000.0
+        return ExitLatency(
+            snap.value(self.profile),
+            age_ms,
+            age_ms > self.max_age_seconds * 1000.0,
+        )
+
+    def status(self) -> str:
+        if self.replay:
+            return self.mode
+        assert self.probe is not None
+        snap = self.probe.snapshot()
+        if snap is None:
+            return f"REALTIME warming error={self.probe.last_error or '-'}"
+        return (
+            f"REALTIME n={snap.samples} latest={snap.latest_ms:.1f}ms median={snap.median_ms:.1f}ms "
+            f"p75={snap.p75_ms:.1f}ms p95={snap.p95_ms:.1f}ms age={snap.age_seconds()*1000:.0f}ms"
+        )
 
 
 def _write_rows(path: Path, rows: list[TradeRow]) -> None:
@@ -201,7 +261,7 @@ def _write_rows(path: Path, rows: list[TradeRow]) -> None:
             writer.writerow(data)
 
 
-def _record_close(stats: Stats, pos: Position, row: TradeRow) -> None:
+def _record_close(stats: Stats, row: TradeRow) -> None:
     pnl = row.pnl_usdt
     stats.pnl_usdt += pnl
     stats.holds.append(float(row.hold_from_entry_ms))
@@ -232,18 +292,14 @@ async def run(args: argparse.Namespace) -> list[TradeRow]:
     if not contracts:
         raise RuntimeError("No frozen persistent pair is currently exact-0/0 and Binance-crosslisted")
 
-    latencies = _latency_profile(args)
-    entry_values = [x.entry_ms for x in latencies]
-    exit_values = [x.exit_ms for x in latencies]
+    latency = LatencyProvider(args)
+    await latency.start()
     console.print("[bold cyan]PERSISTENT END-TO-END LATENCY SHADOW[/bold cyan] - NO REAL ORDERS")
     console.print(f"Frozen reference: {REFERENCE_COMMIT}; lifetime source: {source.resolve()}")
-    console.print(
-        f"Latency profile n={len(latencies)} entry median/p95={statistics.median(entry_values):.1f}/{_percentile(entry_values,.95):.1f}ms "
-        f"exit median/p95={statistics.median(exit_values):.1f}/{_percentile(exit_values,.95):.1f}ms"
-    )
+    console.print(f"Latency source: {latency.mode}; no fixed latency constant is used in realtime mode.")
     console.print(
         "ENTRY and EXIT both execute only on the LIVE MEXC book at their modeled ARRIVAL time. "
-        "No LIVE order endpoint is used."
+        "Realtime mode re-measures latency independently at SIGNAL and EXIT DECISION."
     )
 
     symbols = [x.mexc_symbol for x in contracts]
@@ -287,9 +343,9 @@ async def run(args: argparse.Namespace) -> list[TradeRow]:
     pos: Position | None = None
     stats = Stats()
     trades: list[TradeRow] = []
-    latency_index = 0
     deadline = time.monotonic() + args.session_seconds
     warmup_until = time.monotonic() + args.warmup_seconds
+    next_latency_status = 0.0
     last_report: tuple | None = None
     output = Path(args.output)
 
@@ -302,10 +358,16 @@ async def run(args: argparse.Namespace) -> list[TradeRow]:
             now = time.monotonic()
             now_ms = int(time.time() * 1000)
 
-            # Entry arrival: this is the first point at which the signal may become a position.
+            if now >= next_latency_status:
+                console.print("LATENCY " + latency.status())
+                next_latency_status = now + args.latency_status_seconds
+
+            # Entry arrives only after the latency measured at this signal.
             if pending is not None and pos is None and now >= pending.execute_at:
                 sig = pending.signal
-                latency = pending.latency
+                entry_latency_ms = pending.latency_ms
+                entry_latency_age_ms = pending.latency_age_ms
+                replay_exit_ms = pending.replay_exit_ms
                 pending = None
                 current = mexc.books.get(sig.symbol)
                 snap = models[sig.symbol].snapshot(now_ms=now_ms, threshold_bps=0.0)
@@ -328,7 +390,7 @@ async def run(args: argparse.Namespace) -> list[TradeRow]:
                     if not ok:
                         stats.expired += 1
                         console.print(
-                            f"EXPIRED {sig.symbol} reason={why} entry_latency={latency.entry_ms:.0f}ms "
+                            f"EXPIRED {sig.symbol} reason={why} entry_latency={entry_latency_ms:.1f}ms "
                             f"residual_ret={residual_ret:.1%} impulse_ret={impulse_ret:.1%}"
                         )
                     else:
@@ -364,7 +426,7 @@ async def run(args: argparse.Namespace) -> list[TradeRow]:
                                 stats.expired += 1
                                 console.print(
                                     f"EXPIRED {sig.symbol} reason=arrival_edge_below_cost residual={abs(snap.edge_bps):.2f}bps "
-                                    f"cost={cost:.2f} required={required:.2f} entry_latency={latency.entry_ms:.0f}ms"
+                                    f"cost={cost:.2f} required={required:.2f} entry_latency={entry_latency_ms:.1f}ms"
                                 )
                             else:
                                 stats.entries += 1
@@ -381,24 +443,20 @@ async def run(args: argparse.Namespace) -> list[TradeRow]:
                                     entry_residual_bps=snap.edge_bps,
                                     entry_notional=notional,
                                     entry_fill_ratio=fill.fill_ratio,
-                                    latency=latency,
+                                    entry_latency_ms=entry_latency_ms,
+                                    entry_latency_age_ms=entry_latency_age_ms,
+                                    replay_exit_ms=replay_exit_ms,
                                     trailing=PositiveTrailing(
                                         distance_bps=max(args.trailing_distance_bps, current.spread_bps)
                                     ),
                                 )
                                 p = profile_by_symbol[sig.symbol]
-                                budget = latency.entry_ms + latency.exit_ms
-                                survival_hint = (
-                                    "P90_OK" if p.p90_lifetime_ms >= budget
-                                    else "P75_OK" if p.p75_lifetime_ms >= budget
-                                    else "BELOW_P75"
-                                )
                                 console.print(
                                     f"[green]ENTRY ARRIVED[/green] {sig.symbol} {'LONG' if sig.direction > 0 else 'SHORT'} "
                                     f"requested=${args.target_notional_usdt:.0f} filled=${notional:.0f} ({fill.fill_ratio:.1%}) "
-                                    f"entry_latency={latency.entry_ms:.0f}ms exit_latency={latency.exit_ms:.0f}ms "
-                                    f"residual={snap.edge_bps:+.2f}bps cost={cost:.2f}bps lag_p75/p90={p.p75_lifetime_ms:.0f}/{p.p90_lifetime_ms:.0f}ms "
-                                    f"budget={budget:.0f}ms {survival_hint}"
+                                    f"measured_entry_latency={entry_latency_ms:.1f}ms sample_age={entry_latency_age_ms:.0f}ms "
+                                    f"residual={snap.edge_bps:+.2f}bps cost={cost:.2f}bps "
+                                    f"lag_p75/p90={p.p75_lifetime_ms:.0f}/{p.p90_lifetime_ms:.0f}ms"
                                 )
 
             if pos is not None:
@@ -407,7 +465,7 @@ async def run(args: argparse.Namespace) -> list[TradeRow]:
                 if book is not None and v2._valid_snapshot(snap):
                     age_ms = now_ms - pos.entry_ts_ms
 
-                    # First decide to exit using the exact frozen priority. Do NOT fill yet.
+                    # Frozen exit priority decides WHEN to request an exit; latency is measured again here.
                     if pos.exit_pending is None:
                         mid_move = directional_move_bps(pos.signal.direction, pos.entry_mid, book.mid)
                         leader_move = directional_move_bps(
@@ -443,18 +501,32 @@ async def run(args: argparse.Namespace) -> list[TradeRow]:
                                 reason = "positive_trailing_stop"
                             elif age_ms >= args.max_hold_ms:
                                 reason = "timeout"
+
                         if reason is not None:
+                            exit_latency = latency.exit(pos.replay_exit_ms)
+                            if exit_latency is None:
+                                # An entered realtime trade necessarily had a measured entry sample.
+                                # If the probe has since lost every sample, use that measured value,
+                                # never a hard-coded constant and never block an exit.
+                                exit_latency = ExitLatency(
+                                    value_ms=pos.entry_latency_ms,
+                                    age_ms=pos.entry_latency_age_ms,
+                                    stale_fallback=True,
+                                )
                             pos.exit_pending = PendingExit(
                                 reason=reason,
                                 decision_ms=now_ms,
-                                execute_at=now + pos.latency.exit_ms / 1000.0,
+                                execute_at=now + exit_latency.value_ms / 1000.0,
+                                latency_ms=exit_latency.value_ms,
+                                latency_age_ms=exit_latency.age_ms,
+                                stale_fallback=exit_latency.stale_fallback,
                             )
                             console.print(
-                                f"EXIT DECISION {pos.signal.symbol} reason={reason} "
-                                f"decision_hold={age_ms}ms exit_latency={pos.latency.exit_ms:.0f}ms"
+                                f"EXIT DECISION {pos.signal.symbol} reason={reason} decision_hold={age_ms}ms "
+                                f"measured_exit_latency={exit_latency.value_ms:.1f}ms "
+                                f"sample_age={exit_latency.age_ms:.0f}ms stale_fallback={exit_latency.stale_fallback}"
                             )
 
-                    # The exit request arrives only after its modeled latency. From then on the close is sticky.
                     if pos.exit_pending is not None and now >= pos.exit_pending.execute_at:
                         pending_exit = pos.exit_pending
                         if not pending_exit.arrived:
@@ -483,12 +555,15 @@ async def run(args: argparse.Namespace) -> list[TradeRow]:
                                         signal_ms=pos.signal.ts_ms,
                                         entry_arrival_ms=pos.entry_ts_ms,
                                         exit_decision_ms=pending_exit.decision_ms,
-                                        exit_arrival_ms=pending_exit.decision_ms + int(round(pos.latency.exit_ms)),
+                                        exit_arrival_ms=pending_exit.decision_ms + int(round(pending_exit.latency_ms)),
                                         close_ms=now_ms,
-                                        modeled_entry_latency_ms=pos.latency.entry_ms,
-                                        modeled_exit_latency_ms=pos.latency.exit_ms,
+                                        measured_entry_latency_ms=pos.entry_latency_ms,
+                                        entry_latency_age_ms=pos.entry_latency_age_ms,
+                                        measured_exit_latency_ms=pending_exit.latency_ms,
+                                        exit_latency_age_ms=pending_exit.latency_age_ms,
+                                        exit_latency_stale_fallback=pending_exit.stale_fallback,
                                         entry_price=pos.entry_price,
-                                        exit_vwap=pos.entry_price * (1.0 + pos.signal.direction * pnl_bps / 10_000.0),
+                                        exit_vwap=exit_vwap,
                                         requested_notional_usdt=args.target_notional_usdt,
                                         filled_notional_usdt=pos.entry_notional,
                                         fill_ratio=pos.entry_fill_ratio,
@@ -499,11 +574,13 @@ async def run(args: argparse.Namespace) -> list[TradeRow]:
                                         exit_reason=pending_exit.reason,
                                     )
                                     trades.append(row)
-                                    _record_close(stats, pos, row)
+                                    _record_close(stats, row)
                                     _write_rows(output, trades)
                                     console.print(
                                         f"[{'green' if row.pnl_usdt > 0 else 'red'}]EXIT FILLED[/] {row.symbol} {row.exit_reason} "
                                         f"pnl={row.pnl_bps:+.2f}bps ${row.pnl_usdt:+.2f} "
+                                        f"entry_lat={row.measured_entry_latency_ms:.1f}ms "
+                                        f"exit_lat={row.measured_exit_latency_ms:.1f}ms "
                                         f"hold={row.hold_from_entry_ms}ms signal_to_close={row.signal_to_close_ms}ms"
                                     )
                                     pos = None
@@ -527,40 +604,52 @@ async def run(args: argparse.Namespace) -> list[TradeRow]:
                     if strength < args.min_signal_strength_ratio or abs(d.residual_bps) < args.min_absolute_residual_bps:
                         continue
                     candidates.append((abs(d.residual_bps), strength, d.leader_advantage_bps, symbol, d, snap, book))
+
                 if candidates:
-                    _, strength, _, symbol, d, snap, book = max(candidates, key=lambda row: (row[0], row[1], row[2]))
-                    latency = latencies[latency_index % len(latencies)]
-                    latency_index += 1
-                    stats.signals += 1
-                    sig = Signal(
-                        signal_id=f"e2e-{stats.signals}-{now_ms}",
-                        ts_ms=now_ms,
-                        symbol=symbol,
-                        direction=d.direction,
-                        residual_bps=d.residual_bps,
-                        threshold_bps=d.threshold_bps,
-                        noise_bps=d.noise_bps,
-                        spread_bps=book.spread_bps,
-                        leader_advantage_bps=d.leader_advantage_bps,
-                        binance_move_bps=d.binance_move_bps,
-                        mexc_move_bps=d.mexc_move_bps,
-                        binance_price=snap.binance_mid,
-                        mexc_price=snap.mexc_mid,
+                    _, strength, _, symbol, d, snap, book = max(
+                        candidates, key=lambda row: (row[0], row[1], row[2])
                     )
-                    pending = PendingEntry(
-                        signal=sig,
-                        execute_at=now + latency.entry_ms / 1000.0,
-                        latency=latency,
-                    )
-                    console.print(
-                        f"SIGNAL #{stats.signals} {symbol} {'LONG' if d.direction > 0 else 'SHORT'} "
-                        f"residual={d.residual_bps:+.2f}bps strength={strength:.2f}x spread={book.spread_bps:.2f}bps "
-                        f"entry_latency={latency.entry_ms:.0f}ms exit_latency={latency.exit_ms:.0f}ms"
-                    )
+                    entry_latency = latency.entry()
+                    if entry_latency is None:
+                        stats.latency_rejects += 1
+                        console.print(
+                            f"[yellow]LATENCY BLOCK[/yellow] {symbol}: no fresh realtime sample; {latency.status()}"
+                        )
+                    else:
+                        stats.signals += 1
+                        sig = Signal(
+                            signal_id=f"e2e-{stats.signals}-{now_ms}",
+                            ts_ms=now_ms,
+                            symbol=symbol,
+                            direction=d.direction,
+                            residual_bps=d.residual_bps,
+                            threshold_bps=d.threshold_bps,
+                            noise_bps=d.noise_bps,
+                            spread_bps=book.spread_bps,
+                            leader_advantage_bps=d.leader_advantage_bps,
+                            binance_move_bps=d.binance_move_bps,
+                            mexc_move_bps=d.mexc_move_bps,
+                            binance_price=snap.binance_mid,
+                            mexc_price=snap.mexc_mid,
+                        )
+                        pending = PendingEntry(
+                            signal=sig,
+                            execute_at=now + entry_latency.value_ms / 1000.0,
+                            latency_ms=entry_latency.value_ms,
+                            latency_age_ms=entry_latency.age_ms,
+                            replay_exit_ms=entry_latency.replay_exit_ms,
+                        )
+                        console.print(
+                            f"SIGNAL #{stats.signals} {symbol} {'LONG' if d.direction > 0 else 'SHORT'} "
+                            f"residual={d.residual_bps:+.2f}bps strength={strength:.2f}x spread={book.spread_bps:.2f}bps "
+                            f"measured_entry_latency={entry_latency.value_ms:.1f}ms "
+                            f"sample_age={entry_latency.age_ms:.0f}ms"
+                        )
 
             report = (
                 stats.signals, stats.entries, stats.expired, stats.no_fill,
-                stats.wins, stats.losses, stats.flats, round(stats.pnl_usdt, 6),
+                stats.latency_rejects, stats.wins, stats.losses, stats.flats,
+                round(stats.pnl_usdt, 6),
             )
             if report != last_report:
                 console.print("STATE " + _summary(stats))
@@ -580,6 +669,7 @@ async def run(args: argparse.Namespace) -> list[TradeRow]:
             pass
         await binance.close()
         await mexc.close()
+        await latency.close()
         _write_rows(output, trades)
 
     console.print("\n[bold]FINAL PERSISTENT END-TO-END REPORT[/bold]")
@@ -591,17 +681,19 @@ async def run(args: argparse.Namespace) -> list[TradeRow]:
 
 def build_parser() -> argparse.ArgumentParser:
     p = v2.build_parser()
-    p.description = "Frozen persistent Binance->LIVE MEXC alpha with separate entry and exit arrival latency"
+    p.description = "Frozen persistent Binance->LIVE MEXC alpha with realtime measured entry/exit latency"
     p.add_argument("--target-closed-trades", type=int, default=100)
-    p.add_argument("--latency-csv", default="")
     p.add_argument(
-        "--entry-latency-ms", type=float, default=650.0,
-        help="fallback entry arrival delay when no latency CSV is supplied; conservative historical Demo-like default",
+        "--latency-csv",
+        default="",
+        help="explicit historical replay only; when omitted latency is measured continuously in realtime",
     )
-    p.add_argument(
-        "--exit-latency-ms", type=float, default=350.0,
-        help="fallback exit decision->arrival delay when no latency CSV is supplied",
-    )
+    p.add_argument("--latency-profile", choices=("latest", "median", "p75", "p95"), default="p75")
+    p.add_argument("--latency-probe-interval-ms", type=float, default=250.0)
+    p.add_argument("--latency-window", type=int, default=31)
+    p.add_argument("--latency-min-samples", type=int, default=5)
+    p.add_argument("--latency-max-age-seconds", type=float, default=2.0)
+    p.add_argument("--latency-status-seconds", type=float, default=5.0)
     p.add_argument("--output", default="persistent_end2end_latency.csv")
     return p
 
