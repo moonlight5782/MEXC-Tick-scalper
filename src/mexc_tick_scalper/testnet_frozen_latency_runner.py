@@ -9,19 +9,35 @@ from .baseline_v1 import BASELINE_V1, apply_baseline_v1
 from .execution import OrderSide
 from .live_zero_fee_universe import discover_live_zero_fee_crosslisted
 from .persistent_lag_profile import build_profiles, latest_lifetime_csv, select_profiles
-from .testnet_known_good_v1 import _testnet_contract_rows
+from .testnet_known_good_v1 import (
+    _same_symbol_universe as _execution_only_testnet_universe,
+    _testnet_contract_rows,
+)
 from . import testnet_known_good_risk as risk
 from .web_execution import MexcWebError, MexcWebExecutionAdapter
 
 console = Console()
 REFERENCE_COMMIT = "8a0bc6043385dbaf95ec8e77b93d91fd00a7f9e5"
 _LIFETIME_CSV = ""
+_FIDELITY_MODE = "UNSET"
 
 
 async def _frozen_execution_universe(
     adapter: MexcWebExecutionAdapter,
 ) -> tuple[list, dict[str, dict]]:
-    """Original frozen production eligibility, intersected with Testnet only at execution boundary."""
+    """Use frozen production eligibility when possible; otherwise Testnet is execution-only.
+
+    FULL_FIDELITY means the symbol passed the original persistent-profile + LIVE exact-0/0
+    + Binance cross-listing gates and is also executable on Testnet.
+
+    TESTNET_EXECUTION_ONLY means Testnet exposes none of the currently frozen-production
+    symbols. We then use only same-symbol Binance + LIVE MEXC + Testnet instruments to
+    validate real IOC/partial-fill/reduce-only/risk mechanics. BASELINE_V1 signal/entry/exit
+    thresholds remain frozen, but results from that fallback MUST NOT be presented as a
+    faithful strategy-PnL validation because pair eligibility differs.
+    """
+    global _FIDELITY_MODE
+
     source = Path(_LIFETIME_CSV) if _LIFETIME_CSV else latest_lifetime_csv(Path.cwd())
     profiles = select_profiles(
         build_profiles(source),
@@ -70,12 +86,30 @@ async def _frozen_execution_universe(
         console.print("TESTNET UNAVAILABLE: " + ",".join(sorted(unavailable)))
     if unusable:
         console.print("TESTNET BOOK UNUSABLE: " + ",".join(sorted(unusable)))
-    if not selected:
-        raise MexcWebError(
-            "No frozen-baseline eligible pair is currently executable on Testnet. "
-            "Do not weaken strategy gates; retry when Testnet exposes an eligible symbol/book."
-        )
-    return selected, details
+
+    if selected:
+        _FIDELITY_MODE = "FULL_FIDELITY"
+        console.print("[bold green]MODE=FULL_FIDELITY[/bold green] strategy universe and Testnet execution overlap.")
+        return selected, details
+
+    fallback, fallback_details = await _execution_only_testnet_universe(adapter)
+    _FIDELITY_MODE = "TESTNET_EXECUTION_ONLY"
+    console.print(
+        "[bold yellow]MODE=TESTNET_EXECUTION_ONLY[/bold yellow] No frozen-production symbol exists on Testnet right now."
+    )
+    console.print(
+        "Frozen BASELINE_V1 thresholds/exits remain unchanged, but pair eligibility is NOT equivalent. "
+        "Use these trades only to validate real IOC partial fills, position reconciliation, fees, liquidation safeguards "
+        "and reduce-only exits; do not compare this PnL with the 8a0bc60 strategy result."
+    )
+    console.print("EXECUTION-ONLY TESTNET UNIVERSE: " + ",".join(c.mexc_symbol for c in fallback))
+    return fallback, fallback_details
+
+
+def _mode_summary(original_summary):
+    def wrapped(stats, target):
+        return f"MODE={_FIDELITY_MODE} " + original_summary(stats, target)
+    return wrapped
 
 
 def main() -> None:
@@ -91,10 +125,12 @@ def main() -> None:
 
     risk._same_symbol_universe = _frozen_execution_universe
     risk.KNOWN_GOOD_COMMIT = REFERENCE_COMMIT
+    risk._summary = _mode_summary(risk._summary)
     console.print(f"[bold]FROZEN LATENCY REFERENCE[/bold] {REFERENCE_COMMIT}")
     console.print(
-        "BASELINE_V1 is forcibly applied. Persistent profile + LIVE exact 0/0 fee eligibility + Binance cross-listing "
-        "remain unchanged; Testnet availability is only the final execution intersection."
+        "BASELINE_V1 is forcibly applied. The original persistent profile + LIVE exact 0/0 + Binance universe is "
+        "always evaluated first. If Testnet has no overlap, the runner continues in explicitly labelled "
+        "TESTNET_EXECUTION_ONLY mode rather than weakening or pretending to validate the production universe."
     )
     try:
         asyncio.run(risk.run(args))
