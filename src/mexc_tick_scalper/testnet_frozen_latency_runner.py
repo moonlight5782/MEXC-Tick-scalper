@@ -76,7 +76,7 @@ async def _cached_get_best_price(self: MexcWebExecutionAdapter, symbol: str, sid
 
 
 async def _timed_open_ioc(self: MexcWebExecutionAdapter, **kwargs):
-    """Capture the position clock at IOC POST path start, not after slow reconciliation."""
+    """Capture the position clock at IOC submit path start, not after slow reconciliation."""
     global _LAST_IOC_SUBMIT_MONO, _LAST_IOC_SUBMIT_WALL_MS
     _LAST_IOC_SUBMIT_MONO = time.monotonic()
     _LAST_IOC_SUBMIT_WALL_MS = int(time.time() * 1000)
@@ -99,6 +99,11 @@ def _risk_position_from_submit(*args, **kwargs):
             kwargs["entry_ts_ms"] = _LAST_IOC_SUBMIT_WALL_MS
             kwargs["entry_mono"] = _LAST_IOC_SUBMIT_MONO
     return _ORIGINAL_RISK_POSITION(*args, **kwargs)
+
+
+def _prime_contract_cache(adapter: MexcWebExecutionAdapter, rows: dict[str, dict]) -> None:
+    """Avoid a hidden contract-detail REST RTT inside open_ioc/_to_contract_vol."""
+    adapter._contract_cache.update({str(symbol).upper(): row for symbol, row in rows.items()})
 
 
 async def _frozen_execution_universe(
@@ -132,6 +137,7 @@ async def _frozen_execution_universe(
         raise MexcWebError("Frozen baseline has no currently eligible persistent exact-0/0 LIVE pair")
 
     testnet_rows = await _testnet_contract_rows(adapter)
+    _prime_contract_cache(adapter, testnet_rows)
     selected = []
     details: dict[str, dict] = {}
     unavailable: list[str] = []
@@ -173,6 +179,7 @@ async def _frozen_execution_universe(
         return selected, details
 
     fallback, fallback_details = await _execution_only_testnet_universe(adapter)
+    _prime_contract_cache(adapter, fallback_details)
     _FIDELITY_MODE = "TESTNET_EXECUTION_ONLY"
     await _start_testnet_ws_cache([c.mexc_symbol for c in fallback])
     console.print(
@@ -222,8 +229,8 @@ def main() -> None:
     console.print(f"[bold]FROZEN LATENCY REFERENCE[/bold] {REFERENCE_COMMIT}")
     console.print(
         "BASELINE_V1 is forcibly applied. The original persistent profile + LIVE exact 0/0 + Binance universe is "
-        "always evaluated first. Testnet executable quotes are cached by WebSocket so entry does not pay an extra "
-        "REST depth RTT before IOC POST. Position hold-time starts at IOC submit, not delayed position visibility."
+        "always evaluated first. Testnet quotes are cached by WebSocket and contract metadata is primed before trading, "
+        "so entry avoids both depth and contract-detail REST RTTs before IOC POST. Position hold-time starts at IOC submit."
     )
     try:
         asyncio.run(_run_with_cleanup(args))
