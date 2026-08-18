@@ -1,7 +1,10 @@
 import asyncio
+import time
 from types import SimpleNamespace
 
 from mexc_tick_scalper.baseline_v1 import BASELINE_V1, apply_baseline_v1
+from mexc_tick_scalper.execution import OrderSide
+from mexc_tick_scalper.microspread_feed import LiveBook
 from mexc_tick_scalper import testnet_frozen_latency_runner as runner
 
 
@@ -28,6 +31,7 @@ def _patch_profile(monkeypatch, tmp_path, *, production_symbol="KEEP_USDT", test
     lifetime = tmp_path / "lifetime.csv"
     lifetime.write_text("placeholder", encoding="utf-8")
     runner._LIFETIME_CSV = str(lifetime)
+    runner._TESTNET_FEED = None
     monkeypatch.setattr(runner, "build_profiles", lambda source: ["profiles"])
     monkeypatch.setattr(
         runner,
@@ -44,6 +48,7 @@ def _patch_profile(monkeypatch, tmp_path, *, production_symbol="KEEP_USDT", test
         "_testnet_contract_rows",
         lambda adapter: _async_result(testnet_rows or {}),
     )
+    monkeypatch.setattr(runner, "_start_testnet_ws_cache", lambda symbols: _async_result(None))
 
 
 def test_testnet_is_only_final_intersection(monkeypatch, tmp_path):
@@ -76,6 +81,49 @@ def test_summary_always_labels_fidelity_mode():
     runner._FIDELITY_MODE = "TESTNET_EXECUTION_ONLY"
     wrapped = runner._mode_summary(lambda stats, target: "closed=1/100")
     assert wrapped(None, 100) == "MODE=TESTNET_EXECUTION_ONLY closed=1/100"
+
+
+def test_cached_testnet_quote_avoids_rest(monkeypatch):
+    now_ms = int(time.time() * 1000)
+    runner._TESTNET_FEED = SimpleNamespace(
+        books={
+            "BTC_USDT": LiveBook(
+                bid=99.0,
+                ask=101.0,
+                recv_ms=now_ms,
+                exchange_ts_ms=now_ms,
+                bids=((99.0, 1.0),),
+                asks=((101.0, 1.0),),
+            )
+        }
+    )
+
+    async def fail_rest(*args, **kwargs):
+        raise AssertionError("REST depth must not be called for a fresh WS quote")
+
+    monkeypatch.setattr(runner, "_ORIGINAL_GET_BEST_PRICE", fail_rest)
+    long_price = asyncio.run(runner._cached_get_best_price(FakeAdapter(), "BTC_USDT", OrderSide.LONG))
+    short_price = asyncio.run(runner._cached_get_best_price(FakeAdapter(), "BTC_USDT", OrderSide.SHORT))
+    assert long_price == 101.0
+    assert short_price == 99.0
+    runner._TESTNET_FEED = None
+
+
+def test_position_clock_is_rebased_to_ioc_submit(monkeypatch):
+    captured = {}
+
+    def fake_constructor(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return SimpleNamespace()
+
+    monkeypatch.setattr(runner, "_ORIGINAL_RISK_POSITION", fake_constructor)
+    runner._LAST_IOC_SUBMIT_WALL_MS = 123456
+    runner._LAST_IOC_SUBMIT_MONO = 42.5
+
+    runner._risk_position_from_submit("signal", "remote", 999999, 999.0, "rest")
+    assert captured["args"][2] == 123456
+    assert captured["args"][3] == 42.5
 
 
 async def _async_value(value):
