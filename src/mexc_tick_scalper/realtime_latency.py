@@ -23,14 +23,22 @@ class RealtimeLatencySnapshot:
         current = time.monotonic() if now is None else now
         return max(0.0, current - self.measured_at)
 
+    def value(self, profile: str) -> float:
+        if profile == "latest":
+            return self.latest_ms
+        if profile == "median":
+            return self.median_ms
+        if profile == "p95":
+            return self.p95_ms
+        return self.p75_ms
+
 
 class RealtimeLatencyProbe:
     """Continuously measure the current MEXC LIVE private request path.
 
-    This is deliberately a transport-path proxy, not a claim that a read-only
-    request has identical matching-engine latency to an IOC.  It is still much
-    safer than a fixed historical constant because every trading decision uses
-    a value measured from the current process/network/session.
+    This is a transport-path proxy, not a claim that a read-only request has
+    identical matching-engine latency to an IOC.  It replaces fixed historical
+    constants with measurements from the current process/network/session.
     """
 
     def __init__(
@@ -79,13 +87,11 @@ class RealtimeLatencyProbe:
         snap = self.snapshot()
         if snap is None or snap.age_seconds() > max(0.1, float(max_age_seconds)):
             return None
-        if profile == "latest":
-            return snap.latest_ms
-        if profile == "median":
-            return snap.median_ms
-        if profile == "p95":
-            return snap.p95_ms
-        return snap.p75_ms
+        return snap.value(profile)
+
+    def last_known_ms(self, *, profile: str = "p75") -> float | None:
+        snap = self.snapshot()
+        return snap.value(profile) if snap is not None else None
 
     async def start(self) -> None:
         if self._task is not None and not self._task.done():
