@@ -5,7 +5,7 @@ from pathlib import Path
 
 from rich.console import Console
 
-from .baseline_v1 import apply_baseline_v1
+from .baseline_v1 import BASELINE_V1, apply_baseline_v1
 from .execution import OrderSide
 from .live_zero_fee_universe import discover_live_zero_fee_crosslisted
 from .persistent_lag_profile import build_profiles, latest_lifetime_csv, select_profiles
@@ -15,23 +15,24 @@ from .web_execution import MexcWebError, MexcWebExecutionAdapter
 
 console = Console()
 REFERENCE_COMMIT = "8a0bc6043385dbaf95ec8e77b93d91fd00a7f9e5"
+_LIFETIME_CSV = ""
 
 
 async def _frozen_execution_universe(
     adapter: MexcWebExecutionAdapter,
 ) -> tuple[list, dict[str, dict]]:
     """Original frozen production eligibility, intersected with Testnet only at execution boundary."""
-    source = latest_lifetime_csv(Path.cwd())
+    source = Path(_LIFETIME_CSV) if _LIFETIME_CSV else latest_lifetime_csv(Path.cwd())
     profiles = select_profiles(
         build_profiles(source),
-        min_signals=risk.BASELINE_V1["pair_min_signals"] if hasattr(risk, "BASELINE_V1") else 4,
-        min_median_lifetime_ms=300.0,
-        min_survival_rate=0.50,
-        min_signal_strength_ratio=1.50,
+        min_signals=BASELINE_V1["pair_min_signals"],
+        min_median_lifetime_ms=BASELINE_V1["pair_min_median_lifetime_ms"],
+        min_survival_rate=BASELINE_V1["pair_min_survival_rate"],
+        min_signal_strength_ratio=BASELINE_V1["pair_min_strength_ratio"],
     )
     persistent = {p.symbol for p in profiles}
 
-    # This preserves the original LIVE exact maker=0/taker=0 + Binance cross-listed discovery.
+    # Exact original production discovery: LIVE MEXC account maker=0/taker=0 + Binance USD-M cross-listing.
     production = [c for c in await discover_live_zero_fee_crosslisted() if c.mexc_symbol in persistent]
     if not production:
         raise MexcWebError("Frozen baseline has no currently eligible persistent exact-0/0 LIVE pair")
@@ -79,8 +80,11 @@ async def _frozen_execution_universe(
 
 
 def main() -> None:
+    global _LIFETIME_CSV
     args = risk.build_parser().parse_args()
     apply_baseline_v1(args)
+    _LIFETIME_CSV = args.lifetime_csv
+
     if args.target_closed_trades <= 0 or args.risk_max_leverage <= 0:
         raise SystemExit("target_closed_trades and risk_max_leverage must be positive")
     if args.emergency_liq_distance_bps >= args.min_liq_distance_bps:
