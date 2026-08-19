@@ -5,7 +5,9 @@ import asyncio
 from rich.console import Console
 
 from . import live_production_runner_v2 as live_v2
+from .execution import PositionSnapshot
 from .lead_lag_strategy import LagDecision, LeadLagGate
+from .web_execution import MexcWebError
 
 console = Console()
 SYMBOL = "BTW_USDT"
@@ -16,9 +18,8 @@ MIN_SIGNAL_STRENGTH_RATIO = 3.0
 class FrozenBTWGate(LeadLagGate):
     """LeadLagGate with the validated frozen absolute residual/strength gates.
 
-    This changes only candidate admission. Actual order latency is NOT simulated:
-    in LIVE mode the IOC is submitted immediately and the real network/exchange
-    path supplies the actual execution latency.
+    Actual order latency is NOT simulated in LIVE mode: the IOC is submitted
+    immediately and the real network/exchange path supplies execution latency.
     """
 
     def observe(self, symbol, snap, spread_bps, now_ms, *, event_key=None):  # type: ignore[override]
@@ -52,6 +53,26 @@ class FrozenBTWGate(LeadLagGate):
                 d.leader_advantage_bps,
             )
         return d
+
+
+async def _resolve_fill_without_position_poll(adapter, symbol, side, fill, leverage):
+    """Use the confirmed IOC fill immediately instead of another private GET loop.
+
+    If MEXC returned positionId with the fill, the exit path can submit the exact
+    reduce-only close immediately from this cached snapshot. If positionId is
+    absent, the existing close adapter still has its safe GET fallback.
+    """
+    if fill.filled_qty <= 0:
+        raise MexcWebError("IOC returned no fill")
+    return PositionSnapshot(
+        symbol=symbol,
+        side=side,
+        qty=fill.filled_qty,
+        entry_price=fill.avg_price,
+        leverage=leverage,
+        isolated=True,
+        position_id=fill.position_id,
+    )
 
 
 def build_parser():
@@ -97,18 +118,21 @@ async def run(args) -> None:
     args.adverse_spread_multiple = 1.0
     args.trailing_distance_bps = 1.5
 
+    # First-live-run hard safety caps.
     if args.target_notional_usdt <= 0 or args.target_notional_usdt > 10.0:
         raise SystemExit("BTW LIVE safety cap: --target-notional-usdt must be >0 and <=10 USDT")
-    if args.leverage < 1 or args.leverage > 1:
+    if args.leverage != 1:
         raise SystemExit("BTW LIVE safety cap: first validation run is locked to --leverage 1")
     if args.max_cycles <= 0 or args.max_cycles > 10:
         raise SystemExit("BTW LIVE safety cap: --max-cycles must be between 1 and 10")
     if args.max_session_loss_usdt <= 0 or args.max_session_loss_usdt > 2.0:
         raise SystemExit("BTW LIVE safety cap: --max-session-loss-usdt must be >0 and <=2 USDT")
 
-    # Inject the frozen gate into the already-audited LIVE execution engine.
+    # Inject only the frozen candidate gate and low-latency post-fill resolver.
     original_gate = live_v2.LeadLagGate
+    original_resolver = live_v2._resolve_remote_position
     live_v2.LeadLagGate = FrozenBTWGate
+    live_v2._resolve_remote_position = _resolve_fill_without_position_poll
     try:
         console.print("[bold red]BTW LIVE FROZEN EXECUTION[/bold red]")
         console.print("ONLY BTW_USDT; REAL MEXC orders; LIVE Binance + LIVE MEXC market data")
@@ -120,10 +144,11 @@ async def run(args) -> None:
             f"Safety: target=${args.target_notional_usdt:.2f}, leverage={args.leverage}x, "
             f"max_cycles={args.max_cycles}, max_session_loss=${args.max_session_loss_usdt:.2f}"
         )
-        console.print("No artificial entry delay: IOC is submitted immediately after a valid LIVE signal.")
+        console.print("No artificial entry delay; no post-fill position polling before strategy monitoring.")
         await live_v2.run(args)
     finally:
         live_v2.LeadLagGate = original_gate
+        live_v2._resolve_remote_position = original_resolver
 
 
 def main() -> None:
