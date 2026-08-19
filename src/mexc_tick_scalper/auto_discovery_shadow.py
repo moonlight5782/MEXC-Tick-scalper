@@ -21,8 +21,9 @@ from .realtime_latency import RealtimeLatencyProbe
 console = Console()
 START_BANK_USDT = 100.0
 REQUESTED_LEVERAGE = 200.0
-MAX_ISOLATED_MARGIN_FRACTION = 0.10
-MAX_SESSION_DRAWDOWN_FRACTION = 0.20
+TARGET_MARGIN_USDT = 50.0
+MAX_MARGIN_FRACTION_OF_EQUITY = 0.80
+MAX_SESSION_DRAWDOWN_FRACTION = 0.60
 EMERGENCY_ADVERSE_BPS = 0.01
 DISCOVERY_LATENCY_TIMEOUT_S = 12.0
 
@@ -44,8 +45,15 @@ class BankState:
         return START_BANK_USDT * (1.0 - MAX_SESSION_DRAWDOWN_FRACTION)
 
     @property
-    def max_isolated_margin_usdt(self) -> float:
-        return max(0.0, self.balance_usdt) * MAX_ISOLATED_MARGIN_FRACTION
+    def isolated_margin_usdt(self) -> float:
+        # Restore the legacy ~$10k-at-200x profile while always keeping a cash
+        # reserve outside the isolated position. At $100 -> $50 margin. At $60
+        # -> min($50, 80%*$60=$48), so the account is never all-in.
+        return min(TARGET_MARGIN_USDT, max(0.0, self.balance_usdt) * MAX_MARGIN_FRACTION_OF_EQUITY)
+
+    @property
+    def reserve_usdt(self) -> float:
+        return max(0.0, self.balance_usdt - self.isolated_margin_usdt)
 
 
 BANK = BankState()
@@ -157,12 +165,12 @@ def _auto_sized_virtual_ioc_fill(
 ):
     del target_notional_usdt
     leverage = _effective_leverage(CURRENT_SYMBOL)
-    isolated_margin = BANK.max_isolated_margin_usdt
+    isolated_margin = BANK.isolated_margin_usdt
     requested = isolated_margin * leverage
     console.print(
         f"[cyan]RISK SIZE[/cyan] {CURRENT_SYMBOL} bank=${BANK.balance_usdt:.2f} "
-        f"margin_cap={MAX_ISOLATED_MARGIN_FRACTION:.0%}=${isolated_margin:.2f} "
-        f"leverage={leverage:.0f}x max_notional=${requested:.2f}"
+        f"isolated_margin=${isolated_margin:.2f} reserve=${BANK.reserve_usdt:.2f} "
+        f"leverage={leverage:.0f}x requested_notional=${requested:.2f}"
     )
     return _ORIGINAL_VIRTUAL_IOC_FILL(
         book,
@@ -199,7 +207,7 @@ def _auto_record_close(stats, row) -> None:
 
 
 def _auto_budget(now, deadline, stats, args, trades) -> bool:
-    risk_ok = BANK.balance_usdt > BANK.drawdown_stop_balance
+    risk_ok = BANK.balance_usdt > BANK.drawdown_stop_balance and BANK.isolated_margin_usdt > 0.0
     return risk_ok and _ORIGINAL_BUDGET(now, deadline, stats, args, trades)
 
 
@@ -271,7 +279,7 @@ async def run(args):
     args.min_hold_ms = 0
     args.mid_adverse_cut_bps = EMERGENCY_ADVERSE_BPS
     args.trailing_distance_bps = 0.0
-    args.target_notional_usdt = START_BANK_USDT * REQUESTED_LEVERAGE * MAX_ISOLATED_MARGIN_FRACTION
+    args.target_notional_usdt = TARGET_MARGIN_USDT * REQUESTED_LEVERAGE
 
     original_gate = runner.delayed_catchup_entry_ok
     original_fill = runner.virtual_ioc_fill
@@ -286,8 +294,8 @@ async def run(args):
     try:
         console.print(
             f"[bold cyan]AUTO SHADOW RISK[/bold cyan] bank=${START_BANK_USDT:.2f} isolated "
+            f"target_margin=${TARGET_MARGIN_USDT:.2f}; reserve>=20% equity; "
             f"requested_leverage={REQUESTED_LEVERAGE:.0f}x; effective=min(requested,LIVE max); "
-            f"max_margin_per_trade={MAX_ISOLATED_MARGIN_FRACTION:.0%}; "
             f"session_kill_drawdown={MAX_SESSION_DRAWDOWN_FRACTION:.0%}"
         )
         rows = await runner.run(args)
