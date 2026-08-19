@@ -31,7 +31,10 @@ if errorlevel 1 (
 echo Lifetime source: %LIFETIME_SRC%
 echo Filtered pair: BTW_USDT ONLY
 echo Market data: LIVE Binance + LIVE MEXC
+echo Starting separate BTW gate diagnostic window...
 echo.
+
+start "BTW LIVE WATCH" cmd /k "cd /d %CD% && .venv\Scripts\python.exe -m mexc_tick_scalper.btw_live_watch --interval 1"
 
 .venv\Scripts\python.exe -m mexc_tick_scalper.persistent_end2end_shadow ^
   --lifetime-csv "%BTW_LIFETIME%" ^
