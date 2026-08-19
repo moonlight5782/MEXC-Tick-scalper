@@ -10,8 +10,11 @@ echo  NO REAL ORDERS - READ ONLY
 echo  scans current exact-0/0 Binance-crosslisted MEXC futures
 echo  ranks persistent lag against CURRENT measured LIVE MEXC RTT
 echo  bank: 100 USDT; isolated margin
+echo  historical target notional: 10000 USDT
 echo  requested leverage: 200x; effective leverage capped per LIVE contract
-echo  emergency exit: first adverse move + CURRENT measured exit latency
+echo  emergency/reversal exit: DECIDE IMMEDIATELY on first observed bad market event
+echo  exit execution delay: measured network/exchange latency only; no synthetic hold
+echo  same symbol stays monitored after close and may trade again after a NEW re-armed impulse
 echo  floating stop: LIVE-spread trailing distance
 echo ============================================================
 
