@@ -325,7 +325,7 @@ async def run(args: argparse.Namespace) -> list[TradeRow]:
     console.print(f"Latency source: {latency.mode}; no fixed latency constant is used in realtime mode.")
     console.print(
         "ENTRY and EXIT both execute on LIVE MEXC depth at modeled arrival. "
-        "After EXIT DECISION, closing is sticky and never waits for Binance/alpha validity again."
+        "After EXIT DECISION, closing is sticky and never waits for Binance/alpha validity or a new MEXC depth update."
     )
 
     symbols = [x.mexc_symbol for x in contracts]
@@ -394,9 +394,6 @@ async def run(args: argparse.Namespace) -> list[TradeRow]:
                 console.print("LATENCY " + latency.status())
                 next_latency_status = now + args.latency_status_seconds
 
-            # Entry arrives only after latency captured at signal time.  If the
-            # session boundary was crossed after signal acceptance, the pending
-            # entry is still resolved honestly and any resulting position drained.
             if pending is not None and pos is None and now >= pending.execute_at:
                 sig = pending.signal
                 entry_latency_ms = pending.latency_ms
@@ -499,9 +496,6 @@ async def run(args: argparse.Namespace) -> list[TradeRow]:
             if pos is not None:
                 book = mexc.books.get(pos.signal.symbol)
 
-                # Once an exit decision exists it is sticky.  Binance state,
-                # residual validity and fee state can no longer delay arrival.
-                # Only a usable MEXC depth snapshot is needed to model the fill.
                 if pos.exit_pending is not None:
                     pending_exit = pos.exit_pending
                     if now >= pending_exit.execute_at:
@@ -514,12 +508,7 @@ async def run(args: argparse.Namespace) -> list[TradeRow]:
                                 f"decision_to_arrival={now_ms-pending_exit.decision_ms}ms "
                                 f"schedule_overrun={overrun}ms"
                             )
-                        if (
-                            book is not None
-                            and 0 <= now_ms - book.recv_ms <= args.max_book_age_ms
-                            and book.recv_ms != pos.last_exit_book_recv_ms
-                        ):
-                            pos.last_exit_book_recv_ms = book.recv_ms
+                        if book is not None:
                             chunk_qty, exit_vwap = _exit_depth_for_qty(
                                 book,
                                 direction=pos.signal.direction,
@@ -576,8 +565,6 @@ async def run(args: argparse.Namespace) -> list[TradeRow]:
                                     )
                                     pos = None
 
-                # Exit decision still uses the exact frozen priority and alpha
-                # state.  Only the post-decision execution path was separated.
                 elif book is not None:
                     snap = models[pos.signal.symbol].snapshot(now_ms=now_ms, threshold_bps=0.0)
                     if v2._valid_snapshot(snap):
