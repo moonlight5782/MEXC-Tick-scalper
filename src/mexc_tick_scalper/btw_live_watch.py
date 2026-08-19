@@ -8,7 +8,7 @@ from rich.console import Console
 
 from . import prelive_persistent_ioc_shadow_v2 as v2
 from .baseline_v1 import apply_baseline_v1
-from .lead_lag_strategy import LeadLagGate
+from .lead_lag_strategy import LagDecision, LeadLagGate
 from .live_production_runner import FeeCache, _fee_loop
 from .live_zero_fee_universe import discover_live_zero_fee_crosslisted
 from .microspread import MicroSpreadModel
@@ -74,59 +74,72 @@ async def run(args: argparse.Namespace) -> None:
         f"Frozen entry gates: residual>={frozen.min_absolute_residual_bps:.1f}bps "
         f"strength>={frozen.min_signal_strength_ratio:.1f}x spread/cost + LeadLagGate"
     )
+    console.print("Gate observation is event-driven exactly like the strategy; display is rate-limited only.")
 
     next_print = 0.0
+    latest_decision: LagDecision | None = None
+    latest_status = "warming"
+    latest_book_age = 0
+    latest_spread = 0.0
+
     try:
         while True:
-            now = time.monotonic()
-            now_ms = int(time.time() * 1000)
-            if now >= next_print:
-                next_print = now + max(0.1, args.interval)
-                book = mexc.books.get(SYMBOL)
-                snap = model.snapshot(now_ms=now_ms, threshold_bps=0.0)
-
-                if book is None:
-                    console.print("BTW WATCH BLOCKED=no_mexc_book")
-                    continue
-                book_age = now_ms - book.recv_ms
-                if book_age > frozen.max_book_age_ms:
-                    console.print(
-                        f"BTW WATCH spread={book.spread_bps:.2f}bps book_age={book_age}ms "
-                        f"BLOCKED=stale_mexc_book>{frozen.max_book_age_ms:.0f}ms"
-                    )
-                    continue
-                if not fees.fresh_zero(SYMBOL, now_ms):
-                    console.print(f"BTW WATCH spread={book.spread_bps:.2f}bps BLOCKED=fee_not_fresh_exact_zero")
-                    continue
-                if not v2._valid_snapshot(snap):
-                    console.print(
-                        f"BTW WATCH spread={book.spread_bps:.2f}bps book_age={book_age}ms BLOCKED=invalid_binance_mexc_snapshot"
-                    )
-                    continue
-
-                d = gate.observe(SYMBOL, snap, book.spread_bps, now_ms, event_key=v2._event_key(model))
-                strength = abs(d.residual_bps) / max(d.threshold_bps, 1e-12)
-                reason = "READY"
-                if not d.ready:
-                    reason = "gate_not_ready"
-                elif strength < frozen.min_signal_strength_ratio:
-                    reason = f"strength<{frozen.min_signal_strength_ratio:.1f}x"
-                elif abs(d.residual_bps) < frozen.min_absolute_residual_bps:
-                    reason = f"residual<{frozen.min_absolute_residual_bps:.1f}bps"
-
-                console.print(
-                    f"BTW WATCH residual={d.residual_bps:+.2f}bps threshold={d.threshold_bps:.2f}bps "
-                    f"strength={strength:.2f}x spread={book.spread_bps:.2f}bps "
-                    f"binance_move={d.binance_move_bps:+.2f}bps mexc_move={d.mexc_move_bps:+.2f}bps "
-                    f"leader_adv={d.leader_advantage_bps:+.2f}bps gate_ready={d.ready} "
-                    f"STATUS={reason}"
-                )
-
-            wake.clear()
             try:
                 await asyncio.wait_for(wake.wait(), timeout=0.05)
             except TimeoutError:
                 pass
+            wake.clear()
+
+            now = time.monotonic()
+            now_ms = int(time.time() * 1000)
+            book = mexc.books.get(SYMBOL)
+            snap = model.snapshot(now_ms=now_ms, threshold_bps=0.0)
+
+            if book is None:
+                latest_decision = None
+                latest_status = "no_mexc_book"
+            else:
+                latest_book_age = now_ms - book.recv_ms
+                latest_spread = book.spread_bps
+                if latest_book_age > frozen.max_book_age_ms:
+                    latest_decision = None
+                    latest_status = f"stale_mexc_book>{frozen.max_book_age_ms:.0f}ms"
+                elif not fees.fresh_zero(SYMBOL, now_ms):
+                    latest_decision = None
+                    latest_status = "fee_not_fresh_exact_zero"
+                elif not v2._valid_snapshot(snap):
+                    latest_decision = None
+                    latest_status = "invalid_binance_mexc_snapshot"
+                else:
+                    d = gate.observe(SYMBOL, snap, book.spread_bps, now_ms, event_key=v2._event_key(model))
+                    latest_decision = d
+                    strength = abs(d.residual_bps) / max(d.threshold_bps, 1e-12)
+                    if not d.ready:
+                        latest_status = d.reason
+                    elif strength < frozen.min_signal_strength_ratio:
+                        latest_status = f"strength<{frozen.min_signal_strength_ratio:.1f}x"
+                    elif abs(d.residual_bps) < frozen.min_absolute_residual_bps:
+                        latest_status = f"residual<{frozen.min_absolute_residual_bps:.1f}bps"
+                    else:
+                        latest_status = "READY"
+
+            if now >= next_print:
+                next_print = now + max(0.1, args.interval)
+                if latest_decision is None:
+                    console.print(
+                        f"BTW WATCH spread={latest_spread:.2f}bps book_age={latest_book_age}ms "
+                        f"STATUS={latest_status}"
+                    )
+                else:
+                    d = latest_decision
+                    strength = abs(d.residual_bps) / max(d.threshold_bps, 1e-12)
+                    console.print(
+                        f"BTW WATCH residual={d.residual_bps:+.2f}bps threshold={d.threshold_bps:.2f}bps "
+                        f"strength={strength:.2f}x spread={latest_spread:.2f}bps "
+                        f"binance_move={d.binance_move_bps:+.2f}bps mexc_move={d.mexc_move_bps:+.2f}bps "
+                        f"leader_adv={d.leader_advantage_bps:+.2f}bps gate_ready={d.ready} "
+                        f"STATUS={latest_status}"
+                    )
     finally:
         fee_stop.set()
         fee_task.cancel()
