@@ -4,16 +4,17 @@ cd /d "%~dp0"
 call .venv\Scripts\activate.bat
 
 echo ============================================================
-echo  BTW_USDT ONLY - PERSISTENT END-TO-END SHADOW
+echo  BTW_USDT ONLY - LOW-LATENCY END-TO-END SHADOW
 echo  LIVE Binance + LIVE MEXC market data
 echo  NO REAL ORDERS
 echo  frozen alpha + REALTIME measured entry/exit latency
+echo  single market-data process; HIGH Windows priority
 echo ============================================================
 
-for /f "usebackq delims=" %%F in (`powershell -NoProfile -Command "$f = Get-ChildItem -File 'prelive_lag_lifetime_*.csv' | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if (-not $f) { exit 2 }; Write-Output $f.FullName"`) do set "LIFETIME_SRC=%%F"
+for /f "usebackq delims=" %%F in (`powershell -NoProfile -Command "$f = Get-ChildItem -File 'prelive_lag_lifetime_*.csv' | Where-Object { $_.Name -ne 'prelive_lag_lifetime_BTW_ONLY.csv' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if (-not $f) { exit 2 }; Write-Output $f.FullName"`) do set "LIFETIME_SRC=%%F"
 
 if not defined LIFETIME_SRC (
-  echo ERROR: no prelive_lag_lifetime_*.csv found.
+  echo ERROR: no source prelive_lag_lifetime_*.csv found.
   pause
   exit /b 2
 )
@@ -31,12 +32,11 @@ if errorlevel 1 (
 echo Lifetime source: %LIFETIME_SRC%
 echo Filtered pair: BTW_USDT ONLY
 echo Market data: LIVE Binance + LIVE MEXC
-echo Starting separate BTW gate diagnostic window...
+echo Diagnostic watcher: OFF to avoid duplicate WS/CPU load
+echo Process priority: HIGH
 echo.
 
-start "BTW LIVE WATCH" cmd /k "cd /d %CD% && .venv\Scripts\python.exe -m mexc_tick_scalper.btw_live_watch --interval 1"
-
-.venv\Scripts\python.exe -m mexc_tick_scalper.persistent_end2end_shadow ^
+start "BTW LOW LATENCY SHADOW" /high /wait .venv\Scripts\python.exe -m mexc_tick_scalper.persistent_end2end_shadow ^
   --lifetime-csv "%BTW_LIFETIME%" ^
   --target-closed-trades 100 ^
   --session-seconds 86400 ^
