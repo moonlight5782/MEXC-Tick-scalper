@@ -34,6 +34,63 @@ class BankState:
 BANK = BankState()
 
 
+class GuardedLatencyProvider(runner.LatencyProvider):
+    """BTW wrapper that never opens on a stale/timed-out latency probe."""
+
+    def entry(self):
+        if self.replay:
+            return super().entry()
+        assert self.probe is not None
+        snap = self.probe.snapshot()
+        if (
+            snap is None
+            or snap.inflight_timed_out
+            or snap.age_seconds() > self.max_age_seconds
+        ):
+            return None
+        return runner.EntryLatency(
+            snap.value(self.profile),
+            snap.age_seconds() * 1000.0,
+            None,
+        )
+
+    def exit(self, replay_exit_ms):
+        if replay_exit_ms is not None:
+            return runner.ExitLatency(replay_exit_ms, 0.0, False)
+        assert self.probe is not None
+        snap = self.probe.snapshot()
+        if (
+            snap is None
+            or snap.inflight_timed_out
+            or snap.age_seconds() > self.max_age_seconds
+        ):
+            # Base runner immediately falls back to the trade's measured entry
+            # latency for a sticky close; it never waits for a fresh probe.
+            return None
+        age_ms = snap.age_seconds() * 1000.0
+        return runner.ExitLatency(snap.value(self.profile), age_ms, False)
+
+    def status(self) -> str:
+        if self.replay:
+            return self.mode
+        assert self.probe is not None
+        snap = self.probe.snapshot()
+        if snap is None:
+            return f"REALTIME warming error={self.probe.last_error or '-'}"
+        age_ms = snap.age_seconds() * 1000.0
+        if snap.inflight_timed_out or age_ms > self.max_age_seconds * 1000.0:
+            return (
+                f"REALTIME STALE/BLOCKED latest={snap.latest_ms:.1f}ms age={age_ms:.0f}ms "
+                f"error={self.probe.last_error or 'awaiting fresh sample'}"
+            )
+        effective = snap.value(self.profile)
+        return (
+            f"REALTIME n={snap.samples} latest={snap.latest_ms:.1f}ms median={snap.median_ms:.1f}ms "
+            f"p75={snap.p75_ms:.1f}ms p95={snap.p95_ms:.1f}ms inflight={snap.inflight_ms:.1f}ms "
+            f"effective={effective:.1f}ms age={age_ms:.0f}ms"
+        )
+
+
 def economic_arrival_entry_ok(
     *,
     signal,
@@ -71,7 +128,17 @@ def economic_arrival_entry_ok(
         max(0.0, float(current_spread_bps)) + max(0.0, float(min_edge_after_spread_bps)),
     )
     if abs(float(current_residual_bps)) < required:
-        return False, "remaining_edge_too_small", residual_retention, impulse_retention
+        return (
+            False,
+            (
+                "remaining_edge_too_small"
+                f"[arrival_residual={abs(float(current_residual_bps)):.2f}bps"
+                f",arrival_spread={float(current_spread_bps):.2f}bps"
+                f",required={required:.2f}bps]"
+            ),
+            residual_retention,
+            impulse_retention,
+        )
 
     return True, "absolute_edge_survived", residual_retention, impulse_retention
 
@@ -108,12 +175,7 @@ def _bank_sized_virtual_ioc_fill(
 
 
 def _bank_record_close(stats, row) -> None:
-    """Apply closed PnL to the simulated isolated account.
-
-    Isolated bankroll accounting never lets one position consume more than its
-    assigned isolated margin. The emergency adverse exit normally fires much
-    earlier; CURRENT measured exit latency still applies before the virtual fill.
-    """
+    """Apply closed PnL to the simulated isolated account."""
     margin = max(0.0, float(row.filled_notional_usdt) / EFFECTIVE_LEVERAGE)
     raw_pnl = float(row.pnl_usdt)
     accounted_pnl = max(raw_pnl, -margin)
@@ -142,6 +204,7 @@ def _bank_run_budget_open(now, deadline, stats, args, trades) -> bool:
 _ORIGINAL_VIRTUAL_IOC_FILL = runner.virtual_ioc_fill
 _ORIGINAL_RECORD_CLOSE = runner._record_close
 _ORIGINAL_RUN_BUDGET_OPEN = runner._run_budget_open
+_ORIGINAL_LATENCY_PROVIDER = runner.LatencyProvider
 
 
 async def _resolve_effective_leverage() -> float:
@@ -161,24 +224,21 @@ async def run(args):
     BANK.last_filled_notional_usdt = 0.0
     BANK.last_isolated_margin_usdt = 0.0
 
-    # Restore the agreed risk behaviour, while respecting the actual LIVE
-    # contract leverage ceiling for the symbol under test.
     args.target_notional_usdt = START_BANK_USDT * EFFECTIVE_LEVERAGE
     args.min_hold_ms = 0
     args.mid_adverse_cut_bps = EMERGENCY_ADVERSE_BPS
-    # Existing PositiveTrailing uses max(configured_distance, LIVE spread).
-    # Setting the configured floor to zero makes the floating distance exactly
-    # the current entry spread, matching the previous spread-aware profile.
     args.trailing_distance_bps = 0.0
 
     original_gate = runner.delayed_catchup_entry_ok
     original_fill = runner.virtual_ioc_fill
     original_record = runner._record_close
     original_budget = runner._run_budget_open
+    original_latency_provider = runner.LatencyProvider
     runner.delayed_catchup_entry_ok = economic_arrival_entry_ok
     runner.virtual_ioc_fill = _bank_sized_virtual_ioc_fill
     runner._record_close = _bank_record_close
     runner._run_budget_open = _bank_run_budget_open
+    runner.LatencyProvider = GuardedLatencyProvider
     try:
         console.print("[bold cyan]BTW FINAL RISK MODEL[/bold cyan]")
         console.print(
@@ -205,6 +265,7 @@ async def run(args):
         runner.virtual_ioc_fill = original_fill
         runner._record_close = original_record
         runner._run_budget_open = original_budget
+        runner.LatencyProvider = original_latency_provider
 
 
 def main() -> None:
