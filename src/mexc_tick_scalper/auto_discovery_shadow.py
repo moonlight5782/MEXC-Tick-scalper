@@ -21,8 +21,8 @@ from .realtime_latency import RealtimeLatencyProbe
 console = Console()
 START_BANK_USDT = 100.0
 REQUESTED_LEVERAGE = 200.0
-TARGET_MARGIN_USDT = 50.0
-MAX_MARGIN_FRACTION_OF_EQUITY = 0.80
+LEGACY_TARGET_NOTIONAL_USDT = 10_000.0
+MIN_EQUITY_RESERVE_FRACTION = 0.20
 MAX_SESSION_DRAWDOWN_FRACTION = 0.60
 EMERGENCY_ADVERSE_BPS = 0.01
 DISCOVERY_LATENCY_TIMEOUT_S = 12.0
@@ -45,15 +45,9 @@ class BankState:
         return START_BANK_USDT * (1.0 - MAX_SESSION_DRAWDOWN_FRACTION)
 
     @property
-    def isolated_margin_usdt(self) -> float:
-        # Restore the legacy ~$10k-at-200x profile while always keeping a cash
-        # reserve outside the isolated position. At $100 -> $50 margin. At $60
-        # -> min($50, 80%*$60=$48), so the account is never all-in.
-        return min(TARGET_MARGIN_USDT, max(0.0, self.balance_usdt) * MAX_MARGIN_FRACTION_OF_EQUITY)
-
-    @property
-    def reserve_usdt(self) -> float:
-        return max(0.0, self.balance_usdt - self.isolated_margin_usdt)
+    def max_allocatable_margin_usdt(self) -> float:
+        # Keep at least 20% of current equity outside any isolated position.
+        return max(0.0, self.balance_usdt) * (1.0 - MIN_EQUITY_RESERVE_FRACTION)
 
 
 BANK = BankState()
@@ -159,18 +153,27 @@ def _effective_leverage(symbol: str) -> float:
     return max(1.0, min(REQUESTED_LEVERAGE, float(contract.max_leverage)))
 
 
+def _requested_notional_and_margin(symbol: str) -> tuple[float, float, float]:
+    leverage = _effective_leverage(symbol)
+    margin_needed_for_legacy_target = LEGACY_TARGET_NOTIONAL_USDT / leverage
+    margin = min(margin_needed_for_legacy_target, BANK.max_allocatable_margin_usdt)
+    requested_notional = margin * leverage
+    reserve = max(0.0, BANK.balance_usdt - margin)
+    return requested_notional, margin, reserve
+
+
 def _auto_sized_virtual_ioc_fill(
     book, *, direction: int, target_notional_usdt: float,
     contract_size: float, cross_bps: float,
 ):
     del target_notional_usdt
     leverage = _effective_leverage(CURRENT_SYMBOL)
-    isolated_margin = BANK.isolated_margin_usdt
-    requested = isolated_margin * leverage
+    requested, margin, reserve = _requested_notional_and_margin(CURRENT_SYMBOL)
     console.print(
         f"[cyan]RISK SIZE[/cyan] {CURRENT_SYMBOL} bank=${BANK.balance_usdt:.2f} "
-        f"isolated_margin=${isolated_margin:.2f} reserve=${BANK.reserve_usdt:.2f} "
-        f"leverage={leverage:.0f}x requested_notional=${requested:.2f}"
+        f"historical_target_notional=${LEGACY_TARGET_NOTIONAL_USDT:.0f} "
+        f"leverage={leverage:.0f}x required_margin=${LEGACY_TARGET_NOTIONAL_USDT/leverage:.2f} "
+        f"allocated_margin=${margin:.2f} reserve=${reserve:.2f} requested_notional=${requested:.2f}"
     )
     return _ORIGINAL_VIRTUAL_IOC_FILL(
         book,
@@ -196,7 +199,7 @@ def _auto_record_close(stats, row) -> None:
     roe = float(row.pnl_usdt) / max(margin, 1e-12) * 100.0 if margin > 0 else 0.0
     console.print(
         f"[bold]BANK[/bold] {row.symbol} before=${before:.2f} leverage={leverage:.0f}x "
-        f"margin=${margin:.2f} notional=${row.filled_notional_usdt:.2f} "
+        f"actual_margin=${margin:.2f} notional=${row.filled_notional_usdt:.2f} "
         f"pnl=${row.pnl_usdt:+.2f} ROE={roe:+.1f}% after=${BANK.balance_usdt:.2f}"
     )
     if BANK.balance_usdt <= BANK.drawdown_stop_balance:
@@ -207,7 +210,7 @@ def _auto_record_close(stats, row) -> None:
 
 
 def _auto_budget(now, deadline, stats, args, trades) -> bool:
-    risk_ok = BANK.balance_usdt > BANK.drawdown_stop_balance and BANK.isolated_margin_usdt > 0.0
+    risk_ok = BANK.balance_usdt > BANK.drawdown_stop_balance and BANK.max_allocatable_margin_usdt > 0.0
     return risk_ok and _ORIGINAL_BUDGET(now, deadline, stats, args, trades)
 
 
@@ -279,7 +282,7 @@ async def run(args):
     args.min_hold_ms = 0
     args.mid_adverse_cut_bps = EMERGENCY_ADVERSE_BPS
     args.trailing_distance_bps = 0.0
-    args.target_notional_usdt = TARGET_MARGIN_USDT * REQUESTED_LEVERAGE
+    args.target_notional_usdt = LEGACY_TARGET_NOTIONAL_USDT
 
     original_gate = runner.delayed_catchup_entry_ok
     original_fill = runner.virtual_ioc_fill
@@ -294,8 +297,9 @@ async def run(args):
     try:
         console.print(
             f"[bold cyan]AUTO SHADOW RISK[/bold cyan] bank=${START_BANK_USDT:.2f} isolated "
-            f"target_margin=${TARGET_MARGIN_USDT:.2f}; reserve>=20% equity; "
+            f"historical_target_notional=${LEGACY_TARGET_NOTIONAL_USDT:.0f}; "
             f"requested_leverage={REQUESTED_LEVERAGE:.0f}x; effective=min(requested,LIVE max); "
+            f"reserve>={MIN_EQUITY_RESERVE_FRACTION:.0%} current equity; "
             f"session_kill_drawdown={MAX_SESSION_DRAWDOWN_FRACTION:.0%}"
         )
         rows = await runner.run(args)
