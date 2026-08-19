@@ -16,8 +16,8 @@ SYMBOL = "BTW_USDT"
 START_BANK_USDT = 100.0
 REQUESTED_LEVERAGE = 200.0
 EFFECTIVE_LEVERAGE = REQUESTED_LEVERAGE
-TARGET_MARGIN_USDT = 50.0
-MAX_MARGIN_FRACTION_OF_EQUITY = 0.80
+LEGACY_TARGET_NOTIONAL_USDT = 10_000.0
+MIN_EQUITY_RESERVE_FRACTION = 0.20
 MAX_SESSION_DRAWDOWN_FRACTION = 0.60
 EMERGENCY_ADVERSE_BPS = 0.01
 
@@ -30,16 +30,8 @@ class BankState:
     last_isolated_margin_usdt: float = 0.0
 
     @property
-    def isolated_margin_usdt(self) -> float:
-        return min(TARGET_MARGIN_USDT, max(0.0, self.balance_usdt) * MAX_MARGIN_FRACTION_OF_EQUITY)
-
-    @property
-    def reserve_usdt(self) -> float:
-        return max(0.0, self.balance_usdt - self.isolated_margin_usdt)
-
-    @property
-    def buying_power_usdt(self) -> float:
-        return self.isolated_margin_usdt * EFFECTIVE_LEVERAGE
+    def max_allocatable_margin_usdt(self) -> float:
+        return max(0.0, self.balance_usdt) * (1.0 - MIN_EQUITY_RESERVE_FRACTION)
 
     @property
     def drawdown_stop_balance(self) -> float:
@@ -117,17 +109,26 @@ def economic_arrival_entry_ok(
     return True, "absolute_edge_survived", residual_retention, impulse_retention
 
 
+def _requested_notional_and_margin() -> tuple[float, float, float]:
+    margin_needed = LEGACY_TARGET_NOTIONAL_USDT / EFFECTIVE_LEVERAGE
+    margin = min(margin_needed, BANK.max_allocatable_margin_usdt)
+    requested = margin * EFFECTIVE_LEVERAGE
+    reserve = max(0.0, BANK.balance_usdt - margin)
+    return requested, margin, reserve
+
+
 def _bank_sized_virtual_ioc_fill(
     book, *, direction: int, target_notional_usdt: float,
     contract_size: float, cross_bps: float,
 ):
     del target_notional_usdt
-    requested = BANK.buying_power_usdt
+    requested, margin, reserve = _requested_notional_and_margin()
     BANK.last_requested_notional_usdt = requested
     console.print(
         f"[cyan]RISK SIZE[/cyan] {SYMBOL} bank=${BANK.balance_usdt:.2f} "
-        f"isolated_margin=${BANK.isolated_margin_usdt:.2f} reserve=${BANK.reserve_usdt:.2f} "
-        f"leverage={EFFECTIVE_LEVERAGE:.0f}x requested_notional=${requested:.2f}"
+        f"historical_target_notional=${LEGACY_TARGET_NOTIONAL_USDT:.0f} "
+        f"leverage={EFFECTIVE_LEVERAGE:.0f}x required_margin=${LEGACY_TARGET_NOTIONAL_USDT/EFFECTIVE_LEVERAGE:.2f} "
+        f"allocated_margin=${margin:.2f} reserve=${reserve:.2f} requested_notional=${requested:.2f}"
     )
     fill = _ORIGINAL_VIRTUAL_IOC_FILL(
         book, direction=direction, target_notional_usdt=requested,
@@ -152,10 +153,9 @@ def _bank_record_close(stats, row) -> None:
     BANK.balance_usdt = max(0.0, balance_before + float(row.pnl_usdt))
     roe = float(row.pnl_usdt) / max(margin, 1e-12) * 100.0 if margin > 0 else 0.0
     console.print(
-        f"[bold]BANK[/bold] before=${balance_before:.2f} margin=${margin:.2f} "
+        f"[bold]BANK[/bold] before=${balance_before:.2f} actual_margin=${margin:.2f} "
         f"leverage={EFFECTIVE_LEVERAGE:.0f}x notional=${row.filled_notional_usdt:.2f} "
-        f"pnl=${row.pnl_usdt:+.2f} ROE={roe:+.1f}% after=${BANK.balance_usdt:.2f} "
-        f"next_target_margin=${BANK.isolated_margin_usdt:.2f} reserve=${BANK.reserve_usdt:.2f}"
+        f"pnl=${row.pnl_usdt:+.2f} ROE={roe:+.1f}% after=${BANK.balance_usdt:.2f}"
     )
     if BANK.balance_usdt <= BANK.drawdown_stop_balance:
         console.print(
@@ -167,7 +167,7 @@ def _bank_record_close(stats, row) -> None:
 def _bank_run_budget_open(now, deadline, stats, args, trades) -> bool:
     return (
         BANK.balance_usdt > BANK.drawdown_stop_balance
-        and BANK.isolated_margin_usdt > 0.0
+        and BANK.max_allocatable_margin_usdt > 0.0
         and _ORIGINAL_RUN_BUDGET_OPEN(now, deadline, stats, args, trades)
     )
 
@@ -194,7 +194,7 @@ async def run(args):
     BANK.last_filled_notional_usdt = 0.0
     BANK.last_isolated_margin_usdt = 0.0
 
-    args.target_notional_usdt = TARGET_MARGIN_USDT * EFFECTIVE_LEVERAGE
+    args.target_notional_usdt = LEGACY_TARGET_NOTIONAL_USDT
     args.min_hold_ms = 0
     args.mid_adverse_cut_bps = EMERGENCY_ADVERSE_BPS
     args.trailing_distance_bps = 0.0
@@ -212,8 +212,8 @@ async def run(args):
     try:
         console.print("[bold cyan]BTW FINAL RISK MODEL[/bold cyan]")
         console.print(
-            f"bank=${START_BANK_USDT:.2f} isolated target_margin=${TARGET_MARGIN_USDT:.2f} "
-            f"reserve>=20% equity requested_leverage={REQUESTED_LEVERAGE:.0f}x "
+            f"bank=${START_BANK_USDT:.2f} isolated historical_target_notional=${LEGACY_TARGET_NOTIONAL_USDT:.0f} "
+            f"reserve>={MIN_EQUITY_RESERVE_FRACTION:.0%} equity requested_leverage={REQUESTED_LEVERAGE:.0f}x "
             f"effective={EFFECTIVE_LEVERAGE:.0f}x session_kill_drawdown={MAX_SESSION_DRAWDOWN_FRACTION:.0%}"
         )
         rows = await runner.run(args)
