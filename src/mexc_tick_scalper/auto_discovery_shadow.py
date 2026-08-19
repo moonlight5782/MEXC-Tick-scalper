@@ -46,7 +46,6 @@ class BankState:
 
     @property
     def max_allocatable_margin_usdt(self) -> float:
-        # Keep at least 20% of current equity outside any isolated position.
         return max(0.0, self.balance_usdt) * (1.0 - MIN_EQUITY_RESERVE_FRACTION)
 
 
@@ -54,6 +53,17 @@ BANK = BankState()
 CURRENT_SYMBOL = ""
 CONTRACTS: dict[str, LiveZeroFeeContract] = {}
 SELECTED_PROFILES: list[PairLagProfile] = []
+
+
+def _apply_immediate_exit_policy(args) -> None:
+    """Allow the first observed adverse/reversal event to decide EXIT immediately.
+
+    This adds no synthetic hold. The core runner schedules execution only through
+    its measured realtime exit-latency path after the decision is made.
+    """
+    args.min_hold_ms = 0
+    args.mid_adverse_cut_bps = EMERGENCY_ADVERSE_BPS
+    args.trailing_distance_bps = 0.0
 
 
 def _load_lifetimes(path: Path) -> dict[str, list[float]]:
@@ -279,9 +289,7 @@ async def run(args):
     CURRENT_SYMBOL = ""
     BANK.balance_usdt = START_BANK_USDT
 
-    args.min_hold_ms = 0
-    args.mid_adverse_cut_bps = EMERGENCY_ADVERSE_BPS
-    args.trailing_distance_bps = 0.0
+    _apply_immediate_exit_policy(args)
     args.target_notional_usdt = LEGACY_TARGET_NOTIONAL_USDT
 
     original_gate = runner.delayed_catchup_entry_ok
@@ -301,6 +309,11 @@ async def run(args):
             f"requested_leverage={REQUESTED_LEVERAGE:.0f}x; effective=min(requested,LIVE max); "
             f"reserve>={MIN_EQUITY_RESERVE_FRACTION:.0%} current equity; "
             f"session_kill_drawdown={MAX_SESSION_DRAWDOWN_FRACTION:.0%}"
+        )
+        console.print(
+            "Exit policy: adverse/reversal decision is immediate; no synthetic hold is added. "
+            "Execution delay is only the measured realtime exit-latency model. "
+            "Closed symbols remain monitored and may trade again after LeadLagGate re-arms on a new market impulse."
         )
         rows = await runner.run(args)
         console.print(
