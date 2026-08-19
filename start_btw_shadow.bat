@@ -7,6 +7,10 @@ echo ============================================================
 echo  BTW_USDT ONLY - REAL-DATA END-TO-END SHADOW
 echo  LIVE Binance + LIVE MEXC market data
 echo  NO REAL ORDERS - READ ONLY
+echo  bank: 100 USDT; isolated margin
+echo  requested leverage: 200x; effective leverage capped to LIVE contract max
+echo  emergency exit: first adverse move + CURRENT measured exit latency
+echo  floating stop: LIVE-spread trailing distance
 echo  frozen signal alpha + CURRENT measured LIVE MEXC RTT
 echo  arrival gate: ABSOLUTE EXECUTABLE EDGE, not retention percent
 echo  retention/impulse retention: DIAGNOSTIC ONLY
@@ -37,6 +41,8 @@ echo Filtered pair: BTW_USDT ONLY
 echo Market data: LIVE Binance + LIVE MEXC
 echo Latency: latest/current read-only LIVE MEXC private-path RTT, refreshed every 100ms
 echo Execution: virtual IOC against LIVE MEXC depth at modeled arrival
+echo Sizing: current virtual bank * effective leverage, then capped by executable LIVE depth
+echo Margin: isolated, actual filled notional / effective leverage
 echo Arrival rejection: reversal OR insufficient absolute edge OR depth/slippage/cost failure
 echo Retention ratios: logged only; they do NOT reject an otherwise economic entry
 echo Real order writes: DISABLED
