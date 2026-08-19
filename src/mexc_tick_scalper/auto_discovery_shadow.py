@@ -21,6 +21,8 @@ from .realtime_latency import RealtimeLatencyProbe
 console = Console()
 START_BANK_USDT = 100.0
 REQUESTED_LEVERAGE = 200.0
+MAX_ISOLATED_MARGIN_FRACTION = 0.10
+MAX_SESSION_DRAWDOWN_FRACTION = 0.20
 EMERGENCY_ADVERSE_BPS = 0.01
 DISCOVERY_LATENCY_TIMEOUT_S = 12.0
 
@@ -36,6 +38,14 @@ class Candidate:
 @dataclass(slots=True)
 class BankState:
     balance_usdt: float = START_BANK_USDT
+
+    @property
+    def drawdown_stop_balance(self) -> float:
+        return START_BANK_USDT * (1.0 - MAX_SESSION_DRAWDOWN_FRACTION)
+
+    @property
+    def max_isolated_margin_usdt(self) -> float:
+        return max(0.0, self.balance_usdt) * MAX_ISOLATED_MARGIN_FRACTION
 
 
 BANK = BankState()
@@ -75,7 +85,6 @@ def _survival_at(lifetimes: list[float], latency_ms: float) -> float:
 
 
 def _score(profile: PairLagProfile, current_survival: float) -> float:
-    # Rank executable persistence first, then reward strong, repeated, wide residuals.
     persistence = max(0.0, current_survival)
     residual = max(0.0, profile.median_signal_residual_bps)
     strength = max(0.0, profile.median_signal_strength_ratio)
@@ -148,7 +157,13 @@ def _auto_sized_virtual_ioc_fill(
 ):
     del target_notional_usdt
     leverage = _effective_leverage(CURRENT_SYMBOL)
-    requested = max(0.0, BANK.balance_usdt) * leverage
+    isolated_margin = BANK.max_isolated_margin_usdt
+    requested = isolated_margin * leverage
+    console.print(
+        f"[cyan]RISK SIZE[/cyan] {CURRENT_SYMBOL} bank=${BANK.balance_usdt:.2f} "
+        f"margin_cap={MAX_ISOLATED_MARGIN_FRACTION:.0%}=${isolated_margin:.2f} "
+        f"leverage={leverage:.0f}x max_notional=${requested:.2f}"
+    )
     return _ORIGINAL_VIRTUAL_IOC_FILL(
         book,
         direction=direction,
@@ -176,10 +191,16 @@ def _auto_record_close(stats, row) -> None:
         f"margin=${margin:.2f} notional=${row.filled_notional_usdt:.2f} "
         f"pnl=${row.pnl_usdt:+.2f} ROE={roe:+.1f}% after=${BANK.balance_usdt:.2f}"
     )
+    if BANK.balance_usdt <= BANK.drawdown_stop_balance:
+        console.print(
+            f"[bold red]SESSION KILL SWITCH[/bold red] balance=${BANK.balance_usdt:.2f} "
+            f"<= ${BANK.drawdown_stop_balance:.2f}; no new entries"
+        )
 
 
 def _auto_budget(now, deadline, stats, args, trades) -> bool:
-    return BANK.balance_usdt > 0.0 and _ORIGINAL_BUDGET(now, deadline, stats, args, trades)
+    risk_ok = BANK.balance_usdt > BANK.drawdown_stop_balance
+    return risk_ok and _ORIGINAL_BUDGET(now, deadline, stats, args, trades)
 
 
 def _selected_profiles_override(profiles, **kwargs):
@@ -250,8 +271,7 @@ async def run(args):
     args.min_hold_ms = 0
     args.mid_adverse_cut_bps = EMERGENCY_ADVERSE_BPS
     args.trailing_distance_bps = 0.0
-    # Cosmetic fallback only; actual per-symbol request is bank * effective leverage.
-    args.target_notional_usdt = START_BANK_USDT * REQUESTED_LEVERAGE
+    args.target_notional_usdt = START_BANK_USDT * REQUESTED_LEVERAGE * MAX_ISOLATED_MARGIN_FRACTION
 
     original_gate = runner.delayed_catchup_entry_ok
     original_fill = runner.virtual_ioc_fill
@@ -266,7 +286,9 @@ async def run(args):
     try:
         console.print(
             f"[bold cyan]AUTO SHADOW RISK[/bold cyan] bank=${START_BANK_USDT:.2f} isolated "
-            f"requested_leverage={REQUESTED_LEVERAGE:.0f}x; effective leverage=min(requested,LIVE max per symbol)"
+            f"requested_leverage={REQUESTED_LEVERAGE:.0f}x; effective=min(requested,LIVE max); "
+            f"max_margin_per_trade={MAX_ISOLATED_MARGIN_FRACTION:.0%}; "
+            f"session_kill_drawdown={MAX_SESSION_DRAWDOWN_FRACTION:.0%}"
         )
         rows = await runner.run(args)
         console.print(
