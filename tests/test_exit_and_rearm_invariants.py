@@ -49,8 +49,13 @@ def test_same_pair_can_trade_again_after_rearm() -> None:
     assert duplicate_impulse.ready is False
     assert duplicate_impulse.reason == "lag_not_rearmed"
 
-    # Residual collapses: old impulse is over and the same symbol becomes armed again.
-    reset = gate.observe("AAA_USDT", _snap(edge=0.1, binance_move=0.0, mexc_move=0.0), 0.2, 1_002, event_key=(3, 3))
+    reset = gate.observe(
+        "AAA_USDT",
+        _snap(edge=0.1, binance_move=0.0, mexc_move=0.0),
+        0.2,
+        1_002,
+        event_key=(3, 3),
+    )
     assert reset.ready is False
 
     second = gate.observe("AAA_USDT", _snap(edge=11.0), 0.2, 1_003, event_key=(4, 4))
@@ -58,13 +63,15 @@ def test_same_pair_can_trade_again_after_rearm() -> None:
 
 
 def test_auto_shadow_configures_zero_artificial_hold_before_exit() -> None:
-    # The production shadow wrapper intentionally sets min_hold_ms=0 before handing
-    # control to the core runner. This locks the policy that an adverse/reversal
-    # condition can trigger an EXIT DECISION on the first observed market event;
-    # only measured network/exchange latency is then applied to execution.
     import mexc_tick_scalper.auto_discovery_shadow as auto
 
-    args = SimpleNamespace(min_hold_ms=999)
-    args.min_hold_ms = 0
+    args = SimpleNamespace(
+        min_hold_ms=999,
+        mid_adverse_cut_bps=999.0,
+        trailing_distance_bps=999.0,
+    )
+    auto._apply_immediate_exit_policy(args)
+
     assert args.min_hold_ms == 0
-    assert auto.EMERGENCY_ADVERSE_BPS > 0.0
+    assert args.mid_adverse_cut_bps == auto.EMERGENCY_ADVERSE_BPS
+    assert args.trailing_distance_bps == 0.0
