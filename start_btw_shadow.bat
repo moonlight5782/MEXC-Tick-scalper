@@ -4,10 +4,11 @@ cd /d "%~dp0"
 call .venv\Scripts\activate.bat
 
 echo ============================================================
-echo  BTW_USDT ONLY - LOW-LATENCY END-TO-END SHADOW
+echo  BTW_USDT ONLY - REAL-DATA END-TO-END SHADOW
 echo  LIVE Binance + LIVE MEXC market data
-echo  NO REAL ORDERS
-echo  frozen alpha + REALTIME measured entry/exit latency
+echo  NO REAL ORDERS - READ ONLY
+echo  frozen alpha + CURRENT measured LIVE MEXC RTT
+echo  LIVE spread/depth/slippage at modeled arrival
 echo  single market-data process; HIGH Windows priority
 echo ============================================================
 
@@ -32,20 +33,22 @@ if errorlevel 1 (
 echo Lifetime source: %LIFETIME_SRC%
 echo Filtered pair: BTW_USDT ONLY
 echo Market data: LIVE Binance + LIVE MEXC
-echo Diagnostic watcher: OFF to avoid duplicate WS/CPU load
+echo Latency: latest/current read-only LIVE MEXC private-path RTT, refreshed every 100ms
+echo Execution: virtual IOC against LIVE MEXC depth at modeled arrival
+echo Real order writes: DISABLED
 echo Process priority: HIGH
 echo.
 
-start "BTW LOW LATENCY SHADOW" /high /wait .venv\Scripts\python.exe -m mexc_tick_scalper.persistent_end2end_shadow ^
+start "BTW REAL-DATA SHADOW" /high /wait .venv\Scripts\python.exe -m mexc_tick_scalper.persistent_end2end_shadow ^
   --lifetime-csv "%BTW_LIFETIME%" ^
   --target-closed-trades 100 ^
   --session-seconds 86400 ^
   --max-signals 3000 ^
-  --latency-profile p75 ^
-  --latency-probe-interval-ms 250 ^
+  --latency-profile latest ^
+  --latency-probe-interval-ms 100 ^
   --latency-window 31 ^
-  --latency-min-samples 5 ^
-  --latency-max-age-seconds 2 ^
+  --latency-min-samples 3 ^
+  --latency-max-age-seconds 1 ^
   --output persistent_end2end_BTW.csv
 
 pause
