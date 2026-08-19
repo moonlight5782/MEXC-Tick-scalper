@@ -18,6 +18,7 @@ class RealtimeLatencySnapshot:
     median_ms: float
     p75_ms: float
     p95_ms: float
+    inflight_ms: float = 0.0
 
     def age_seconds(self, now: float | None = None) -> float:
         current = time.monotonic() if now is None else now
@@ -25,20 +26,29 @@ class RealtimeLatencySnapshot:
 
     def value(self, profile: str) -> float:
         if profile == "latest":
-            return self.latest_ms
-        if profile == "median":
-            return self.median_ms
-        if profile == "p95":
-            return self.p95_ms
-        return self.p75_ms
+            base = self.latest_ms
+        elif profile == "median":
+            base = self.median_ms
+        elif profile == "p95":
+            base = self.p95_ms
+        else:
+            base = self.p75_ms
+        # A robust rolling profile must never hide a transport spike that is
+        # happening right now.  The active request elapsed time is also a lower
+        # bound on current RTT until that request completes.
+        return max(base, self.latest_ms, self.inflight_ms)
 
 
 class RealtimeLatencyProbe:
     """Continuously measure the current MEXC LIVE private request path.
 
     This is a transport-path proxy, not a claim that a read-only request has
-    identical matching-engine latency to an IOC.  It replaces fixed historical
+    identical matching-engine latency to an IOC. It replaces fixed historical
     constants with measurements from the current process/network/session.
+
+    ``snapshot().value(profile)`` is intentionally conservative: a rolling
+    percentile cannot smooth away the most recent completed spike or an
+    in-flight request that has already exceeded that percentile.
     """
 
     def __init__(
@@ -54,6 +64,7 @@ class RealtimeLatencyProbe:
         self._samples: deque[tuple[float, float]] = deque(maxlen=self.window)
         self._stop = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
+        self._inflight_started: float | None = None
         self.last_error: str | None = None
 
     @staticmethod
@@ -74,6 +85,12 @@ class RealtimeLatencyProbe:
             return None
         values = [value for _, value in self._samples]
         measured_at, latest = self._samples[-1]
+        now = time.monotonic()
+        inflight_ms = (
+            max(0.0, (now - self._inflight_started) * 1000.0)
+            if self._inflight_started is not None
+            else 0.0
+        )
         return RealtimeLatencySnapshot(
             measured_at=measured_at,
             samples=len(values),
@@ -81,6 +98,7 @@ class RealtimeLatencyProbe:
             median_ms=statistics.median(values),
             p75_ms=self._percentile(values, 0.75),
             p95_ms=self._percentile(values, 0.95),
+            inflight_ms=inflight_ms,
         )
 
     def current_ms(self, *, profile: str = "p75", max_age_seconds: float = 2.0) -> float | None:
@@ -108,12 +126,14 @@ class RealtimeLatencyProbe:
             except asyncio.CancelledError:
                 pass
             self._task = None
+        self._inflight_started = None
 
     async def _run(self) -> None:
         cfg = WebExecutionConfig.from_env(write_enabled=False)
         async with MexcWebExecutionAdapter(cfg) as adapter:
             while not self._stop.is_set():
                 started_ns = time.perf_counter_ns()
+                self._inflight_started = time.monotonic()
                 try:
                     await adapter.get_positions()
                     elapsed_ms = (time.perf_counter_ns() - started_ns) / 1_000_000.0
@@ -124,6 +144,8 @@ class RealtimeLatencyProbe:
                     raise
                 except Exception as exc:
                     self.last_error = f"{type(exc).__name__}: {exc}"
+                finally:
+                    self._inflight_started = None
                 try:
                     await asyncio.wait_for(self._stop.wait(), timeout=self.interval_ms / 1000.0)
                 except TimeoutError:
