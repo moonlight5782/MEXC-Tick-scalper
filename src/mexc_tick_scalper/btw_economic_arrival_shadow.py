@@ -7,12 +7,15 @@ from rich.console import Console
 
 from . import persistent_end2end_shadow as runner
 from .baseline_v1 import apply_baseline_v1
+from .live_zero_fee_universe import discover_live_zero_fee_crosslisted
 from .prelive_persistent_catchup_shadow import impulse_retention_fraction
 
 
 console = Console()
+SYMBOL = "BTW_USDT"
 START_BANK_USDT = 100.0
-LEVERAGE = 200.0
+REQUESTED_LEVERAGE = 200.0
+EFFECTIVE_LEVERAGE = REQUESTED_LEVERAGE
 EMERGENCY_ADVERSE_BPS = 0.01  # first meaningful adverse tick; exit still pays measured latency
 
 
@@ -25,7 +28,7 @@ class BankState:
 
     @property
     def buying_power_usdt(self) -> float:
-        return max(0.0, self.balance_usdt) * LEVERAGE
+        return max(0.0, self.balance_usdt) * EFFECTIVE_LEVERAGE
 
 
 BANK = BankState()
@@ -83,9 +86,10 @@ def _bank_sized_virtual_ioc_fill(
 ):
     """Size each simulated IOC from current isolated buying power.
 
-    The account starts with 100 USDT. At 200x the maximum requested notional is
-    current equity * 200. The real LIVE MEXC depth walker may fill only a fraction
-    of that amount, so isolated margin is based on actual filled notional.
+    Account equity starts at 100 USDT. Requested leverage is 200x, but effective
+    leverage is capped to the current LIVE contract's max leverage so this shadow
+    does not simulate an impossible MEXC position. The LIVE depth walker may fill
+    only a fraction of available buying power; margin uses actual filled notional.
     """
     del target_notional_usdt
     requested = BANK.buying_power_usdt
@@ -99,20 +103,18 @@ def _bank_sized_virtual_ioc_fill(
     )
     filled = max(0.0, float(fill.qty) * float(fill.avg_price))
     BANK.last_filled_notional_usdt = filled
-    BANK.last_isolated_margin_usdt = filled / LEVERAGE if LEVERAGE > 0 else 0.0
+    BANK.last_isolated_margin_usdt = filled / EFFECTIVE_LEVERAGE if EFFECTIVE_LEVERAGE > 0 else 0.0
     return fill
 
 
 def _bank_record_close(stats, row) -> None:
     """Apply closed PnL to the simulated isolated account.
 
-    An isolated position cannot consume more than its assigned margin. Because
-    this read-only shadow cannot observe the exchange's exact internal liquidation
-    engine without placing an order, losses are conservatively capped at the
-    position's isolated margin for bankroll accounting. The emergency adverse
-    exit normally fires much earlier; measured exit latency still applies.
+    Isolated bankroll accounting never lets one position consume more than its
+    assigned isolated margin. The emergency adverse exit normally fires much
+    earlier; CURRENT measured exit latency still applies before the virtual fill.
     """
-    margin = max(0.0, float(row.filled_notional_usdt) / LEVERAGE)
+    margin = max(0.0, float(row.filled_notional_usdt) / EFFECTIVE_LEVERAGE)
     raw_pnl = float(row.pnl_usdt)
     accounted_pnl = max(raw_pnl, -margin)
     liquidated = accounted_pnl > raw_pnl + 1e-12
@@ -126,9 +128,10 @@ def _bank_record_close(stats, row) -> None:
     BANK.balance_usdt = max(0.0, balance_before + float(row.pnl_usdt))
     roe = float(row.pnl_usdt) / max(margin, 1e-12) * 100.0 if margin > 0 else 0.0
     console.print(
-        f"[bold]BANK[/bold] before=${balance_before:.2f} margin=${margin:.2f} leverage={LEVERAGE:.0f}x "
-        f"notional=${row.filled_notional_usdt:.2f} pnl=${row.pnl_usdt:+.2f} ROE={roe:+.1f}% "
-        f"after=${BANK.balance_usdt:.2f} next_buying_power=${BANK.buying_power_usdt:.2f}"
+        f"[bold]BANK[/bold] before=${balance_before:.2f} margin=${margin:.2f} "
+        f"leverage={EFFECTIVE_LEVERAGE:.0f}x notional=${row.filled_notional_usdt:.2f} "
+        f"pnl=${row.pnl_usdt:+.2f} ROE={roe:+.1f}% after=${BANK.balance_usdt:.2f} "
+        f"next_buying_power=${BANK.buying_power_usdt:.2f}"
     )
 
 
@@ -141,18 +144,31 @@ _ORIGINAL_RECORD_CLOSE = runner._record_close
 _ORIGINAL_RUN_BUDGET_OPEN = runner._run_budget_open
 
 
+async def _resolve_effective_leverage() -> float:
+    contracts = await discover_live_zero_fee_crosslisted()
+    contract = next((row for row in contracts if row.mexc_symbol == SYMBOL), None)
+    if contract is None:
+        raise RuntimeError(f"{SYMBOL} is not currently in the LIVE exact-0/0 cross-listed universe")
+    return max(1.0, min(REQUESTED_LEVERAGE, float(contract.max_leverage)))
+
+
 async def run(args):
+    global EFFECTIVE_LEVERAGE
+    EFFECTIVE_LEVERAGE = await _resolve_effective_leverage()
+
     BANK.balance_usdt = START_BANK_USDT
     BANK.last_requested_notional_usdt = 0.0
     BANK.last_filled_notional_usdt = 0.0
     BANK.last_isolated_margin_usdt = 0.0
 
-    # Restore the previously agreed trading/risk behaviour.
-    args.target_notional_usdt = START_BANK_USDT * LEVERAGE
+    # Restore the agreed risk behaviour, while respecting the actual LIVE
+    # contract leverage ceiling for the symbol under test.
+    args.target_notional_usdt = START_BANK_USDT * EFFECTIVE_LEVERAGE
     args.min_hold_ms = 0
     args.mid_adverse_cut_bps = EMERGENCY_ADVERSE_BPS
-    # A zero configured floor means the existing PositiveTrailing uses the
-    # current LIVE spread as its trailing distance: max(0, current_spread).
+    # Existing PositiveTrailing uses max(configured_distance, LIVE spread).
+    # Setting the configured floor to zero makes the floating distance exactly
+    # the current entry spread, matching the previous spread-aware profile.
     args.trailing_distance_bps = 0.0
 
     original_gate = runner.delayed_catchup_entry_ok
@@ -166,12 +182,12 @@ async def run(args):
     try:
         console.print("[bold cyan]BTW FINAL RISK MODEL[/bold cyan]")
         console.print(
-            f"bank=${START_BANK_USDT:.2f} isolated margin leverage={LEVERAGE:.0f}x "
-            f"initial buying power=${START_BANK_USDT * LEVERAGE:.0f}"
+            f"bank=${START_BANK_USDT:.2f} isolated margin requested_leverage={REQUESTED_LEVERAGE:.0f}x "
+            f"LIVE_max={EFFECTIVE_LEVERAGE:.0f}x effective={EFFECTIVE_LEVERAGE:.0f}x"
         )
         console.print(
-            "sizing=current bank*200x, capped by executable LIVE MEXC depth; "
-            "margin=actual filled notional/200"
+            f"initial buying power=${BANK.buying_power_usdt:.2f}; sizing=current bank*effective leverage, "
+            "capped by executable LIVE MEXC depth; margin=actual filled notional/effective leverage"
         )
         console.print(
             "exit protection=first adverse move -> sticky emergency exit with CURRENT measured exit latency; "
@@ -181,7 +197,7 @@ async def run(args):
         console.print(
             f"[bold cyan]FINAL BANK[/bold cyan] start=${START_BANK_USDT:.2f} "
             f"end=${BANK.balance_usdt:.2f} net=${BANK.balance_usdt-START_BANK_USDT:+.2f} "
-            f"buying_power=${BANK.buying_power_usdt:.2f}"
+            f"buying_power=${BANK.buying_power_usdt:.2f} effective_leverage={EFFECTIVE_LEVERAGE:.0f}x"
         )
         return rows
     finally:
