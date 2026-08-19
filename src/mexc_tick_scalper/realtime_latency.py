@@ -19,6 +19,7 @@ class RealtimeLatencySnapshot:
     p75_ms: float
     p95_ms: float
     inflight_ms: float = 0.0
+    inflight_timed_out: bool = False
 
     def age_seconds(self, now: float | None = None) -> float:
         current = time.monotonic() if now is None else now
@@ -33,9 +34,9 @@ class RealtimeLatencySnapshot:
             base = self.p95_ms
         else:
             base = self.p75_ms
-        # A robust rolling profile must never hide a transport spike that is
-        # happening right now.  The active request elapsed time is also a lower
-        # bound on current RTT until that request completes.
+        # An actively running request is a lower bound on current RTT, but a
+        # request that crossed the hard probe timeout is invalid as a latency
+        # estimate and must cause the caller to wait for a fresh sample instead.
         return max(base, self.latest_ms, self.inflight_ms)
 
 
@@ -46,9 +47,10 @@ class RealtimeLatencyProbe:
     identical matching-engine latency to an IOC. It replaces fixed historical
     constants with measurements from the current process/network/session.
 
-    ``snapshot().value(profile)`` is intentionally conservative: a rolling
-    percentile cannot smooth away the most recent completed spike or an
-    in-flight request that has already exceeded that percentile.
+    Each probe request has a hard timeout. This is important on laptops/desktops:
+    sleep/resume or a stuck HTTP request must never turn into a multi-hour
+    synthetic latency sample. Timed-out probes are discarded and the strategy
+    waits for a fresh successful measurement before opening a new position.
     """
 
     def __init__(
@@ -57,10 +59,12 @@ class RealtimeLatencyProbe:
         interval_ms: float = 250.0,
         window: int = 31,
         minimum_samples: int = 5,
+        request_timeout_seconds: float = 2.0,
     ) -> None:
         self.interval_ms = max(100.0, float(interval_ms))
         self.window = max(5, int(window))
         self.minimum_samples = max(3, min(int(minimum_samples), self.window))
+        self.request_timeout_seconds = max(0.5, float(request_timeout_seconds))
         self._samples: deque[tuple[float, float]] = deque(maxlen=self.window)
         self._stop = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
@@ -86,11 +90,16 @@ class RealtimeLatencyProbe:
         values = [value for _, value in self._samples]
         measured_at, latest = self._samples[-1]
         now = time.monotonic()
-        inflight_ms = (
+        raw_inflight_ms = (
             max(0.0, (now - self._inflight_started) * 1000.0)
             if self._inflight_started is not None
             else 0.0
         )
+        timeout_ms = self.request_timeout_seconds * 1000.0
+        inflight_timed_out = raw_inflight_ms >= timeout_ms
+        # Never surface a multi-hour/sleep-resume elapsed value as executable
+        # latency. The timeout flag makes the snapshot unusable for new entries.
+        inflight_ms = 0.0 if inflight_timed_out else raw_inflight_ms
         return RealtimeLatencySnapshot(
             measured_at=measured_at,
             samples=len(values),
@@ -99,17 +108,24 @@ class RealtimeLatencyProbe:
             p75_ms=self._percentile(values, 0.75),
             p95_ms=self._percentile(values, 0.95),
             inflight_ms=inflight_ms,
+            inflight_timed_out=inflight_timed_out,
         )
 
     def current_ms(self, *, profile: str = "p75", max_age_seconds: float = 2.0) -> float | None:
         snap = self.snapshot()
-        if snap is None or snap.age_seconds() > max(0.1, float(max_age_seconds)):
+        if (
+            snap is None
+            or snap.inflight_timed_out
+            or snap.age_seconds() > max(0.1, float(max_age_seconds))
+        ):
             return None
         return snap.value(profile)
 
     def last_known_ms(self, *, profile: str = "p75") -> float | None:
         snap = self.snapshot()
-        return snap.value(profile) if snap is not None else None
+        if snap is None or snap.inflight_timed_out:
+            return None
+        return snap.value(profile)
 
     async def start(self) -> None:
         if self._task is not None and not self._task.done():
@@ -135,13 +151,22 @@ class RealtimeLatencyProbe:
                 started_ns = time.perf_counter_ns()
                 self._inflight_started = time.monotonic()
                 try:
-                    await adapter.get_positions()
+                    await asyncio.wait_for(
+                        adapter.get_positions(),
+                        timeout=self.request_timeout_seconds,
+                    )
                     elapsed_ms = (time.perf_counter_ns() - started_ns) / 1_000_000.0
-                    if elapsed_ms > 0 and math.isfinite(elapsed_ms):
+                    if (
+                        elapsed_ms > 0
+                        and math.isfinite(elapsed_ms)
+                        and elapsed_ms < self.request_timeout_seconds * 1000.0
+                    ):
                         self._samples.append((time.monotonic(), elapsed_ms))
                     self.last_error = None
                 except asyncio.CancelledError:
                     raise
+                except TimeoutError:
+                    self.last_error = f"probe_timeout>{self.request_timeout_seconds:.1f}s"
                 except Exception as exc:
                     self.last_error = f"{type(exc).__name__}: {exc}"
                 finally:
