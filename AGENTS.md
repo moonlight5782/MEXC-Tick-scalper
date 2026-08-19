@@ -1,135 +1,128 @@
 # Codex instructions for MEXC-Tick-scalper
 
-Read `PROJECT_STATE.md` before making any architectural or strategy change. This repository is a reconstruction/research project for an old MEXC futures tick scalper that is now being prepared for guarded production use. Do not rebuild the product from scratch and do not discard existing execution/reconciliation/risk work.
+Read this file and `PROJECT_STATE.md` before changing strategy, execution, or latency code.
+
+## Canonical development line
+
+Active development branch: `persistent-end2end-latency-v1`.
+
+Immutable strategy references:
+
+- known-good 100-trade commit: `372c3b286eb82aa4b87d806999f8db47173a2b3e`
+- frozen validated baseline: `8a0bc6043385dbaf95ec8e77b93d91fd00a7f9e5`
+- frozen parameters: `src/mexc_tick_scalper/baseline_v1.py`
+
+Do not rebuild the strategy from `main`, old `agent/*`, `staged-trailing-stop`, `testnet-known-good-v1`, `testnet-frozen-latency-v1`, or `latency-arb-product-v1`. Those branches are research/execution history only. Individual infrastructure ideas may be ported after review, but their strategy runners are not the product source of truth.
 
 ## Primary objective
 
-Reconstruct, test and improve the old bot's mechanism using measured data rather than assumptions. The strongest current hypothesis is cross-exchange Binance -> MEXC micro-lag / microspread convergence: Binance is the faster leader, MEXC is the lagger, and the bot enters on MEXC when a short-lived residual appears and exits as MEXC converges.
+Validate and then execute the frozen persistent Binance -> MEXC lag strategy with honest end-to-end latency and current executable MEXC depth.
 
-The product objective is positive expected value / positive net PnL with controlled drawdown. Do not optimize for trade count, uptime, or activity for their own sake. Never promise profitability or zero-loss behavior.
+The frozen strategy is not the old sub-1-bps microspread experiment. Do not silently lower thresholds to increase trade count.
 
-## LIVE / Demo execution boundary
+Key frozen invariants include:
 
-LIVE market/account reads and LIVE web-session execution are separate concerns.
+- target requested notional: 10,000 USDT
+- min absolute residual: 8.0 bps
+- min signal strength: 3.0x
+- min residual retention: 60%
+- min Binance impulse retention: 75%
+- IOC cross: <= 1.0 bps
+- max entry slippage: <= 1.0 bps
+- min actual filled notional: 50 USDT
+- executable residual must beat round-trip cost by >= 2.0 bps and >= 1.5x cost
+- one IOC attempt; accept partial fill; never top up/chase the remainder
+- no pyramiding, martingale, averaging down, or retry merely to force a trade
 
-- LIVE Binance and LIVE MEXC WebSocket market data may be used for signals.
-- LIVE MEXC fee/account/position reads use `MEXC_WEB_TOKEN`.
-- The existing browser-session `MexcWebExecutionAdapter` is the production execution mechanism as well as the Demo mechanism; do not replace it with official Futures API merely for convenience because the strategy depends on the account's exact web/app fee state.
-- Real-money writes are allowed only through the dedicated `live_production_runner.py` path and only when ALL guards are satisfied:
-  - `MEXC_LIVE_WRITE=YES`
-  - CLI confirmation `--confirm-live LIVE`
-  - exact LIVE host `futures.mexc.com`
-  - fresh account fee state for the symbol is maker=0 AND taker=0
-  - no ambiguous/open bot state before a new entry
-- `start_live.bat` is the explicit real-money launcher. Do not make `start_demo.bat`, scanners, shadow runners, or research scripts send LIVE orders.
-- Demo/Testnet writes still use `MEXC_DEMO_WEB_TOKEN` and remain isolated from LIVE.
-- Do not print or commit tokens, cookies, `.env`, credentials, or session secrets.
+Frozen exit priority:
 
-## Fee requirement
+1. `mid_adverse_cut`
+2. `leader_retrace`
+3. `residual_reversal`
+4. `mexc_catchup_convergence`
+5. `no_progress`
+6. `positive_trailing_stop`
+7. `timeout`
 
-The intended real strategy requires exact current MEXC account fees `maker=0` AND `taker=0` for the traded symbol.
+Do not replace these exits with staged/hybrid trailing logic while validating baseline v1.
 
-For LIVE strategy decisions:
-- missing/stale fee data is NOT tradable;
-- unknown fee is never treated as zero;
-- fee state is refreshed in the background so fee REST reads are not placed on the signal-critical path;
-- if the fee gate becomes stale/nonzero while a bot-owned position is open, the production runner exits rather than opening or holding blindly.
+## Current validation architecture
 
-Demo/Testnet fee behavior is simulator-specific and must not redefine the LIVE strategy universe.
+Canonical launcher:
 
-## Current strategy direction
+- `start_persistent_end2end_shadow.bat`
 
-The production strategy is event-driven Binance -> LIVE MEXC microspread convergence.
+Canonical runner:
 
-Current intended LIVE pipeline:
+- `src/mexc_tick_scalper/persistent_end2end_shadow.py`
 
-1. Discover current `LIVE MEXC exact 0/0 fee ∩ Binance USD-M` symbols.
-2. Subscribe continuously to Binance USD-M `bookTicker` and MEXC LIVE full-depth WebSocket data.
-3. Maintain the normal cross-exchange basis `log(Binance_mid / MEXC_mid)` with a robust rolling baseline.
-4. Detect short residual excursions around that baseline, including sub-1-bps excursions; do not require a large 4-10 bps impulse unless measured data justifies it.
-5. Require the residual to remain economically executable after current LIVE MEXC bid/ask spread plus a small net-edge buffer.
-6. Use hysteresis/rearm so one persistent excursion cannot generate repeated entries.
-7. Re-evaluate the candidate from the newest local WS state immediately before order submit.
-8. Build a marketable IOC directly from cached LIVE MEXC best bid/ask and contract tick size; do not put a REST market-price lookup before the IOC.
-9. Accept partial IOC fill and do not market-top-up the entry.
-10. Manage the actual filled position and close primarily on convergence, with reversal/adverse/timeout/positive-trailing/data-stale/fee-gate exits.
-11. Verify reduce-only close actually removed the exact bot position; retry bounded residual flattening if necessary.
+Current validation uses:
 
-`start_demo.bat` and Demo/shadow modes remain regression/research tools. Do not delete them.
+- LIVE Binance public market data as leader
+- LIVE MEXC public depth as follower/executable book
+- current LIVE MEXC exact account maker=0 / taker=0 eligibility
+- frozen persistent-pair profile selection
+- frozen alpha/entry/exit thresholds
+- realtime measured MEXC private transport latency
+- arrival-time LIVE MEXC depth for entry and exit simulation
+- no LIVE or Testnet order writes
 
-## Latency principles
+Once an `EXIT DECISION` is made, the close path is sticky: it must never wait for Binance/residual validity again. Only MEXC execution/depth availability may affect simulated fill after the modeled arrival time.
 
-- Prefer WebSocket/local state over REST on the signal-critical path.
-- Entry detection is event-driven rather than a fixed polling loop.
-- REST may be used for discovery, background fee refresh, contract metadata, order/position reconciliation, and non-critical accounting.
-- Measure latency instead of claiming millisecond performance.
-- Do not wait for full position-visibility reconciliation before beginning risk/exit monitoring if an IOC fill is already confirmed; provisional state is acceptable when safely reconciled.
-- When changing the critical path, retain telemetry for signal -> IOC submit/result -> position visibility and exit decision -> close result where practical.
+A session/max-signal boundary disables new signals but must not discard an accepted pending entry or open position. Drain the lifecycle to a terminal close before reporting final PnL.
 
-## Execution behavior to preserve
+## Latency rules
 
-Historical reconstruction strongly suggests:
+No hard-coded production latency constants.
 
-large IOC limit -> accept partial fill -> cancel/unfilled remainder -> do NOT market-top-up entry -> manage actual fill -> reduce-only exit.
+Realtime transport measurement is a read-only proxy, not proof of IOC matching-engine latency. The current estimator must not smooth away a current spike: the effective value is at least the latest completed private RTT and any already-longer in-flight private request.
 
-Do not replace this with unconditional market entry without measured evidence.
+Record modeled and actual local scheduling timestamps separately:
 
-## Positive trailing requirement
+- signal time
+- scheduled entry arrival
+- actual entry processing arrival
+- entry schedule overrun
+- exit decision time
+- scheduled exit arrival
+- actual exit arrival
+- exit schedule overrun
+- close time / depth wait
 
-The user specifically wants the floating stop to protect PROFIT, not intentionally ratchet backward into a loss after meaningful executable profit exists.
+Historical latency CSV is explicit replay only.
 
-Current staged design:
-- MFE >= +3 bps: profit floor about +0.5 bps
-- MFE >= +5 bps: floor about +2.0 bps
-- above mature activation: ratcheting trailing behind MFE
-- the stop may only tighten, never loosen
+The next execution-calibration component should use MEXC Testnet strictly for execution telemetry (POST response, terminal IOC, position visibility, close terminal, position absent, dealVol, dealAvgPrice, fees, risk limits). Testnet price behavior must not be used to validate LIVE alpha PnL.
 
-Actual exchange fills can still slip through a software stop, so never claim guaranteed realized positive PnL.
+## LIVE / Testnet safety boundary
 
-## Risk controls
+The current canonical shadow runner is structurally read-only and must not construct order writes.
 
-Keep or improve:
-- explicit real-money unlock and typed confirmation
-- maximum session loss / drawdown halt
-- maximum simultaneous bot position = 1 unless explicitly redesigned and tested
-- position timeout
-- adverse cut
-- fee freshness gate
-- market-data freshness exit while a bot position is open
-- startup refusal when unrelated LIVE positions already exist, unless the user explicitly opts into coexistence
-- exact `positionId` reduce-only reconciliation after close
-- shutdown/cancellation emergency close for bot-owned position
+Do not enable real-money order writes while baseline end-to-end profitability is still being validated. Testnet/Demo order writes may only be used in a dedicated execution calibrator with hard Testnet host checks and explicit user intent.
 
-High leverage magnifies tiny errors. Do not increase leverage as a substitute for proving edge. The current production runner uses the contract maximum only up to the user-supplied leverage cap and keeps notional sizing separate from leverage.
+Never print, commit, or request secrets/tokens in chat.
 
-## Testing and Git workflow
+## Execution components worth preserving later
 
-Before considering work complete:
+When a real execution adapter is reconnected, preserve these proven infrastructure ideas without importing old strategy runners:
+
+- cached WS best bid/ask on the critical path; no REST price lookup before IOC
+- prewarmed contract metadata
+- correct `priceUnit` / `priceScale` and `volUnit` / `volScale`
+- account/direction private `risk_limit` capacity, not public `maxVol` as account capacity
+- leverage/risk setup outside signal -> IOC path
+- actual `dealVol`, `dealAvgPrice`, fees and position state as execution truth
+- close from already-known position state, then reconcile; do not add a private GET before every close
+- exact reduce-only reconciliation and bounded residual cleanup
+
+## Testing
+
+Before saying a change is complete:
 
 ```bash
 pip install -e . pytest
 pytest -q
 ```
 
-CI is `.github/workflows/ci.yml` on Python 3.11. Do not say tests pass unless they actually passed locally or in CI.
+CI is `.github/workflows/ci.yml` on Python 3.11. Do not claim tests passed unless a local run or GitHub Actions actually confirms it.
 
-Prefer small, reviewable changes. Preserve existing working modes for comparison rather than deleting research code prematurely. Do not commit generated logs, credentials, or personal `.env` files.
-
-## Important files
-
-- `PROJECT_STATE.md` - project handoff/current state; read first.
-- `src/mexc_tick_scalper/live_production_runner.py` - guarded real-money Binance -> LIVE MEXC microspread execution runner.
-- `start_live.bat` - explicit real-money launcher; never make Demo/scanner launchers silently call it.
-- `src/mexc_tick_scalper/microspread.py` - current microspread/baseline/hysteresis model.
-- `src/mexc_tick_scalper/microspread_feed.py` - event-driven Binance/MEXC LIVE market feeds.
-- `src/mexc_tick_scalper/demo_microspread_test.py` - Demo/Testnet execution regression/research runner.
-- `src/mexc_tick_scalper/demo_live_launcher.py` - interactive launcher used by `start_demo.bat`.
-- `src/mexc_tick_scalper/lead_lag.py` - older lead-lag model retained for research/comparison.
-- `src/mexc_tick_scalper/demo_multi_lead_lag_test.py` - older continuous large-lag Demo mode retained for comparison.
-- `src/mexc_tick_scalper/live_lead_lag_scan.py` - broad LIVE 0/0 research scanner.
-- `src/mexc_tick_scalper/live_zero_fee_universe.py` - LIVE account exact-zero-fee discovery.
-- `src/mexc_tick_scalper/web_execution.py` - browser-session execution adapter used by Demo and guarded LIVE production.
-- `src/mexc_tick_scalper/demo_hybrid_test.py` - IOC reconciliation/flatten/execution infrastructure.
-- `src/mexc_tick_scalper/hybrid_strategy.py` - earlier MEXC-only microstructure strategy and trailing logic.
-
-When uncertain, inspect current code and tests before changing architecture.
+Never change `baseline_v1.py` in place. A future strategy change requires a separately named baseline and independent validation.
