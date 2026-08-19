@@ -7,8 +7,10 @@ echo ============================================================
 echo  BTW_USDT ONLY - REAL-DATA END-TO-END SHADOW
 echo  LIVE Binance + LIVE MEXC market data
 echo  NO REAL ORDERS - READ ONLY
-echo  frozen alpha + CURRENT measured LIVE MEXC RTT
-echo  LIVE spread/depth/slippage at modeled arrival
+echo  frozen signal alpha + CURRENT measured LIVE MEXC RTT
+echo  arrival gate: ABSOLUTE EXECUTABLE EDGE, not retention percent
+echo  retention/impulse retention: DIAGNOSTIC ONLY
+echo  LIVE spread/depth/slippage/cost at modeled arrival
 echo  single market-data process; HIGH Windows priority
 echo ============================================================
 
@@ -35,11 +37,13 @@ echo Filtered pair: BTW_USDT ONLY
 echo Market data: LIVE Binance + LIVE MEXC
 echo Latency: latest/current read-only LIVE MEXC private-path RTT, refreshed every 100ms
 echo Execution: virtual IOC against LIVE MEXC depth at modeled arrival
+echo Arrival rejection: reversal OR insufficient absolute edge OR depth/slippage/cost failure
+echo Retention ratios: logged only; they do NOT reject an otherwise economic entry
 echo Real order writes: DISABLED
 echo Process priority: HIGH
 echo.
 
-start "BTW REAL-DATA SHADOW" /high /wait .venv\Scripts\python.exe -m mexc_tick_scalper.persistent_end2end_shadow ^
+start "BTW REAL-DATA SHADOW" /high /wait .venv\Scripts\python.exe -m mexc_tick_scalper.btw_economic_arrival_shadow ^
   --lifetime-csv "%BTW_LIFETIME%" ^
   --target-closed-trades 100 ^
   --session-seconds 86400 ^
