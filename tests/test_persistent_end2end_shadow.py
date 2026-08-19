@@ -4,7 +4,10 @@ from mexc_tick_scalper.baseline_v1 import BASELINE_V1, apply_baseline_v1
 from mexc_tick_scalper.persistent_end2end_shadow import (
     LatencyProvider,
     LatencySample,
+    PendingEntry,
     _load_latency_samples,
+    _must_drain,
+    _run_budget_open,
     build_parser,
 )
 
@@ -86,3 +89,19 @@ def test_latency_provider_replay_is_only_explicit_non_realtime_mode(tmp_path):
     exit_ = provider.exit(entry.replay_exit_ms)
     assert exit_ is not None
     assert exit_.value_ms == 339.0
+
+
+def test_session_limits_stop_new_signals_but_do_not_define_terminal_state():
+    args = Namespace(max_signals=10, target_closed_trades=100)
+    stats = Namespace(signals=10)
+    assert not _run_budget_open(50.0, 100.0, stats, args, [])
+    # A pending/open lifecycle is still considered work that must be drained.
+    assert _must_drain(object(), None)
+    assert _must_drain(None, object())
+    assert not _must_drain(None, None)
+
+
+def test_deadline_stops_new_signals_even_before_trade_target():
+    args = Namespace(max_signals=1000, target_closed_trades=100)
+    stats = Namespace(signals=1)
+    assert not _run_budget_open(101.0, 100.0, stats, args, [])
