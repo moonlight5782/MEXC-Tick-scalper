@@ -27,16 +27,10 @@ from .web_fee import read_web_fee_provider
 @dataclass(frozen=True, slots=True)
 class LiveScanContract:
     contract: LiveZeroFeeContract
-    maker_fee: float | None
-    taker_fee: float | None
 
     @property
     def symbol(self) -> str:
         return self.contract.mexc_symbol
-
-    @property
-    def exact_zero_fee(self) -> bool:
-        return self.maker_fee == 0.0 and self.taker_fee == 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,24 +113,16 @@ def _contract_rows(payload) -> list[dict]:
     return []
 
 
-async def _discover_live_crosslisted(zero_fee_only: bool) -> list[LiveScanContract]:
-    """Build current Binance USD-M x LIVE MEXC Futures universe.
-
-    Fee is selection metadata only in Testnet mode. Unknown fee is never treated as
-    zero. If zero_fee_only=True, only explicit maker=0 and taker=0 pairs remain.
-    """
-    fixed.console.print("[cyan][1/4][/cyan] Loading Binance USD-M + LIVE MEXC contracts and account fee rates...")
+async def _discover_live_crosslisted() -> list[LiveScanContract]:
+    """Build Binance USD-M x LIVE MEXC Futures universe without private LIVE auth."""
+    fixed.console.print(
+        "[cyan][1/4][/cyan] Loading public Binance USD-M + LIVE MEXC contracts (no LIVE web token required)..."
+    )
     binance_symbols = await fetch_binance_usdm_symbols()
     market = MexcPublicMarket(LIVE_REST, LIVE_WS)
     mexc_rows = await market.contracts()
 
-    cfg = WebExecutionConfig.from_env(write_enabled=False)
-    async with MexcWebExecutionAdapter(cfg) as adapter:
-        fee_provider = await read_web_fee_provider(adapter)
-
     out: list[LiveScanContract] = []
-    crosslisted = 0
-    confirmed_zero = 0
     for row in mexc_rows:
         symbol = str(row.get("symbol") or "").upper()
         if not symbol:
@@ -144,18 +130,8 @@ async def _discover_live_crosslisted(zero_fee_only: bool) -> list[LiveScanContra
         binance_symbol = mexc_to_binance_symbol(symbol)
         if binance_symbol not in binance_symbols:
             continue
-        crosslisted += 1
-
         contract_size = float(row.get("contractSize") or 0)
         if contract_size <= 0:
-            continue
-
-        fee_status = fee_provider.status(symbol)
-        maker = fee_status.maker
-        taker = fee_status.taker
-        is_zero = maker == 0.0 and taker == 0.0
-        confirmed_zero += int(is_zero)
-        if zero_fee_only and not is_zero:
             continue
 
         contract = LiveZeroFeeContract(
@@ -172,26 +148,26 @@ async def _discover_live_crosslisted(zero_fee_only: bool) -> list[LiveScanContra
             risk_level_limit=max(1, int(row.get("riskLevelLimit") or 1)),
             risk_limit_type=str(row.get("riskLimitType") or "BY_VOLUME").upper(),
         )
-        out.append(LiveScanContract(contract, maker, taker))
+        out.append(LiveScanContract(contract))
 
     out.sort(key=lambda item: item.symbol)
-    fixed.console.print(
-        f"[cyan][1/4][/cyan] Cross-listed={crosslisted}; confirmed LIVE 0/0={confirmed_zero}; "
-        f"selected fee universe={len(out)}"
-    )
+    fixed.console.print(f"[cyan][1/4][/cyan] Public Binance/MEXC cross-listed contracts={len(out)}")
     return out
 
 
-async def _testnet_universe(contracts: list[LiveScanContract]) -> list[TestnetContract]:
-    """Intersect with MEXC Testnet using one metadata request, not N serial calls."""
+async def _testnet_universe(
+    contracts: list[LiveScanContract], *, zero_fee_only: bool
+) -> list[TestnetContract]:
+    """Intersect with Testnet and read Testnet fee rates using DEMO auth only."""
     fixed.console.print(
-        f"[cyan][2/4][/cyan] Checking MEXC Testnet availability for {len(contracts)} candidates in one metadata request..."
+        f"[cyan][2/4][/cyan] Loading MEXC Testnet contracts + Demo fee rates for {len(contracts)} candidates..."
     )
     cfg = WebExecutionConfig.demo_from_env(write_enabled=False)
     async with MexcWebExecutionAdapter(cfg) as adapter:
         started = time.perf_counter_ns()
         payload = await adapter._request("GET", "/contract/detail")
         elapsed_ms = (time.perf_counter_ns() - started) / 1_000_000.0
+        fee_provider = await read_web_fee_provider(adapter)
 
     detail_by_symbol: dict[str, dict] = {}
     for detail in _contract_rows(payload):
@@ -200,6 +176,8 @@ async def _testnet_universe(contracts: list[LiveScanContract]) -> list[TestnetCo
             detail_by_symbol[symbol] = detail
 
     rows: list[TestnetContract] = []
+    confirmed_zero = 0
+    fee_unknown = 0
     for live_row in contracts:
         detail = detail_by_symbol.get(live_row.symbol)
         if detail is None:
@@ -209,19 +187,31 @@ async def _testnet_universe(contracts: list[LiveScanContract]) -> list[TestnetCo
         max_lev = int(detail.get("maxLeverage") or 1)
         if contract_size <= 0 or price_unit <= 0 or max_lev <= 0:
             continue
+
+        fee_status = fee_provider.status(live_row.symbol)
+        maker = fee_status.maker
+        taker = fee_status.taker
+        is_zero = maker == 0.0 and taker == 0.0
+        confirmed_zero += int(is_zero)
+        fee_unknown += int(maker is None or taker is None)
+        if zero_fee_only and not is_zero:
+            continue
+
         rows.append(
             TestnetContract(
                 contract=live_row.contract,
-                maker_fee=live_row.maker_fee,
-                taker_fee=live_row.taker_fee,
+                maker_fee=maker,
+                taker_fee=taker,
                 demo_max_leverage=max_lev,
                 demo_rtt_ms=elapsed_ms,
             )
         )
 
+    scope = "0/0 only" if zero_fee_only else "all fees"
     fixed.console.print(
-        f"[cyan][2/4][/cyan] Testnet contracts={len(detail_by_symbol)}; usable intersection={len(rows)}; "
-        f"metadata RTT={elapsed_ms:.0f}ms"
+        f"[cyan][2/4][/cyan] Testnet contracts={len(detail_by_symbol)}; "
+        f"confirmed Demo 0/0={confirmed_zero}; fee_unknown={fee_unknown}; "
+        f"usable intersection={len(rows)} ({scope}); metadata RTT={elapsed_ms:.0f}ms"
     )
     return rows
 
@@ -295,14 +285,14 @@ def _candidate_from_scan(row: TestnetContract, stats: ScanStats, scan_end_ms: in
 
 async def _scan_live_candidates(args, *, zero_fee_only: bool) -> list[SelectableCandidate]:
     """Fresh PRE-TRADE scan. No historical lifetime CSV is read here."""
-    contracts = await _discover_live_crosslisted(zero_fee_only)
+    contracts = await _discover_live_crosslisted()
     if not contracts:
-        scope = "exact 0/0-fee " if zero_fee_only else ""
-        raise RuntimeError(f"No current {scope}Binance/MEXC cross-listed Futures contracts were found")
+        raise RuntimeError("No current Binance/MEXC cross-listed Futures contracts were found")
 
-    universe = await _testnet_universe(contracts)
+    universe = await _testnet_universe(contracts, zero_fee_only=zero_fee_only)
     if not universe:
-        raise RuntimeError("No selected Binance/MEXC contract is also available on MEXC Testnet")
+        scope = " with explicit Demo maker=0/taker=0" if zero_fee_only else ""
+        raise RuntimeError(f"No Binance/MEXC contract{scope} is also usable on MEXC Testnet")
 
     feed_contracts = [row.contract for row in universe]
     symbols = [row.symbol for row in universe]
@@ -338,10 +328,10 @@ async def _scan_live_candidates(args, *, zero_fee_only: bool) -> list[Selectable
     mexc = EventMexcDepthFeed(symbols, models, wake, depth_limit=args.depth_limit)
     stats = {symbol: ScanStats() for symbol in symbols}
 
-    fixed.console.print(f"[cyan][3/4][/cyan] Starting LIVE feeds for {len(symbols)} pairs...")
+    fixed.console.print(f"[cyan][3/4][/cyan] Starting LIVE signal feeds for {len(symbols)} pairs...")
     await binance.start()
     await mexc.start()
-    fee_scope = "exact 0/0 fee only" if zero_fee_only else "all fees (fees are reporting-only in Testnet)"
+    fee_scope = "Demo 0/0 only" if zero_fee_only else "all Demo fees (reporting-only in Testnet)"
     fixed.console.print(
         f"[cyan][3/4][/cyan] LIVE scan active: fees={fee_scope}; warmup={args.warmup_seconds:g}s; "
         f"sample={args.scan_seconds:g}s; qualifying signal=baseline >=8bps AND >=3x."
@@ -434,7 +424,7 @@ def _show_selectable(rows: list[SelectableCandidate]) -> None:
     table = Table(title="Fresh Binance + MEXC lead-lag scan; executable on MEXC Testnet")
     for col in (
         "#", "Symbol", "Signals", "Med lag", "Survive@DemoRTT", "Residual",
-        "Strength", "Maker", "Taker", "LIVE lev", "Demo lev", "Demo RTT", "Score",
+        "Strength", "Demo maker", "Demo taker", "LIVE lev", "Demo lev", "Demo RTT", "Score",
     ):
         table.add_column(col)
     for idx, row in enumerate(rows, 1):
@@ -482,11 +472,12 @@ async def _run_selected(args) -> None:
         "Fresh observation only: no historical lifetime CSV. Scanner stops completely before trading mode."
     )
 
-    raw_fee_scope = input("Scan only exact 0/0-fee pairs? [Y/n]: ")
+    fixed.console.print("Testnet fee universe: Y = only Demo 0/0; N = all pairs (fee never blocks Testnet trading)")
+    raw_fee_scope = input("Choice [Y/n]: ")
     zero_fee_only = _zero_fee_choice(raw_fee_scope)
     fixed.console.print(
         "Fee filter: "
-        + ("ONLY explicit maker=0 / taker=0 pairs" if zero_fee_only else "ALL Binance/MEXC pairs; fee does NOT block Testnet trading")
+        + ("ONLY explicit Demo maker=0 / taker=0 pairs" if zero_fee_only else "ALL Binance/MEXC pairs; Demo fee does NOT block Testnet trading")
     )
 
     rows = await _scan_live_candidates(args, zero_fee_only=zero_fee_only)
@@ -506,7 +497,7 @@ async def _run_selected(args) -> None:
         f"signals={selected.candidate.profile.signals} "
         f"median_residual={selected.candidate.profile.median_signal_residual_bps:.1f}bps "
         f"median_strength={selected.candidate.profile.median_signal_strength_ratio:.2f}x "
-        f"maker={_fee_bps(selected.maker_fee)} taker={_fee_bps(selected.taker_fee)} "
+        f"demo_maker={_fee_bps(selected.maker_fee)} demo_taker={_fee_bps(selected.taker_fee)} "
         f"score={selected.candidate.score:.1f}"
     )
     fixed.console.print(
@@ -520,6 +511,8 @@ async def _run_selected(args) -> None:
     previous_taker = getattr(args, "selected_live_taker_fee_rate", None)
     fixed.SYMBOL = symbol
     fixed.LeadLagGate = runtime_diag.DiagnosticLeadLagGate
+    # These legacy attribute names are consumed only by the Testnet reporting wrapper.
+    # Values here are Demo/Testnet fee metadata, not permission for LIVE trading.
     args.selected_live_maker_fee_rate = selected.maker_fee
     args.selected_live_taker_fee_rate = selected.taker_fee
     try:
