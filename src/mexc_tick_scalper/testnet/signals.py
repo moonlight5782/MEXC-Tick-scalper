@@ -20,21 +20,28 @@ class TradeSignal:
     mexc_price: float
 
 
+def directional_move_bps(direction: int, start: float, end: float) -> float:
+    if start <= 0 or end <= 0 or direction not in (-1, 1):
+        return 0.0
+    return direction * (end / start - 1.0) * 10_000.0
+
+
 def impulse_retention_fraction(
     direction: int,
     signal_binance_price: float,
     signal_binance_move_bps: float,
     current_binance_price: float,
 ) -> float:
-    """Fraction of the original directional Binance impulse still present."""
-    if direction not in (-1, 1) or signal_binance_price <= 0 or current_binance_price <= 0:
+    """Preserve the original persistent-catchup impulse-retention calculation."""
+    move = direction * signal_binance_move_bps
+    if move <= 0 or signal_binance_price <= 0 or current_binance_price <= 0:
         return 0.0
-    original = abs(float(signal_binance_move_bps))
-    if original <= 1e-12:
+    pre_price = signal_binance_price / (1.0 + direction * move / 10_000.0)
+    original = directional_move_bps(direction, pre_price, signal_binance_price)
+    current = directional_move_bps(direction, pre_price, current_binance_price)
+    if original <= 0:
         return 0.0
-    current_move = direction * (current_binance_price - signal_binance_price) / signal_binance_price * 10_000.0
-    retained = original + current_move
-    return max(0.0, retained / original)
+    return current / original
 
 
 def arrival_entry_ok(
@@ -46,7 +53,12 @@ def arrival_entry_ok(
     min_remaining_edge_bps: float,
     min_edge_after_spread_bps: float,
 ) -> tuple[bool, str, float, float]:
-    """Preserve baseline-v1 arrival economics without legacy global side effects."""
+    """Preserve current baseline-v1 arrival economics without legacy globals.
+
+    The current validated auto-discovery implementation computes retention metrics
+    for diagnostics but gates on direction and absolute executable edge. Do not
+    silently tighten this function to the older retention-gated variant.
+    """
     if signal.direction * current_residual_bps <= 0:
         return False, "residual_reversed", 0.0, 0.0
 
