@@ -6,35 +6,31 @@ set "LOG_FILE=testnet_last_run.log"
 if exist "%LOG_FILE%" del /q "%LOG_FILE%"
 
 echo ============================================================
-echo  FRESH BINANCE + MEXC PAIR SCAN -> TESTNET TRADING
-echo  LIVE REAL-MONEY WRITES: NOT USED BY THIS RUNNER
+echo  STRUCTURED TESTNET APP
+echo  universe -^> scan -^> pair selection -^> trading
+echo  LIVE REAL-MONEY WRITES: NOT USED
 echo.
-echo  PRE-TRADE SCAN:
-echo  fresh LIVE observation only; old lifetime CSV is NOT used
-echo  finds strategy-compatible pairs on LIVE Binance + LIVE MEXC
-echo  keeps only symbols also available on MEXC Testnet
-echo  qualifying scan signal uses the SAME baseline: ^>=8bps and ^>=3x
-echo  ranks by Signals / Med lag / Survive@DemoRTT / Residual / Strength / Score
-echo  choose pair number or symbol; plain Enter selects #1
+echo  AUTH BOUNDARY:
+echo  Testnet uses MEXC_DEMO_WEB_TOKEN only
+echo  MEXC_WEB_TOKEN is NOT required by this launcher
 echo.
-echo  TRADING ENTRY:
-echo  original baseline residual ^>= 8bps, strength ^>= 3x
-echo  signal gate / arrival economics / sizing / IOC remain unchanged
+echo  ENTRY:
+echo  baseline residual ^>= 8bps and strength ^>= 3x unchanged
+echo  signal gate / arrival economics / sizing / IOC unchanged
 echo.
-echo  TRADING LATENCY RULE:
-echo  scan-time sampling may wait BEFORE trading starts
-echo  scanner feeds are closed before TRADING MODE
-echo  after selection: no synthetic RTT and no fixed software sleep
-echo  confirmed fill -> position management starts immediately
-echo  no blocking get_positions wait after confirmed fill
-echo  HTTP/network/MEXC response time determines execution latency
+echo  LATENCY:
+echo  scanner may wait only BEFORE trading mode
+echo  scanner stops before trading starts
+echo  no synthetic RTT / no fixed execution sleep
+echo  confirmed fill -^> immediate position management
 echo.
-echo  PROFIT HOLD:
-echo  first positive executable Demo PnL -> PROFIT HOLD
-echo  positive trailing stop ratchets upward
-echo  convergence/retrace/reversal/no-progress/timeout do not cut winner
-echo  hard mid-adverse safety remains active
-echo  exchange/forced cleanup protections remain
+echo  TESTNET FEES:
+echo  fee scope is selectable before scan
+echo  fees never block trading when ALL is selected
+echo  actual DEMO_FEES and DEMO_NET come from exchange fills
+echo.
+echo  REAL/LIVE RULE REMAINS STRICT:
+echo  future real trading must require confirmed maker=0 AND taker=0
 echo ============================================================
 
 if not exist ".venv\Scripts\python.exe" (
@@ -48,10 +44,8 @@ echo   MEXC_DEMO_WEB_TOKEN=WEB_...
 echo   MEXC_DEMO_WRITE=YES
 echo Never paste the Demo token into GitHub or chat.
 echo.
-echo Full stderr will also be saved to %LOG_FILE%
-echo.
 
-.venv\Scripts\python.exe -m mexc_tick_scalper.auto_discovery_testnet_selector ^
+.venv\Scripts\python.exe -m mexc_tick_scalper.testnet_app ^
   --discovery-top 10 ^
   --scan-seconds 30 ^
   --profit-runner-arm-bps 5 ^
@@ -64,8 +58,8 @@ set "RC=%ERRORLEVEL%"
 if not "%RC%"=="0" goto :failed
 
 echo.
-echo Selected-pair Testnet runner finished normally. Exit code: %RC%
-echo Error log (if any): %CD%\%LOG_FILE%
+echo Testnet app finished normally. Exit code: %RC%
+echo Error log: %CD%\%LOG_FILE%
 pause
 exit /b 0
 
@@ -74,7 +68,7 @@ set "RC=%ERRORLEVEL%"
 if "%RC%"=="0" set "RC=2"
 echo.
 echo ============================================================
-echo PAIR SELECTOR / TESTNET RUNNER FAILED. Exit code: %RC%
+echo TESTNET APP FAILED. Exit code: %RC%
 echo Error log: %CD%\%LOG_FILE%
 echo ============================================================
 if exist "%LOG_FILE%" (
