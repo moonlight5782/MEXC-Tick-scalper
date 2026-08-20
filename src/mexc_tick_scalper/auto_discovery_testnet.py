@@ -7,6 +7,7 @@ import os
 import time
 import uuid
 from dataclasses import dataclass, field
+from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 from pathlib import Path
 
 from rich.console import Console
@@ -15,7 +16,7 @@ from . import auto_discovery_shadow as auto
 from .execution import OrderFill, OrderSide, PositionSnapshot
 from .lead_lag_strategy import LeadLagGate
 from .live_lead_lag_shadow import PositiveTrailing
-from .live_production_runner import _close_position_fully, _marketable_ioc_price, _resolve_remote_position, _signed_move_bps
+from .live_production_runner import _close_position_fully, _resolve_remote_position, _signed_move_bps
 from .microspread import MicroSpreadModel
 from .microspread_feed import EventBinanceBookTickerFeed, EventMexcDepthFeed
 from .prelive_latency_diagnostic import _exit_depth_for_qty
@@ -44,7 +45,6 @@ class DemoPosition:
     runner_armed: bool = False
     mfe_bps: float = 0.0
     mae_bps: float = 0.0
-    last_progress_ms: int = 0
     last_position_poll_ms: int = 0
 
 
@@ -110,21 +110,46 @@ def _requested_notional(bank: Bank, leverage: float) -> tuple[float, float, floa
     return requested, margin, reserve
 
 
+def _effective_leverage(live_max: int, demo_detail: dict) -> int:
+    demo_max = max(1, int(demo_detail.get("maxLeverage") or 1))
+    return max(1, min(int(auto.REQUESTED_LEVERAGE), max(1, int(live_max)), demo_max))
+
+
+def _demo_ioc_price(best: float, side: OrderSide, cross_bps: float, price_unit: float) -> float:
+    if best <= 0 or price_unit <= 0:
+        raise MexcWebError("invalid Testnet best price or priceUnit")
+    cross = Decimal(str(max(0.0, cross_bps))) / Decimal("10000")
+    factor = Decimal("1") + cross if side is OrderSide.LONG else Decimal("1") - cross
+    raw = Decimal(str(best)) * factor
+    tick = Decimal(str(price_unit))
+    rounding = ROUND_CEILING if side is OrderSide.LONG else ROUND_FLOOR
+    return float((raw / tick).to_integral_value(rounding=rounding) * tick)
+
+
+def _convergence_exit_allowed(runner_armed: bool) -> bool:
+    return not bool(runner_armed)
+
+
+def _median(values: list[float]) -> float:
+    if not values:
+        return 0.0
+    rows = sorted(values)
+    n = len(rows)
+    mid = n // 2
+    return rows[mid] if n % 2 else (rows[mid - 1] + rows[mid]) / 2.0
+
+
 def _summary(stats: Stats) -> str:
     closed = stats.wins + stats.losses + stats.flats
     wr = stats.wins / closed * 100.0 if closed else 0.0
     pf = "inf" if math.isinf(stats.pf) else f"{stats.pf:.3f}"
-    fill_med = sorted(stats.fills)[len(stats.fills)//2] * 100.0 if stats.fills else 0.0
-    notional_med = sorted(stats.notionals)[len(stats.notionals)//2] if stats.notionals else 0.0
-    hold_med = sorted(stats.holds)[len(stats.holds)//2] if stats.holds else 0.0
-    signal_fill_med = sorted(stats.signal_to_fill)[len(stats.signal_to_fill)//2] if stats.signal_to_fill else 0.0
     exits = ",".join(f"{key}:{value}" for key, value in sorted(stats.exits.items())) or "-"
     return (
         f"signals={stats.signals} entries={stats.entries} expired={stats.expired} nofill={stats.nofill} "
         f"W/L/F={stats.wins}/{stats.losses}/{stats.flats} WR={wr:.1f}% PF_USDT={pf} "
         f"pnl={stats.pnl_usdt:+.4f}USDT bank=${BANK.balance_usdt:.2f} "
-        f"fill_med={fill_med:.1f}% notional_med=${notional_med:.0f} hold_med={hold_med:.0f}ms "
-        f"signal_to_fill_med={signal_fill_med:.0f}ms exits={exits}"
+        f"fill_med={_median(stats.fills)*100:.1f}% notional_med=${_median(stats.notionals):.0f} "
+        f"hold_med={_median(stats.holds):.0f}ms signal_to_fill_med={_median(stats.signal_to_fill):.0f}ms exits={exits}"
     )
 
 
@@ -159,11 +184,6 @@ def _record(stats: Stats, pnl_usdt: float, reason: str, hold_ms: int) -> None:
         stats.flats += 1
 
 
-def _effective_leverage(live_max: int, demo_detail: dict) -> int:
-    demo_max = max(1, int(demo_detail.get("maxLeverage") or 1))
-    return max(1, min(int(auto.REQUESTED_LEVERAGE), max(1, int(live_max)), demo_max))
-
-
 async def _close_and_account(
     adapter: MexcWebExecutionAdapter,
     pos: DemoPosition,
@@ -185,32 +205,19 @@ async def _close_and_account(
     BANK.balance_usdt = max(0.0, BANK.balance_usdt + pnl)
     _record(stats, pnl, reason, hold_ms)
     _append_trade(output, {
-        "signal_ms": pos.signal_ms,
-        "entry_ms": pos.entry_ms,
-        "exit_ms": int(exit_done),
-        "symbol": pos.signal.symbol,
-        "direction": "LONG" if pos.signal.direction > 0 else "SHORT",
+        "signal_ms": pos.signal_ms, "entry_ms": pos.entry_ms, "exit_ms": int(exit_done),
+        "symbol": pos.signal.symbol, "direction": "LONG" if pos.signal.direction > 0 else "SHORT",
         "requested_notional_usdt": pos.requested_notional_usdt,
         "filled_notional_usdt": pos.filled_notional_usdt,
         "fill_ratio": pos.filled_notional_usdt / max(pos.requested_notional_usdt, 1e-12),
-        "leverage": pos.remote.leverage,
-        "actual_margin_usdt": margin,
-        "entry_price": pos.actual_entry_price,
-        "exit_price": exit_price,
-        "entry_fee_usdt": pos.entry_fill.fee_usdt,
-        "exit_fee_usdt": exit_fill.fee_usdt,
-        "pnl_bps": pnl_bps,
-        "pnl_usdt": pnl,
-        "roe_pct": roe,
-        "mfe_bps": pos.mfe_bps,
-        "mae_bps": pos.mae_bps,
-        "hold_ms": hold_ms,
-        "signal_to_fill_ms": pos.entry_ms - pos.signal_ms,
-        "exit_reason": reason,
-        "runner_armed": pos.runner_armed,
-        "liquidation_price": pos.remote.liquidation_price or "",
-        "entry_order_id": pos.entry_fill.order_id,
-        "exit_order_id": exit_fill.order_id,
+        "leverage": pos.remote.leverage, "actual_margin_usdt": margin,
+        "entry_price": pos.actual_entry_price, "exit_price": exit_price,
+        "entry_fee_usdt": pos.entry_fill.fee_usdt, "exit_fee_usdt": exit_fill.fee_usdt,
+        "pnl_bps": pnl_bps, "pnl_usdt": pnl, "roe_pct": roe,
+        "mfe_bps": pos.mfe_bps, "mae_bps": pos.mae_bps, "hold_ms": hold_ms,
+        "signal_to_fill_ms": pos.entry_ms - pos.signal_ms, "exit_reason": reason,
+        "runner_armed": pos.runner_armed, "liquidation_price": pos.remote.liquidation_price or "",
+        "entry_order_id": pos.entry_fill.order_id, "exit_order_id": exit_fill.order_id,
     })
     console.print(
         f"[{'green' if pnl > 0 else 'red'}]TESTNET EXIT[/] {pos.signal.symbol} reason={reason} "
@@ -228,7 +235,6 @@ async def run(args) -> None:
 
     candidates = await auto.discover(args)
     live_contracts = {row.contract.mexc_symbol: row.contract for row in candidates}
-    selected_profiles = {row.profile.symbol: row.profile for row in candidates}
 
     cfg = WebExecutionConfig.demo_from_env(write_enabled=True)
     _assert_demo_write_config(cfg)
@@ -268,29 +274,20 @@ async def run(args) -> None:
 
         models = {
             c.mexc_symbol: MicroSpreadModel(
-                horizon_ms=args.micro_horizon_ms,
-                baseline_seconds=args.baseline_seconds,
-                baseline_exclusion_ms=args.baseline_exclusion_ms,
-                min_edge_bps=0.0,
-                min_binance_move_bps=0.0,
-                max_binance_age_ms=args.max_binance_age_ms,
+                horizon_ms=args.micro_horizon_ms, baseline_seconds=args.baseline_seconds,
+                baseline_exclusion_ms=args.baseline_exclusion_ms, min_edge_bps=0.0,
+                min_binance_move_bps=0.0, max_binance_age_ms=args.max_binance_age_ms,
                 max_mexc_age_ms=args.max_mexc_age_ms,
-            )
-            for c in contracts
+            ) for c in contracts
         }
         gate = LeadLagGate(
             noise_window_ms=args.noise_window_ms,
             residual_noise_multiplier=args.residual_noise_multiplier,
             binance_noise_multiplier=args.binance_noise_multiplier,
-            min_edge_bps=args.min_edge_bps,
-            min_net_edge_bps=args.min_net_edge_bps,
-            spread_ratio=args.edge_to_spread_ratio,
-            min_binance_move_bps=args.min_binance_move_bps,
-            min_leader_advantage_bps=args.min_leader_advantage_bps,
-            min_lead_ratio=args.min_lead_ratio,
-            confirm_updates=args.confirm_updates,
-            confirm_ms=args.confirm_ms,
-            rearm_fraction=args.rearm_fraction,
+            min_edge_bps=args.min_edge_bps, min_net_edge_bps=args.min_net_edge_bps,
+            spread_ratio=args.edge_to_spread_ratio, min_binance_move_bps=args.min_binance_move_bps,
+            min_leader_advantage_bps=args.min_leader_advantage_bps, min_lead_ratio=args.min_lead_ratio,
+            confirm_updates=args.confirm_updates, confirm_ms=args.confirm_ms, rearm_fraction=args.rearm_fraction,
         )
         binance = EventBinanceBookTickerFeed(contracts, models, wake)
         mexc = EventMexcDepthFeed(symbols, models, wake, depth_limit=args.depth_limit)
@@ -341,7 +338,8 @@ async def run(args) -> None:
                         ok, why, residual_ret, impulse_ret = auto._economic_arrival_entry_ok(
                             signal=signal, current_residual_bps=snap.edge_bps, current_binance_price=snap.binance_mid,
                             current_spread_bps=book.spread_bps, min_residual_retention=args.min_residual_retention,
-                            min_impulse_retention=args.min_impulse_retention, min_remaining_edge_bps=args.min_absolute_residual_bps,
+                            min_impulse_retention=args.min_impulse_retention,
+                            min_remaining_edge_bps=args.min_absolute_residual_bps,
                             min_edge_after_spread_bps=args.min_edge_after_spread_bps,
                         )
                         if not ok:
@@ -382,8 +380,7 @@ async def run(args) -> None:
                                     side = OrderSide.LONG if signal.direction > 0 else OrderSide.SHORT
                                     demo_best = await adapter.get_best_price(symbol, side)
                                     price_unit = float(demo_detail[symbol].get("priceUnit") or 0)
-                                    limit_price = _marketable_ioc_price(side, book, args.ioc_cross_bps, price_unit)
-                                    # Keep the same requested-notional policy; Testnet determines actual IOC partial fill.
+                                    limit_price = _demo_ioc_price(demo_best, side, args.ioc_cross_bps, price_unit)
                                     requested_qty = requested / max(demo_best, 1e-12)
                                     marks: dict[str, float] = {}
                                     fill = await adapter.open_ioc(
@@ -413,7 +410,7 @@ async def run(args) -> None:
                                             actual_entry_price=actual_entry, requested_notional_usdt=requested,
                                             filled_notional_usdt=filled_notional,
                                             trailing=PositiveTrailing(distance_bps=max(args.trailing_distance_bps, fresh_book.spread_bps)),
-                                            last_progress_ms=entry_ms, last_position_poll_ms=entry_ms,
+                                            last_position_poll_ms=entry_ms,
                                         )
                                         actual_margin = filled_notional / leverage
                                         liq = remote.liquidation_price
@@ -426,11 +423,9 @@ async def run(args) -> None:
                                             f"TESTNET ENTRY {symbol} {'LONG' if signal.direction > 0 else 'SHORT'} "
                                             f"requested=${requested:.0f} filled=${filled_notional:.0f} ({fill_ratio:.1%}) "
                                             f"actual_margin=${actual_margin:.2f} lev={leverage}x signal_to_fill={entry_ms-signal_ms}ms "
-                                            f"fee=${fill.fee_usdt:.6f} liq={liq_txt} "
-                                            f"liq_distance={liq_distance:.1f}bps"
+                                            f"fee=${fill.fee_usdt:.6f} liq={liq_txt} liq_distance={liq_distance:.1f}bps"
                                         )
 
-                                        # Same arrival thesis check, now using the actual post-fill market state.
                                         post_ok, post_why, _, _ = auto._economic_arrival_entry_ok(
                                             signal=signal, current_residual_bps=fresh_snap.edge_bps,
                                             current_binance_price=fresh_snap.binance_mid,
@@ -440,7 +435,8 @@ async def run(args) -> None:
                                             min_remaining_edge_bps=args.min_absolute_residual_bps,
                                             min_edge_after_spread_bps=args.min_edge_after_spread_bps,
                                         )
-                                        actual_slip = max(0.0, _signed_move_bps(signal.direction, fresh_book.ask if signal.direction > 0 else fresh_book.bid, actual_entry))
+                                        live_best = fresh_book.ask if signal.direction > 0 else fresh_book.bid
+                                        actual_slip = max(0.0, _signed_move_bps(signal.direction, live_best, actual_entry))
                                         abort_reason = None
                                         if filled_notional < args.min_filled_notional_usdt:
                                             abort_reason = "actual_fill_too_small"
@@ -449,6 +445,7 @@ async def run(args) -> None:
                                         elif not post_ok:
                                             abort_reason = f"arrival_{post_why}"
                                         if abort_reason is not None:
+                                            console.print(f"[yellow]POST-FILL GUARD[/yellow] {symbol} reason={abort_reason}; flattening Testnet immediately")
                                             await _close_and_account(adapter, pos, stats, output, abort_reason)
                                             pos = None
 
@@ -474,8 +471,6 @@ async def run(args) -> None:
                             if executable_pnl_bps is not None:
                                 pos.mfe_bps = max(pos.mfe_bps, executable_pnl_bps)
                                 pos.mae_bps = min(pos.mae_bps, executable_pnl_bps)
-                                if executable_pnl_bps >= args.min_progress_bps:
-                                    pos.last_progress_ms = now_ms
                                 if not pos.runner_armed and pos.trailing.peak_bps + 1e-9 >= args.profit_runner_arm_bps:
                                     pos.runner_armed = True
                                     console.print(
@@ -492,7 +487,11 @@ async def run(args) -> None:
                                     reason = "leader_retrace"
                                 elif residual_dir == -pos.signal.direction and abs(snap.edge_bps) >= args.reversal_edge_bps:
                                     reason = "residual_reversal"
-                                elif (not pos.runner_armed and abs(snap.edge_bps) <= max(args.convergence_bps, abs(pos.live_entry_residual_bps) * args.convergence_fraction) and mid_move >= args.min_catchup_bps):
+                                elif (
+                                    _convergence_exit_allowed(pos.runner_armed)
+                                    and abs(snap.edge_bps) <= max(args.convergence_bps, abs(pos.live_entry_residual_bps) * args.convergence_fraction)
+                                    and mid_move >= args.min_catchup_bps
+                                ):
                                     reason = "mexc_catchup_convergence"
                                 elif age_ms >= args.no_progress_ms and mid_move < args.min_progress_bps:
                                     reason = "no_progress"
@@ -505,7 +504,6 @@ async def run(args) -> None:
                                 await _close_and_account(adapter, pos, stats, output, reason)
                                 pos = None
 
-                    # Detect a Testnet-side liquidation or external disappearance.
                     if pos is not None and now_ms - pos.last_position_poll_ms >= args.testnet_position_poll_ms:
                         pos.last_position_poll_ms = now_ms
                         remote_now = await adapter.get_position(symbol)
