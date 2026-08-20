@@ -11,26 +11,41 @@ from . import auto_discovery_testnet_xrp_fixed as fixed
 
 _ORIGINAL_TRAILING = fixed.PositiveTrailing
 _ACTIVE_ARGS = None
-_ORIGINAL_POLICY: dict[str, float | int] = {}
+_SAVED_PRE_PROFIT_POLICY: dict[str, float | int] = {}
+_ORIGINAL_ARM_BPS: float | None = None
 PROFIT_LOCK_FLOOR_BPS = 0.10
 
 
-def _restore_policy() -> None:
-    if _ACTIVE_ARGS is None or not _ORIGINAL_POLICY:
+def _capture_pre_profit_policy() -> None:
+    """Capture the policy only after fixed.run() has applied its normal protections."""
+    global _SAVED_PRE_PROFIT_POLICY
+    if _ACTIVE_ARGS is None or _SAVED_PRE_PROFIT_POLICY:
         return
-    _ACTIVE_ARGS.mid_adverse_cut_bps = _ORIGINAL_POLICY["mid_adverse_cut_bps"]
-    _ACTIVE_ARGS.leader_retrace_exit_bps = _ORIGINAL_POLICY["leader_retrace_exit_bps"]
-    _ACTIVE_ARGS.reversal_edge_bps = _ORIGINAL_POLICY["reversal_edge_bps"]
-    _ACTIVE_ARGS.no_progress_ms = _ORIGINAL_POLICY["no_progress_ms"]
-    _ACTIVE_ARGS.max_hold_ms = _ORIGINAL_POLICY["max_hold_ms"]
-    _ACTIVE_ARGS.profit_runner_arm_bps = _ORIGINAL_POLICY["profit_runner_arm_bps"]
+    _SAVED_PRE_PROFIT_POLICY = {
+        "mid_adverse_cut_bps": _ACTIVE_ARGS.mid_adverse_cut_bps,
+        "leader_retrace_exit_bps": _ACTIVE_ARGS.leader_retrace_exit_bps,
+        "reversal_edge_bps": _ACTIVE_ARGS.reversal_edge_bps,
+        "no_progress_ms": _ACTIVE_ARGS.no_progress_ms,
+        "max_hold_ms": _ACTIVE_ARGS.max_hold_ms,
+    }
+
+
+def _restore_pre_profit_policy() -> None:
+    if _ACTIVE_ARGS is None or not _SAVED_PRE_PROFIT_POLICY:
+        return
+    _ACTIVE_ARGS.mid_adverse_cut_bps = _SAVED_PRE_PROFIT_POLICY["mid_adverse_cut_bps"]
+    _ACTIVE_ARGS.leader_retrace_exit_bps = _SAVED_PRE_PROFIT_POLICY["leader_retrace_exit_bps"]
+    _ACTIVE_ARGS.reversal_edge_bps = _SAVED_PRE_PROFIT_POLICY["reversal_edge_bps"]
+    _ACTIVE_ARGS.no_progress_ms = _SAVED_PRE_PROFIT_POLICY["no_progress_ms"]
+    _ACTIVE_ARGS.max_hold_ms = _SAVED_PRE_PROFIT_POLICY["max_hold_ms"]
 
 
 def _arm_profit_hold() -> None:
     if _ACTIVE_ARGS is None:
         return
-    # Once the actual Demo position is profitable, lead-lag thesis exits must not
-    # cut the winner. Positive trailing owns the market-price exit from here.
+    _capture_pre_profit_policy()
+    # Once the actual Demo position is profitable, market-price exit ownership
+    # moves to positive trailing. Entry logic and pre-profit protections are untouched.
     _ACTIVE_ARGS.mid_adverse_cut_bps = math.inf
     _ACTIVE_ARGS.leader_retrace_exit_bps = math.inf
     _ACTIVE_ARGS.reversal_edge_bps = math.inf
@@ -42,8 +57,9 @@ class ProfitHoldTrailing:
     """Original trailing plus permanent profit-hold after first positive PnL."""
 
     def __init__(self, distance_bps: float) -> None:
-        # A fresh position must start with all original pre-profit protections.
-        _restore_policy()
+        # If the previous winner changed exit thresholds, restore the exact policy
+        # that was active before that winner first became profitable.
+        _restore_pre_profit_policy()
         self._inner = _ORIGINAL_TRAILING(distance_bps=distance_bps)
         self._armed = False
 
@@ -68,8 +84,8 @@ class ProfitHoldTrailing:
         if move_bps > 0.0 and not self._armed:
             self._armed = True
             _arm_profit_hold()
-            # Lock a small but strictly positive gross profit immediately, without
-            # placing the stop above the currently observable executable profit.
+            # Lock a strictly positive gross profit immediately, without placing
+            # the stop above the currently observed executable profit.
             floor = min(PROFIT_LOCK_FLOOR_BPS, move_bps * 0.5)
             if floor > 0.0:
                 self._inner.stop_bps = floor if self._inner.stop_bps is None else max(self._inner.stop_bps, floor)
@@ -83,24 +99,17 @@ class ProfitHoldTrailing:
 
 
 async def run(args) -> None:
-    global _ACTIVE_ARGS, _ORIGINAL_POLICY
+    global _ACTIVE_ARGS, _SAVED_PRE_PROFIT_POLICY, _ORIGINAL_ARM_BPS
 
-    # Do not touch entry parameters. Baseline apply_baseline_v1() in fixed.main()
-    # keeps the original min_absolute_residual_bps=8 and strength=3x.
+    # Do not touch entry parameters. fixed.main()/baseline_v1 supplies the original
+    # min_absolute_residual_bps=8 and min_signal_strength_ratio=3.
     _ACTIVE_ARGS = args
-    _ORIGINAL_POLICY = {
-        "mid_adverse_cut_bps": args.mid_adverse_cut_bps,
-        "leader_retrace_exit_bps": args.leader_retrace_exit_bps,
-        "reversal_edge_bps": args.reversal_edge_bps,
-        "no_progress_ms": args.no_progress_ms,
-        "max_hold_ms": args.max_hold_ms,
-        "profit_runner_arm_bps": args.profit_runner_arm_bps,
-    }
+    _SAVED_PRE_PROFIT_POLICY = {}
+    _ORIGINAL_ARM_BPS = float(args.profit_runner_arm_bps)
 
-    # fixed.run() applies its immediate-exit policy after entering run(), so our
-    # saved values are refreshed below by ProfitHoldTrailing construction. Arm the
-    # fixed runner flag on the first positive executable tick so convergence is
-    # suppressed on the same tick as profit-hold.
+    # The fixed runner already suppresses convergence when runner_armed=True.
+    # Arm that flag on the first positive executable tick; our custom trailing
+    # handles the positive stop floor and all other winner-exit suppression.
     args.profit_runner_arm_bps = 1e-9
 
     original_trailing = fixed.PositiveTrailing
@@ -112,10 +121,13 @@ async def run(args) -> None:
         )
         await fixed.run(args)
     finally:
-        _restore_policy()
+        _restore_pre_profit_policy()
+        if _ORIGINAL_ARM_BPS is not None:
+            args.profit_runner_arm_bps = _ORIGINAL_ARM_BPS
         fixed.PositiveTrailing = original_trailing
         _ACTIVE_ARGS = None
-        _ORIGINAL_POLICY = {}
+        _SAVED_PRE_PROFIT_POLICY = {}
+        _ORIGINAL_ARM_BPS = None
 
 
 def main() -> None:
