@@ -18,7 +18,8 @@ echo  same symbol stays monitored after close and may trade again after a NEW re
 echo  requested/fill reports use ACTUAL dynamic risk-sized notional
 echo  liquidation: LIVE MEXC fairPrice + current public MMR/risk-tier estimate
 echo  liquidation crossing during exit latency is accounted as forced liquidation
-echo  floating stop: LIVE-spread trailing distance
+echo  winner mode: after +5bps EXECUTABLE peak, convergence no longer takes profit early
+echo  winner mode still keeps trailing + reversal + emergency + liquidation protection
 echo ============================================================
 
 for /f "usebackq delims=" %%F in (`powershell -NoProfile -Command "$f = Get-ChildItem -File 'prelive_lag_lifetime_*.csv' | Where-Object { $_.Name -notlike '*ONLY*' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if (-not $f) { exit 2 }; Write-Output $f.FullName"`) do set "LIFETIME_SRC=%%F"
@@ -34,12 +35,14 @@ echo Discovery: top 5 current-latency persistent candidates
 echo Latency: latest/current read-only LIVE MEXC private-path RTT, refreshed every 100ms
 echo Execution: virtual IOC against LIVE MEXC depth at modeled arrival
 echo Liquidation trigger reference: LIVE MEXC fairPrice
+echo Profit runner: arms at +5bps executable peak; convergence disabled only for that winner
 echo Real order writes: DISABLED
 echo.
 
-start "AUTO REAL-DATA SHADOW" /high /wait .venv\Scripts\python.exe -m mexc_tick_scalper.auto_discovery_shadow_v2 ^
+start "AUTO REAL-DATA SHADOW" /high /wait .venv\Scripts\python.exe -m mexc_tick_scalper.auto_discovery_profit_runner ^
   --lifetime-csv "%LIFETIME_SRC%" ^
   --discovery-top 5 ^
+  --profit-runner-arm-bps 5 ^
   --target-closed-trades 100 ^
   --session-seconds 86400 ^
   --max-signals 3000 ^
