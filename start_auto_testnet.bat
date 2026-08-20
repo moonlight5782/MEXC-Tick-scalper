@@ -6,7 +6,7 @@ set "LOG_FILE=testnet_last_run.log"
 if exist "%LOG_FILE%" del /q "%LOG_FILE%"
 
 echo ============================================================
-echo  XRP_USDT - VERIFIED 8/3 ENTRY + PROFIT HOLD
+echo  XRP_USDT - VERIFIED 8/3 ENTRY + PROFIT HOLD + ENTRY DIAG
 echo  SIGNALS: LIVE Binance XRPUSDT + LIVE MEXC XRP_USDT
 echo  ORDERS: MEXC TESTNET XRP_USDT ONLY
 echo  LIVE REAL-MONEY WRITES: NOT USED BY THIS RUNNER
@@ -14,6 +14,7 @@ echo.
 echo  ENTRY: original baseline residual >= 8bps, strength >= 3x
 echo  Signal gate / arrival economics / sizing / IOC are unchanged
 echo  from auto_discovery_testnet_xrp_fixed that was opening trades.
+echo  ENTRY DIAG prints the unchanged gate decision once per second.
 echo  confirm_ms=15 and confirm_updates=2 are original signal validation,
 echo  not synthetic execution latency.
 echo.
@@ -51,7 +52,7 @@ echo.
 echo Full stderr will also be saved to %LOG_FILE%
 echo.
 
-.venv\Scripts\python.exe -m mexc_tick_scalper.auto_discovery_testnet_xrp_profit_hold ^
+.venv\Scripts\python.exe -m mexc_tick_scalper.auto_discovery_testnet_xrp_runtime_diag ^
   --profit-runner-arm-bps 5 ^
   --target-closed-trades 100 ^
   --session-seconds 86400 ^
