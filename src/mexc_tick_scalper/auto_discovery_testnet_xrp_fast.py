@@ -10,8 +10,6 @@ from .execution import OrderFill, OrderSide, PositionSnapshot
 from .web_execution import MexcWebExecutionAdapter
 
 # Temporary XRP Testnet plumbing policy only. Production/shadow strategy is untouched.
-# The first fast run showed 18-19.6 bps signals still dying before confirmed fill,
-# so force a wider cross-exchange residual while we validate Demo execution latency.
 TESTNET_MIN_RESIDUAL_BPS = 20.0
 TESTNET_MIN_STRENGTH_RATIO = 4.0
 
@@ -19,6 +17,11 @@ TESTNET_MIN_STRENGTH_RATIO = 4.0
 # limit so no blocking depth GET is inserted between signal and order POST.
 DEMO_PRICE_CACHE_SOFT_AGE_MS = 750.0
 DEMO_PRICE_REFRESH_SECONDS = 0.025
+
+# Once a trade has become profitable, protect at least a tiny positive amount rather
+# than allowing the trailing floor to fall back to exact breakeven. This is a gross
+# zero-fee strategy floor; actual Demo fees are still reported separately.
+PROFIT_LOCK_FLOOR_BPS = 0.10
 
 _ORIGINAL_PROBE = MexcWebExecutionAdapter.probe
 _ORIGINAL_GET_BEST = MexcWebExecutionAdapter.get_best_price
@@ -31,46 +34,55 @@ _EXIT_POLICY: dict[str, float | int] = {}
 
 
 def _restore_normal_exit_policy() -> None:
-    """Restore normal losing/flat-position exits before a new position is tracked."""
+    """Restore normal lead-lag exits before tracking a fresh position."""
     if _ACTIVE_ARGS is None or not _EXIT_POLICY:
         return
-    _ACTIVE_ARGS.mid_adverse_cut_bps = _EXIT_POLICY["mid_adverse_cut_bps"]
     _ACTIVE_ARGS.leader_retrace_exit_bps = _EXIT_POLICY["leader_retrace_exit_bps"]
     _ACTIVE_ARGS.reversal_edge_bps = _EXIT_POLICY["reversal_edge_bps"]
     _ACTIVE_ARGS.no_progress_ms = _EXIT_POLICY["no_progress_ms"]
     _ACTIVE_ARGS.max_hold_ms = _EXIT_POLICY["max_hold_ms"]
+    _ACTIVE_ARGS.mid_adverse_cut_bps = _EXIT_POLICY["mid_adverse_cut_bps"]
 
 
 def _arm_profit_hold() -> None:
-    """Once executable Demo PnL is positive, trailing owns the exit decision."""
+    """Disable only lead-lag thesis exits; hard safety remains available."""
     if _ACTIVE_ARGS is None:
         return
-    _ACTIVE_ARGS.mid_adverse_cut_bps = math.inf
+    # These are thesis exits. Once the actual Demo position is profitable, the
+    # original cross-exchange thesis has done its job and trailing owns the trade.
     _ACTIVE_ARGS.leader_retrace_exit_bps = math.inf
     _ACTIVE_ARGS.reversal_edge_bps = math.inf
     _ACTIVE_ARGS.no_progress_ms = 2_147_483_647
     _ACTIVE_ARGS.max_hold_ms = 2_147_483_647
 
+    # mid_adverse_cut is intentionally NOT disabled here. It remains a last-resort
+    # emergency fallback if execution/trailing observation fails catastrophically.
+
 
 class _ProfitHoldTrailing:
-    """Arm on first positive executable PnL and never give the winner back to strategy exits.
+    """Hold every winner until its positive trailing stop is hit.
 
-    Before the position becomes profitable, the normal lead-lag exits remain active.
-    On the first positive Demo executable PnL:
-      * floor stop is immediately moved to breakeven (0 bps),
-      * leader retrace / residual reversal / convergence / no-progress / timeout
-        cease to close the winner,
-      * the existing trailing ladder keeps ratcheting the stop upward:
-        +3 bps peak -> +0.5 bps stop,
-        +5 bps peak -> +2 bps stop,
-        +6 bps and above -> peak minus trailing distance.
+    Entry is still driven by the strong Binance->MEXC residual/spread signal.
+    Before first positive executable Demo PnL, normal lead-lag protections operate.
+
+    On the first positive executable PnL:
+      * profit-hold mode arms permanently for this position;
+      * convergence / leader retrace / residual reversal / no-progress / timeout
+        stop being valid thesis exits;
+      * the trailing floor is moved into positive territory as soon as the observed
+        profit is large enough to support it;
+      * the stop can only ratchet upward, never downward;
+      * existing trailing ladder is preserved (+3 -> +0.5, +5 -> +2, >=+6 ->
+        peak minus trailing distance).
+
+    Hard exchange/safety protections remain outside this thesis-exit suppression.
     """
 
     def __init__(self, distance_bps: float) -> None:
-        # A new position starts with the normal exit policy until it first turns positive.
         _restore_normal_exit_policy()
         self._inner = _ORIGINAL_TRAILING(distance_bps=distance_bps)
         self._profit_hold_armed = False
+        self._locked_floor_bps: float | None = None
 
     @property
     def distance_bps(self) -> float:
@@ -88,22 +100,45 @@ class _ProfitHoldTrailing:
     def stop_bps(self, value: float | None) -> None:
         self._inner.stop_bps = value
 
+    def _ratchet_positive_floor(self, move_bps: float) -> None:
+        # A stop cannot logically be placed above the currently observed executable
+        # profit. As soon as profit is > floor, lock a positive floor. For smaller
+        # first-positive ticks, arm immediately and keep watching until +0.10 bps is
+        # actually available, then lock it. The stop never moves backward afterward.
+        if move_bps >= PROFIT_LOCK_FLOOR_BPS:
+            floor = PROFIT_LOCK_FLOOR_BPS
+        elif move_bps > 0.0:
+            floor = max(0.0, move_bps * 0.5)
+        else:
+            return
+
+        if floor > 0.0:
+            self._locked_floor_bps = floor if self._locked_floor_bps is None else max(self._locked_floor_bps, floor)
+            self._inner.stop_bps = (
+                self._locked_floor_bps
+                if self._inner.stop_bps is None
+                else max(self._inner.stop_bps, self._locked_floor_bps)
+            )
+
     def update(self, move_bps: float) -> float | None:
         stop = self._inner.update(move_bps)
+
         if move_bps > 0.0 and not self._profit_hold_armed:
             self._profit_hold_armed = True
             _arm_profit_hold()
-            self._inner.stop_bps = max(0.0, self._inner.stop_bps or 0.0)
+            self._ratchet_positive_floor(move_bps)
             stop = self._inner.stop_bps
+            stop_txt = "pending-positive-floor" if stop is None else f"+{stop:.2f}bps"
             fixed.console.print(
                 f"[bold green]PROFIT HOLD ARMED[/bold green] {fixed.SYMBOL} "
-                f"executable={move_bps:+.2f}bps stop_floor=0.00bps; "
-                "leader/reversal/convergence/no-progress/timeout suppressed; trailing owns exit"
+                f"executable={move_bps:+.2f}bps stop={stop_txt}; "
+                "convergence/leader-retrace/residual-reversal/no-progress/timeout suppressed; "
+                "trailing owns winner exit; hard safety remains"
             )
         elif self._profit_hold_armed:
-            # Never lower the floor below breakeven after the position has been profitable.
-            self._inner.stop_bps = max(0.0, self._inner.stop_bps or 0.0)
+            self._ratchet_positive_floor(move_bps)
             stop = self._inner.stop_bps
+
         return stop
 
 
@@ -236,8 +271,8 @@ async def run(args) -> None:
     args.min_absolute_residual_bps = max(float(args.min_absolute_residual_bps), TESTNET_MIN_RESIDUAL_BPS)
     args.min_signal_strength_ratio = max(float(args.min_signal_strength_ratio), TESTNET_MIN_STRENGTH_RATIO)
 
-    # The previously agreed winner policy: first positive executable PnL arms the
-    # runner immediately. The trailing ladder then owns the exit.
+    # Arm the fixed runner's runner flag on the first positive tick too. Our custom
+    # trailing then owns the exact stop floor/ratchet behavior.
     args.profit_runner_arm_bps = min(float(args.profit_runner_arm_bps), 1e-9)
     _ACTIVE_ARGS = args
     _EXIT_POLICY = {
@@ -262,8 +297,9 @@ async def run(args) -> None:
             f"strength>={args.min_signal_strength_ratio:.1f}x; no blocking Demo-depth GET on signal path"
         )
         fixed.console.print(
-            "Winner policy: first positive executable PnL -> breakeven floor -> trailing only; "
-            "leader/reversal/convergence/no-progress/timeout cannot cut a profitable runner."
+            "Winner policy: strong residual opens trade; first positive executable PnL -> profit hold; "
+            "lead-lag convergence/retrace/reversal no longer close the winner; positive trailing ratchets upward; "
+            "hard safety remains enabled."
         )
         await fixed.run(args)
     finally:
