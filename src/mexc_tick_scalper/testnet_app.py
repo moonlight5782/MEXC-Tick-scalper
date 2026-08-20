@@ -19,19 +19,19 @@ console = Console()
 class TestnetApp:
     """Compose the Testnet product from independent blocks."""
 
-    def __init__(self, args, execution_config, app_console=console) -> None:
+    def __init__(self, args, *, readonly_execution, trading_execution, app_console=console) -> None:
         self.args = args
         self.console = app_console
-        self.universe = TestnetUniverseService(app_console, execution_config)
+        self.universe = TestnetUniverseService(app_console, readonly_execution)
         self.scanner = LeadLagScanner(args, app_console)
         self.selector = PairSelector(app_console)
-        self.trading = TradingSession(args, app_console)
+        self.trading = TradingSession(args, trading_execution, app_console)
 
     async def run(self) -> None:
         self.console.print("[bold cyan]TESTNET APP[/bold cyan]")
         self.console.print(
             "Pipeline: configuration -> universe -> discovery -> selection -> trading. "
-            "Testnet discovery never requires MEXC_WEB_TOKEN."
+            "Testnet never requires LIVE private auth."
         )
 
         scope = self.selector.ask_fee_scope()
@@ -62,7 +62,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=30.0,
         help="fresh pre-trade observation window; only before trading starts",
     )
-    parser.add_argument("--profit-runner-arm-bps", type=float, default=5.0)
     parser.add_argument("--target-closed-trades", type=int, default=100)
     parser.add_argument("--session-seconds", type=float, default=1800.0)
     parser.add_argument("--max-signals", type=int, default=300)
@@ -76,8 +75,6 @@ def _validate_operational_args(args) -> None:
         raise RuntimeError("--discovery-top must be positive")
     if args.scan_seconds <= 0:
         raise RuntimeError("--scan-seconds must be positive")
-    if args.profit_runner_arm_bps < 0:
-        raise RuntimeError("--profit-runner-arm-bps must be non-negative")
     if args.target_closed_trades <= 0:
         raise RuntimeError("--target-closed-trades must be positive")
     if args.session_seconds <= 0:
@@ -98,7 +95,8 @@ def main() -> None:
         asyncio.run(
             TestnetApp(
                 args,
-                execution_config=bootstrap.readonly_execution,
+                readonly_execution=bootstrap.readonly_execution,
+                trading_execution=bootstrap.trading_execution,
                 app_console=console,
             ).run()
         )
