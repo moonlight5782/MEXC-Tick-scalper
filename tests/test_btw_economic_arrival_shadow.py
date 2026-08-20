@@ -40,7 +40,9 @@ def test_small_absolute_edge_still_rejected():
         min_edge_after_spread_bps=2.0,
     )
     assert not ok
-    assert why == "remaining_edge_too_small"
+    assert why.startswith("remaining_edge_too_small")
+    assert "arrival_residual=5.60bps" in why
+    assert "required=8.00bps" in why
 
 
 def test_residual_reversal_is_hard_reject():
