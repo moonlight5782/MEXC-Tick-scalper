@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import pytest
 
-from mexc_tick_scalper.auto_discovery_testnet_selector import _select
+from mexc_tick_scalper.auto_discovery_testnet_selector import _select, _zero_fee_choice
 
 
 @dataclass
@@ -37,3 +37,21 @@ def test_invalid_selection_is_rejected():
         _select(rows(), "99")
     with pytest.raises(ValueError):
         _select(rows(), "BTC")
+
+
+def test_zero_fee_scope_defaults_to_strict_on_enter():
+    assert _zero_fee_choice("") is True
+    assert _zero_fee_choice("y") is True
+    assert _zero_fee_choice("YES") is True
+    assert _zero_fee_choice("да") is True
+
+
+def test_zero_fee_scope_can_be_disabled():
+    assert _zero_fee_choice("n") is False
+    assert _zero_fee_choice("NO") is False
+    assert _zero_fee_choice("нет") is False
+
+
+def test_invalid_zero_fee_scope_is_rejected():
+    with pytest.raises(ValueError):
+        _zero_fee_choice("maybe")
