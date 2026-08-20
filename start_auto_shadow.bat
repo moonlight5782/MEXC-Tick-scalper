@@ -16,6 +16,8 @@ echo  emergency/reversal exit: DECIDE IMMEDIATELY on first observed bad market e
 echo  exit execution delay: measured network/exchange latency only; no synthetic hold
 echo  same symbol stays monitored after close and may trade again after a NEW re-armed impulse
 echo  requested/fill reports use ACTUAL dynamic risk-sized notional
+echo  liquidation: LIVE MEXC fairPrice + current public MMR/risk-tier estimate
+echo  liquidation crossing during exit latency is accounted as forced liquidation
 echo  floating stop: LIVE-spread trailing distance
 echo ============================================================
 
@@ -31,6 +33,7 @@ echo Lifetime source: %LIFETIME_SRC%
 echo Discovery: top 5 current-latency persistent candidates
 echo Latency: latest/current read-only LIVE MEXC private-path RTT, refreshed every 100ms
 echo Execution: virtual IOC against LIVE MEXC depth at modeled arrival
+echo Liquidation trigger reference: LIVE MEXC fairPrice
 echo Real order writes: DISABLED
 echo.
 
