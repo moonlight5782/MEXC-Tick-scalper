@@ -20,7 +20,8 @@ echo  not synthetic execution latency.
 echo.
 echo  LATENCY:
 echo  no synthetic RTT / no fixed sleep between order-status polls
-echo  no fixed sleep between position-resolution polls
+echo  confirmed fill -> position management starts immediately
+echo  no blocking get_positions wait after confirmed fill
 echo  no fixed sleep between residual-close polls
 echo  HTTP/network/MEXC response time determines observed execution latency
 echo.
