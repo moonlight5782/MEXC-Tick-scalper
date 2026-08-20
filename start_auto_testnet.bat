@@ -54,7 +54,6 @@ echo.
   --target-closed-trades 100 ^
   --session-seconds 86400 ^
   --max-signals 3000 ^
-  --testnet-position-poll-ms 250 ^
   --testnet-output persistent_end2end_TESTNET_SELECTED_PROFIT_HOLD.csv 2>"%LOG_FILE%"
 
 set "RC=%ERRORLEVEL%"
