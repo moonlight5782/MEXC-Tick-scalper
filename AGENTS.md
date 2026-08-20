@@ -1,40 +1,170 @@
-# Codex instructions for MEXC-Tick-scalper
+# Engineering instructions for MEXC-Tick-scalper
 
-Read this file and `PROJECT_STATE.md` before changing strategy, execution, or latency code.
+Read this file, `PROJECT_STATE.md`, and the current active launcher/entrypoint before changing strategy, execution, latency, or repository structure.
 
 ## Canonical development line
 
 Active development branch: `persistent-end2end-latency-v1`.
 
-Immutable strategy references:
+Do not create another branch for a small fix. Keep this branch focused until the current Testnet product is structurally clean and validated end-to-end.
 
-- known-good 100-trade commit: `372c3b286eb82aa4b87d806999f8db47173a2b3e`
-- frozen validated baseline: `8a0bc6043385dbaf95ec8e77b93d91fd00a7f9e5`
+Historical strategy references:
+
+- frozen successful shadow baseline commit: `8a0bc6043385dbaf95ec8e77b93d91fd00a7f9e5`
 - frozen parameters: `src/mexc_tick_scalper/baseline_v1.py`
 
-Do not rebuild the strategy from `main`, old `agent/*`, `staged-trailing-stop`, `testnet-known-good-v1`, `testnet-frozen-latency-v1`, or `latency-arb-product-v1`. Those branches are research/execution history only. Individual infrastructure ideas may be ported after review, but their strategy runners are not the product source of truth.
+The frozen commit is a behavioral reference for the original signal/entry/defensive strategy. It is NOT the final product specification: current Testnet work additionally requires real network/exchange latency, immediate post-fill management, a post-fill signal guard, and Profit Hold for winners.
 
-## Primary objective
+## Mandatory workflow before every material code change
 
-Validate and then execute the frozen persistent Binance -> MEXC lag strategy with honest end-to-end latency and current executable MEXC depth.
+1. Read the current caller and all directly affected dependencies.
+2. State what responsibility is being changed and what must remain invariant.
+3. Check whether an existing function has unrelated side effects before reusing it.
+4. Prefer extracting a narrow component over adding another wrapper/runner fork.
+5. Make the smallest coherent change.
+6. Re-check imports/callers after the change.
+7. Run relevant tests, then the full suite before claiming completion.
+8. Never say tests passed unless a real test run or GitHub Actions confirms it.
 
-The frozen strategy is not the old sub-1-bps microspread experiment. Do not silently lower thresholds to increase trade count.
+Do not patch by analogy without inspecting the actual active path.
 
-Key frozen invariants include:
+## Architecture rule: compose blocks, do not mix responsibilities
 
-- target requested notional: 10,000 USDT
-- min absolute residual: 8.0 bps
-- min signal strength: 3.0x
-- min residual retention: 60%
-- min Binance impulse retention: 75%
-- IOC cross: <= 1.0 bps
-- max entry slippage: <= 1.0 bps
-- min actual filled notional: 50 USDT
-- executable residual must beat round-trip cost by >= 2.0 bps and >= 1.5x cost
-- one IOC attempt; accept partial fill; never top up/chase the remainder
-- no pyramiding, martingale, averaging down, or retry merely to force a trade
+Target flow:
 
-Frozen exit priority:
+```text
+Configuration
+  -> UniverseService
+  -> LeadLagScanner
+  -> PairSelector
+  -> TradingSession
+       -> SignalEngine
+       -> EntryPolicy
+       -> ExecutionAdapter
+       -> PositionManager
+       -> ExitPolicy / ProfitHoldPolicy
+       -> RiskManager
+       -> Reporter
+```
+
+Each component owns one responsibility and receives explicit dependencies.
+
+Forbidden in the active path:
+
+- wrapper-on-wrapper runner chains;
+- multiple active launchers for the same workflow;
+- module-level mutable state controlling an active session;
+- hidden monkeypatches spread across modules;
+- deep `from_env()` calls inside business logic;
+- Testnet code accidentally constructing LIVE private auth;
+- discovery functions that also submit orders;
+- trading functions that rediscover/select pairs;
+- helper functions that perform unrelated network requests as a side effect;
+- copied runner files that differ only by thresholds.
+
+A compatibility bridge to legacy code may exist temporarily, but it must be isolated in one place and removed as the corresponding component is extracted.
+
+## Current product mode
+
+Current order writes are MEXC Futures Demo/Testnet only.
+
+Testnet:
+
+- uses `MEXC_DEMO_WEB_TOKEN` only;
+- execution host must be hard-locked to `futures.testnet.mexc.com`;
+- may test fee-paying pairs when the user selects ALL;
+- Demo fees are reporting/accounting data and do not weaken or block Testnet strategy entry in ALL mode;
+- scanner uses LIVE Binance + LIVE MEXC public data for alpha/thesis;
+- Testnet is execution/PnL telemetry, not the signal source.
+
+Real/LIVE order writes remain disabled. Do not restore them without explicit approval and a separate safety review.
+
+Future LIVE eligibility is strict and non-overridable:
+
+```text
+maker == 0 AND taker == 0
+```
+
+Non-zero fee or unknown fee means no real trade.
+
+## Frozen entry invariants
+
+Do not silently change:
+
+- requested target notional: `10_000 USDT`;
+- requested Testnet leverage intent: `200x`, capped by contract/account limits;
+- minimum absolute residual: `8.0 bps`;
+- minimum signal strength: `3.0x`;
+- residual retention: `60%`;
+- Binance impulse retention: `75%`;
+- IOC cross: `<= 1.0 bps`;
+- max entry slippage: `<= 1.0 bps`;
+- minimum actual filled notional: `50 USDT`;
+- executable residual must beat round-trip cost by `>= 2.0 bps` and `>= 1.5x cost`;
+- one IOC attempt; accept partial fill; never chase/top up simply to force a trade;
+- no pyramiding, martingale, or averaging down;
+- LeadLagGate re-arm behavior.
+
+`baseline_v1.py` is immutable. A strategy change requires a separately versioned configuration and benchmark.
+
+## Discovery is not trading entry
+
+Discovery must be broad enough to rank useful pairs without weakening actual entry.
+
+Current intended discovery floor:
+
+- `LeadLagGate.ready`;
+- residual approximately `>= min_edge_bps` (baseline 2 bps);
+- strength `>= pair_min_strength_ratio` (baseline 1.5x).
+
+The scanner should separately count true `8 bps / 3x` hits.
+
+Trading after pair selection still requires the frozen `8 bps / 3x` entry plus all arrival-economics, depth, IOC, slippage, freshness, and cost checks.
+
+## Latency contract — critical
+
+During Trading Mode, software-added delay is forbidden.
+
+Allowed blocking time is only the unavoidable time for:
+
+- current network transport;
+- exchange/server processing;
+- a network request that is genuinely necessary to know the order result.
+
+Forbidden on the critical path:
+
+- `time.sleep` / `asyncio.sleep`;
+- synthetic/emulated RTT;
+- fixed polling sleeps;
+- intentional stability waits;
+- redundant private verification before managing a confirmed fill;
+- optional REST lookups that can be prewarmed/cached;
+- logging/serialization work before submit that can be moved off the path.
+
+Event-driven waiting is acceptable when market events wake immediately; a timeout may only be an idle heartbeat, not a mandatory per-signal delay.
+
+Pre-trade discovery may sample/wait because it runs before Trading Mode.
+
+## Confirmed fill -> immediate management
+
+A confirmed entry fill already provides execution truth such as qty, average price, and order/position identity.
+
+Do not block position management on `get_positions()` immediately after a confirmed fill.
+
+Use `get_positions()` for startup reconciliation, residual close verification, stale-state recovery, and emergency reconciliation only.
+
+Immediately after fill, run the post-fill guard against the freshest already-available LIVE market state. If the original edge collapsed/reversed or became invalid while the order was in flight, flatten immediately without an artificial wait.
+
+## Position management / Profit Hold
+
+There are two states:
+
+1. position has never reached positive executable PnL;
+2. position has reached positive executable PnL.
+
+Before first positive executable PnL, keep original defensive behavior: a broken/losing thesis should be abandoned quickly.
+
+Original defensive/lifecycle exits include:
 
 1. `mid_adverse_cut`
 2. `leader_retrace`
@@ -44,75 +174,66 @@ Frozen exit priority:
 6. `positive_trailing_stop`
 7. `timeout`
 
-Do not replace these exits with staged/hybrid trailing logic while validating baseline v1.
+On the first positive executable PnL, arm **Profit Hold**.
 
-## Current validation architecture
+After Profit Hold is armed, ordinary thesis/lifecycle exits must not prematurely cut a winner:
 
-Canonical launcher:
+- convergence;
+- leader retrace;
+- residual reversal;
+- no-progress;
+- ordinary timeout.
 
-- `start_persistent_end2end_shadow.bat`
+The normal winner exit is the ratcheting positive trailing stop.
 
-Canonical runner:
+Hard/emergency/exchange/forced cleanup protection remains active at all times. Profit Hold means “let winners run”, not “never close”.
 
-- `src/mexc_tick_scalper/persistent_end2end_shadow.py`
+The stop only ratchets upward and must never intentionally be set above the currently executable PnL decision point. Realized fill may be worse because of network/slippage.
 
-Current validation uses:
+## Risk
 
-- LIVE Binance public market data as leader
-- LIVE MEXC public depth as follower/executable book
-- current LIVE MEXC exact account maker=0 / taker=0 eligibility
-- frozen persistent-pair profile selection
-- frozen alpha/entry/exit thresholds
-- realtime measured MEXC private transport latency
-- arrival-time LIVE MEXC depth for entry and exit simulation
-- no LIVE or Testnet order writes
+Current intent:
 
-Once an `EXIT DECISION` is made, the close path is sticky: it must never wait for Binance/residual validity again. Only MEXC execution/depth availability may affect simulated fill after the modeled arrival time.
+- start logical bank: `100 USDT`;
+- reserve at least `20%` equity;
+- session max drawdown: `60%` from start;
+- target notional remains `10_000 USDT`, capped by effective leverage and reserve logic.
 
-A session/max-signal boundary disables new signals but must not discard an accepted pending entry or open position. Drain the lifecycle to a terminal close before reporting final PnL.
+Do not silently change sizing or session kill-switch semantics.
 
-## Latency rules
+## Reporting
 
-No hard-coded production latency constants.
+For Testnet distinguish at least:
 
-Realtime transport measurement is a read-only proxy, not proof of IOC matching-engine latency. The current estimator must not smooth away a current spike: the effective value is at least the latest completed private RTT and any already-longer in-flight private request.
+```text
+GROSS
+DEMO_FEES
+DEMO_NET
+```
 
-Record modeled and actual local scheduling timestamps separately:
+Record signal/submit/fill/manage/exit timestamps so actual latency can be decomposed without inserting artificial delays.
 
-- signal time
-- scheduled entry arrival
-- actual entry processing arrival
-- entry schedule overrun
-- exit decision time
-- scheduled exit arrival
-- actual exit arrival
-- exit schedule overrun
-- close time / depth wait
+Useful metrics include:
 
-Historical latency CSV is explicit replay only.
+- signal_to_submit_ms;
+- submit_to_fill_ms;
+- signal_to_fill_ms;
+- fill_to_management_ms;
+- exit_decision_to_submit_ms;
+- exit_submit_to_fill_ms.
 
-The next execution-calibration component should use MEXC Testnet strictly for execution telemetry (POST response, terminal IOC, position visibility, close terminal, position absent, dealVol, dealAvgPrice, fees, risk limits). Testnet price behavior must not be used to validate LIVE alpha PnL.
+## Repository hygiene
 
-## LIVE / Testnet safety boundary
+The root should contain only active project/config/docs/launchers and deliberately curated research references.
 
-The current canonical shadow runner is structurally read-only and must not construct order writes.
+Experimental generations should not remain mixed with active product modules forever. Before moving/deleting a legacy file:
 
-Do not enable real-money order writes while baseline end-to-end profitability is still being validated. Testnet/Demo order writes may only be used in a dedicated execution calibrator with hard Testnet host checks and explicit user intent.
+1. check imports and test references;
+2. extract any still-needed behavior into a named component;
+3. update tests;
+4. only then archive/delete the obsolete file.
 
-Never print, commit, or request secrets/tokens in chat.
-
-## Execution components worth preserving later
-
-When a real execution adapter is reconnected, preserve these proven infrastructure ideas without importing old strategy runners:
-
-- cached WS best bid/ask on the critical path; no REST price lookup before IOC
-- prewarmed contract metadata
-- correct `priceUnit` / `priceScale` and `volUnit` / `volScale`
-- account/direction private `risk_limit` capacity, not public `maxVol` as account capacity
-- leverage/risk setup outside signal -> IOC path
-- actual `dealVol`, `dealAvgPrice`, fees and position state as execution truth
-- close from already-known position state, then reconcile; do not add a private GET before every close
-- exact reduce-only reconciliation and bounded residual cleanup
+Do not delete historical reference code merely because the filename looks old.
 
 ## Testing
 
@@ -123,6 +244,21 @@ pip install -e . pytest
 pytest -q
 ```
 
-CI is `.github/workflows/ci.yml` on Python 3.11. Do not claim tests passed unless a local run or GitHub Actions actually confirms it.
+CI is `.github/workflows/ci.yml` on Python 3.11.
 
-Never change `baseline_v1.py` in place. A future strategy change requires a separately named baseline and independent validation.
+Minimum architecture/invariant coverage should include:
+
+- Testnet never requires LIVE private auth;
+- Demo host hard lock;
+- discovery thresholds independent from 8/3 trading thresholds;
+- 7.99 bps rejected / 8.00+ allowed if other gates pass;
+- 2.99x rejected / 3.00x+ allowed if other gates pass;
+- duplicate impulse rejected until re-arm;
+- no software sleep on trading critical path;
+- confirmed fill starts management without blocking `get_positions()`;
+- post-fill guard can flatten a decayed signal immediately;
+- Profit Hold arms only after positive executable PnL;
+- ordinary thesis exits are suppressed after Profit Hold;
+- hard safety remains active;
+- runtime state cannot leak between sessions;
+- shutdown/residual cleanup works.
