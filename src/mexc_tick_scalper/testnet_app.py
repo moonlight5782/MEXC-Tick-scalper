@@ -7,7 +7,9 @@ import statistics
 import time
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 
+from dotenv import load_dotenv
 from rich.table import Table
 
 from . import auto_discovery_shadow as auto
@@ -491,9 +493,6 @@ class TradingSession:
             "Demo fees do not block Testnet trading; actual DEMO_FEES/DEMO_NET come from fills."
         )
 
-        # One explicit compatibility bridge. The legacy/frozen engine still exposes
-        # symbol and gate class as module-level dependencies. No discovery or auth
-        # code is allowed inside this scope.
         previous_symbol = fixed.SYMBOL
         previous_gate = fixed.LeadLagGate
         fixed.SYMBOL = selected.symbol
@@ -546,14 +545,31 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
-    args = build_parser().parse_args()
-    fixed.auto.apply_baseline_v1(args)
-    if args.discovery_top <= 0:
-        raise SystemExit("--discovery-top must be positive")
-    if args.scan_seconds <= 0:
-        raise SystemExit("--scan-seconds must be positive")
+def _load_and_validate_testnet_env() -> Path:
+    """Composition root: load project .env once and validate Demo auth before any service runs."""
+    env_path = Path(__file__).resolve().parents[2] / ".env"
+    load_dotenv(env_path, override=False)
     try:
+        WebExecutionConfig.demo_from_env(write_enabled=False)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Invalid Testnet configuration after loading {env_path}: {exc}"
+        ) from exc
+    return env_path
+
+
+def main() -> None:
+    try:
+        env_path = _load_and_validate_testnet_env()
+        fixed.console.print(f"[cyan]CONFIG[/cyan] Loaded Testnet environment from {env_path}")
+
+        args = build_parser().parse_args()
+        fixed.auto.apply_baseline_v1(args)
+        if args.discovery_top <= 0:
+            raise RuntimeError("--discovery-top must be positive")
+        if args.scan_seconds <= 0:
+            raise RuntimeError("--scan-seconds must be positive")
+
         asyncio.run(TestnetApp(args).run())
     except KeyboardInterrupt:
         raise SystemExit(130)
