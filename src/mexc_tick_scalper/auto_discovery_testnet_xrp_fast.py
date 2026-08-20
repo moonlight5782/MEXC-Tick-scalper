@@ -8,11 +8,18 @@ from . import auto_discovery_testnet_xrp_fixed as fixed
 from .execution import OrderFill, OrderSide, PositionSnapshot
 from .web_execution import MexcWebExecutionAdapter
 
-# Temporary XRP Testnet plumbing policy only. The production/shadow strategy is untouched.
-TESTNET_MIN_RESIDUAL_BPS = 15.0
+# Temporary XRP Testnet plumbing policy only. Production/shadow strategy is untouched.
+# The first fast run showed 18-19.6 bps signals still dying before confirmed fill,
+# so force a wider cross-exchange residual while we validate Demo execution latency.
+TESTNET_MIN_RESIDUAL_BPS = 20.0
 TESTNET_MIN_STRENGTH_RATIO = 4.0
-DEMO_PRICE_CACHE_MAX_AGE_MS = 100.0
-DEMO_PRICE_REFRESH_SECONDS = 0.075
+
+# Demo depth HTTP itself is ~300 ms. A 100 ms cache-age rule caused the signal path
+# to synchronously refetch depth while the background refresh was in flight. Keep
+# the latest already-fetched top for the IOC limit instead. A stale LIMIT can cause
+# a safe no-fill, but cannot cross beyond its own limit merely because the cache is old.
+DEMO_PRICE_CACHE_SOFT_AGE_MS = 750.0
+DEMO_PRICE_REFRESH_SECONDS = 0.025
 
 _ORIGINAL_PROBE = MexcWebExecutionAdapter.probe
 _ORIGINAL_GET_BEST = MexcWebExecutionAdapter.get_best_price
@@ -31,7 +38,8 @@ def _cache(adapter: MexcWebExecutionAdapter) -> dict[OrderSide, tuple[float, flo
 async def _refresh_demo_best(adapter: MexcWebExecutionAdapter) -> None:
     while True:
         try:
-            # Fetch both sides concurrently so the cache is already warm before a signal arrives.
+            # Fetch both sides concurrently before signals arrive. The request is
+            # deliberately never awaited from the signal/IOC critical path.
             long_task = asyncio.create_task(_ORIGINAL_GET_BEST(adapter, fixed.SYMBOL, OrderSide.LONG))
             short_task = asyncio.create_task(_ORIGINAL_GET_BEST(adapter, fixed.SYMBOL, OrderSide.SHORT))
             long_best, short_best = await asyncio.gather(long_task, short_task)
@@ -42,7 +50,8 @@ async def _refresh_demo_best(adapter: MexcWebExecutionAdapter) -> None:
         except asyncio.CancelledError:
             raise
         except Exception:
-            # A transient public Demo depth failure must not kill the trading loop.
+            # Preserve the last known LIMIT top across a transient Demo depth error.
+            # LIMIT semantics make stale pricing prefer no-fill over unbounded crossing.
             pass
         await asyncio.sleep(DEMO_PRICE_REFRESH_SECONDS)
 
@@ -53,7 +62,7 @@ async def _fast_probe(self: MexcWebExecutionAdapter) -> dict[str, Any]:
     if task is None or task.done():
         setattr(self, "_xrp_demo_best_task", asyncio.create_task(_refresh_demo_best(self)))
     # Warm the cache once during startup, outside the signal critical path.
-    deadline = time.monotonic() + 2.0
+    deadline = time.monotonic() + 3.0
     while time.monotonic() < deadline:
         rows = _cache(self)
         if OrderSide.LONG in rows and OrderSide.SHORT in rows:
@@ -66,14 +75,16 @@ async def _cached_get_best(self: MexcWebExecutionAdapter, symbol: str, side: Ord
     if symbol.upper() != fixed.SYMBOL:
         return await _ORIGINAL_GET_BEST(self, symbol, side)
     row = _cache(self).get(side)
-    now_ms = time.time_ns() / 1_000_000.0
-    if row is not None:
-        price, recv_ms = row
-        if now_ms - recv_ms <= DEMO_PRICE_CACHE_MAX_AGE_MS and price > 0:
-            return price
-    # Safety fallback: never use a stale price merely to save latency.
-    price = await _ORIGINAL_GET_BEST(self, symbol, side)
-    _cache(self)[side] = (float(price), time.time_ns() / 1_000_000.0)
+    if row is None:
+        # This should only be possible during startup before _fast_probe warms the
+        # cache. Do not alter behavior in that exceptional case.
+        return await _ORIGINAL_GET_BEST(self, symbol, side)
+    price, recv_ms = row
+    age_ms = time.time_ns() / 1_000_000.0 - recv_ms
+    if age_ms > DEMO_PRICE_CACHE_SOFT_AGE_MS:
+        fixed.console.print(
+            f"[yellow]DEMO TOP CACHE AGE[/yellow] {age_ms:.0f}ms; using last LIMIT top without blocking HTTP"
+        )
     return float(price)
 
 
@@ -134,8 +145,8 @@ async def _provisional_position(
     del adapter
     if fill.filled_qty <= 0:
         raise RuntimeError("IOC returned no fill")
-    # open_ioc already waited until the order result exposed dealVol/dealAvgPrice/positionId.
-    # Do not add another private get_positions RTT before recording the entry timestamp.
+    # open_ioc already observed dealVol/dealAvgPrice/positionId. Do not add a
+    # private get_positions RTT before recording the entry timestamp.
     return PositionSnapshot(
         symbol=symbol,
         side=side,
@@ -149,7 +160,7 @@ async def _provisional_position(
 
 
 async def run(args) -> None:
-    # Temporary stronger-signal filter for the forced-XRP Testnet plumbing run only.
+    # Temporary stronger-signal filter for forced-XRP Testnet plumbing only.
     args.min_absolute_residual_bps = max(float(args.min_absolute_residual_bps), TESTNET_MIN_RESIDUAL_BPS)
     args.min_signal_strength_ratio = max(float(args.min_signal_strength_ratio), TESTNET_MIN_STRENGTH_RATIO)
 
@@ -162,11 +173,11 @@ async def run(args) -> None:
     try:
         fixed.console.print(
             f"[bold cyan]FAST XRP TESTNET[/bold cyan] residual>={args.min_absolute_residual_bps:.1f}bps "
-            f"strength>={args.min_signal_strength_ratio:.1f}x; Demo best-price cache<={DEMO_PRICE_CACHE_MAX_AGE_MS:.0f}ms"
+            f"strength>={args.min_signal_strength_ratio:.1f}x; no blocking Demo-depth GET on signal path"
         )
         fixed.console.print(
-            "Critical path: cached Demo best -> IOC POST -> order confirmation. "
-            "The extra get_positions RTT after fill is removed."
+            "Critical path: cached Demo LIMIT top -> IOC POST -> order confirmation. "
+            "Background Demo depth and post-fill get_positions are outside the entry path."
         )
         await fixed.run(args)
     finally:
