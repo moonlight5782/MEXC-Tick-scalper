@@ -1,22 +1,17 @@
 from __future__ import annotations
 
-from .. import auto_discovery_testnet_xrp_fixed as legacy_engine
-from .. import auto_discovery_testnet_xrp_profit_hold as profit_hold
-from .. import auto_discovery_testnet_xrp_runtime_diag as runtime_diag
+from ..web_execution import WebExecutionConfig
 from .models import CandidateView
 from .selector import PairSelector
+from .trading_engine import TestnetTradingEngine
 
 
 class TradingSession:
-    """Trade one selected pair.
+    """Own one selected Testnet trading session; no discovery or global patching."""
 
-    This is the single temporary compatibility bridge to the legacy monolithic
-    Testnet engine. Discovery/configuration/selection must never import that engine.
-    Remove this bridge when execution and position management are fully extracted.
-    """
-
-    def __init__(self, args, console) -> None:
+    def __init__(self, args, execution_config: WebExecutionConfig, console) -> None:
         self.args = args
+        self.execution_config = execution_config
         self.console = console
 
     async def run(self, selected: CandidateView) -> None:
@@ -27,16 +22,13 @@ class TradingSession:
             f"Demo taker={PairSelector.fee_text(selected.demo_taker_fee)}"
         )
         self.console.print(
-            "[bold cyan]TRADING MODE[/bold cyan] scanner is stopped; baseline 8bps/3x unchanged; "
-            "Demo fees do not block Testnet trading; actual DEMO_FEES/DEMO_NET come from fills."
+            "[bold cyan]TRADING MODE[/bold cyan] discovery feeds are stopped; "
+            "real entry remains baseline 8bps/3x; Demo fees are reported but do not block ALL-mode testing."
         )
-
-        previous_symbol = legacy_engine.SYMBOL
-        previous_gate = legacy_engine.LeadLagGate
-        legacy_engine.SYMBOL = selected.symbol
-        legacy_engine.LeadLagGate = runtime_diag.DiagnosticLeadLagGate
-        try:
-            await profit_hold.run(self.args)
-        finally:
-            legacy_engine.LeadLagGate = previous_gate
-            legacy_engine.SYMBOL = previous_symbol
+        engine = TestnetTradingEngine(
+            args=self.args,
+            selected=selected,
+            execution_config=self.execution_config,
+            console=self.console,
+        )
+        await engine.run()
