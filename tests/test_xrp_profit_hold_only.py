@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import math
 
 import mexc_tick_scalper.auto_discovery_testnet_xrp_profit_hold as ph
-from mexc_tick_scalper.execution import OrderSide, PositionSnapshot
+from mexc_tick_scalper.execution import OrderSide
 
 
 def test_profit_hold_changes_only_after_first_positive_tick() -> None:
@@ -93,38 +93,24 @@ def test_network_only_order_poll_adds_no_asyncio_sleep(monkeypatch) -> None:
     assert adapter.calls == 2
 
 
-def test_network_only_position_resolve_adds_no_asyncio_sleep(monkeypatch) -> None:
+def test_confirmed_fill_starts_position_management_without_get_positions() -> None:
     class Fill:
         filled_qty = 10.0
-        avg_price = 1.0
+        avg_price = 1.2345
         position_id = "p1"
 
     class FakeAdapter:
-        calls = 0
-
         async def get_positions(self, symbol):
-            self.calls += 1
-            if self.calls == 1:
-                return []
-            return [PositionSnapshot(
-                symbol=symbol,
-                side=OrderSide.LONG,
-                qty=10.0,
-                entry_price=1.0,
-                leverage=20,
-                isolated=True,
-                position_id="p1",
-            )]
+            raise AssertionError("get_positions must not block management after confirmed fill")
 
-    async def forbidden_sleep(*args, **kwargs):
-        raise AssertionError("network-only position polling must not call asyncio.sleep")
-
-    monkeypatch.setattr(asyncio, "sleep", forbidden_sleep)
-    adapter = FakeAdapter()
     result = asyncio.run(
-        ph._network_only_resolve_remote_position(
-            adapter, "XRP_USDT", OrderSide.LONG, Fill(), 20
+        ph._immediate_position_from_fill(
+            FakeAdapter(), "XRP_USDT", OrderSide.LONG, Fill(), 200
         )
     )
+    assert result.symbol == "XRP_USDT"
+    assert result.side is OrderSide.LONG
+    assert result.qty == 10.0
+    assert result.entry_price == 1.2345
+    assert result.leverage == 200
     assert result.position_id == "p1"
-    assert adapter.calls == 2
