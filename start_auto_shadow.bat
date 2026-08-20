@@ -15,6 +15,7 @@ echo  requested leverage: 200x; effective leverage capped per LIVE contract
 echo  emergency/reversal exit: DECIDE IMMEDIATELY on first observed bad market event
 echo  exit execution delay: measured network/exchange latency only; no synthetic hold
 echo  same symbol stays monitored after close and may trade again after a NEW re-armed impulse
+echo  requested/fill reports use ACTUAL dynamic risk-sized notional
 echo  floating stop: LIVE-spread trailing distance
 echo ============================================================
 
@@ -33,7 +34,7 @@ echo Execution: virtual IOC against LIVE MEXC depth at modeled arrival
 echo Real order writes: DISABLED
 echo.
 
-start "AUTO REAL-DATA SHADOW" /high /wait .venv\Scripts\python.exe -m mexc_tick_scalper.auto_discovery_shadow ^
+start "AUTO REAL-DATA SHADOW" /high /wait .venv\Scripts\python.exe -m mexc_tick_scalper.auto_discovery_shadow_v2 ^
   --lifetime-csv "%LIFETIME_SRC%" ^
   --discovery-top 5 ^
   --target-closed-trades 100 ^
