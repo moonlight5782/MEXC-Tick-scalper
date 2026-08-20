@@ -6,13 +6,15 @@ set "LOG_FILE=testnet_last_run.log"
 if exist "%LOG_FILE%" del /q "%LOG_FILE%"
 
 echo ============================================================
-echo  BINANCE + MEXC PAIR SCAN -> TESTNET TRADING
+echo  FRESH BINANCE + MEXC PAIR SCAN -> TESTNET TRADING
 echo  LIVE REAL-MONEY WRITES: NOT USED BY THIS RUNNER
 echo.
 echo  PRE-TRADE SCAN:
+echo  fresh LIVE observation only; old lifetime CSV is NOT used
 echo  finds strategy-compatible pairs on LIVE Binance + LIVE MEXC
 echo  keeps only symbols also available on MEXC Testnet
-echo  ranks by Signals / Med lag / Survive@RTT / Residual / Strength / Score
+echo  qualifying scan signal uses the SAME baseline: ^>=8bps and ^>=3x
+echo  ranks by Signals / Med lag / Survive@DemoRTT / Residual / Strength / Score
 echo  choose pair number or symbol; plain Enter selects #1
 echo.
 echo  TRADING ENTRY:
@@ -21,6 +23,7 @@ echo  signal gate / arrival economics / sizing / IOC remain unchanged
 echo.
 echo  TRADING LATENCY RULE:
 echo  scan-time sampling may wait BEFORE trading starts
+echo  scanner feeds are closed before TRADING MODE
 echo  after selection: no synthetic RTT and no fixed software sleep
 echo  confirmed fill -> position management starts immediately
 echo  no blocking get_positions wait after confirmed fill
@@ -50,6 +53,7 @@ echo.
 
 .venv\Scripts\python.exe -m mexc_tick_scalper.auto_discovery_testnet_selector ^
   --discovery-top 10 ^
+  --scan-seconds 30 ^
   --profit-runner-arm-bps 5 ^
   --target-closed-trades 100 ^
   --session-seconds 86400 ^
