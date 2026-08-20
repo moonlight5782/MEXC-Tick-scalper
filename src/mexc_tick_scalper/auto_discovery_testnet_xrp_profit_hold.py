@@ -9,65 +9,14 @@ from . import auto_discovery_testnet_xrp_fixed as fixed
 from .execution import OrderFill, OrderSide, PositionSnapshot
 from .web_execution import MexcWebError, MexcWebExecutionAdapter
 
-# This wrapper is deliberately narrow:
-#   * entry thresholds/gates/sizing/IOC remain 100% in xrp_fixed + baseline_v1;
-#   * first positive executable Demo PnL arms winner hold;
-#   * lead-lag thesis exits stop cutting a winner;
-#   * hard mid-adverse safety remains active;
-#   * no synthetic latency and no fixed software sleeps are added to execution;
-#   * after a confirmed fill, position management starts immediately from that fill
-#     instead of waiting for a separate private-position endpoint to catch up.
-
-_ORIGINAL_TRAILING = fixed.PositiveTrailing
-_ORIGINAL_WAIT_FOR_ORDER_RESULT = MexcWebExecutionAdapter._wait_for_order_result
-_ORIGINAL_RESOLVE_REMOTE_POSITION = fixed._resolve_remote_position
-_ORIGINAL_CLOSE_POSITION_FULLY = fixed._close_position_fully
-
-_ACTIVE_ARGS = None
-_SAVED_PRE_PROFIT_POLICY: dict[str, float | int] = {}
-_ORIGINAL_ARM_BPS: float | None = None
 PROFIT_LOCK_FLOOR_BPS = 0.10
 
 
-def _capture_pre_profit_policy() -> None:
-    global _SAVED_PRE_PROFIT_POLICY
-    if _ACTIVE_ARGS is None or _SAVED_PRE_PROFIT_POLICY:
-        return
-    _SAVED_PRE_PROFIT_POLICY = {
-        "mid_adverse_cut_bps": _ACTIVE_ARGS.mid_adverse_cut_bps,
-        "leader_retrace_exit_bps": _ACTIVE_ARGS.leader_retrace_exit_bps,
-        "reversal_edge_bps": _ACTIVE_ARGS.reversal_edge_bps,
-        "no_progress_ms": _ACTIVE_ARGS.no_progress_ms,
-        "max_hold_ms": _ACTIVE_ARGS.max_hold_ms,
-    }
-
-
-def _restore_pre_profit_policy() -> None:
-    if _ACTIVE_ARGS is None or not _SAVED_PRE_PROFIT_POLICY:
-        return
-    _ACTIVE_ARGS.mid_adverse_cut_bps = _SAVED_PRE_PROFIT_POLICY["mid_adverse_cut_bps"]
-    _ACTIVE_ARGS.leader_retrace_exit_bps = _SAVED_PRE_PROFIT_POLICY["leader_retrace_exit_bps"]
-    _ACTIVE_ARGS.reversal_edge_bps = _SAVED_PRE_PROFIT_POLICY["reversal_edge_bps"]
-    _ACTIVE_ARGS.no_progress_ms = _SAVED_PRE_PROFIT_POLICY["no_progress_ms"]
-    _ACTIVE_ARGS.max_hold_ms = _SAVED_PRE_PROFIT_POLICY["max_hold_ms"]
-
-
-def _arm_profit_hold() -> None:
-    if _ACTIVE_ARGS is None:
-        return
-    _capture_pre_profit_policy()
-    # Keep hard adverse safety unchanged. Suppress only ordinary thesis/lifecycle
-    # exits once the actual Demo position has positive executable PnL.
-    _ACTIVE_ARGS.leader_retrace_exit_bps = math.inf
-    _ACTIVE_ARGS.reversal_edge_bps = math.inf
-    _ACTIVE_ARGS.no_progress_ms = 2_147_483_647
-    _ACTIVE_ARGS.max_hold_ms = 2_147_483_647
-
-
 class ProfitHoldTrailing:
-    def __init__(self, distance_bps: float) -> None:
-        _restore_pre_profit_policy()
-        self._inner = _ORIGINAL_TRAILING(distance_bps=distance_bps)
+    def __init__(self, runtime: "ProfitHoldRuntime", distance_bps: float) -> None:
+        runtime.restore_pre_profit_policy()
+        self.runtime = runtime
+        self._inner = runtime.base_trailing(distance_bps=distance_bps)
         self._armed = False
 
     @property
@@ -90,7 +39,7 @@ class ProfitHoldTrailing:
         stop = self._inner.update(move_bps)
         if move_bps > 0.0 and not self._armed:
             self._armed = True
-            _arm_profit_hold()
+            self.runtime.arm_profit_hold()
             floor = min(PROFIT_LOCK_FLOOR_BPS, move_bps * 0.5)
             if floor > 0.0:
                 self._inner.stop_bps = floor if self._inner.stop_bps is None else max(self._inner.stop_bps, floor)
@@ -103,147 +52,173 @@ class ProfitHoldTrailing:
         return self._inner.stop_bps if self._armed else stop
 
 
-async def _network_only_wait_for_order_result(
-    self: MexcWebExecutionAdapter,
-    symbol: str,
-    client_order_id: str,
-    timeout_seconds: float = 1.2,
-) -> dict:
-    """Poll order state with no fixed software delay between HTTP responses."""
-    deadline = time.monotonic() + timeout_seconds
-    last: dict | None = None
-    while time.monotonic() < deadline:
-        try:
-            last = await self._get_order_by_external_id(symbol, client_order_id)
-        except MexcWebError:
-            last = None
-        if last and int(last.get("state") or 0) in (3, 4, 5):
-            return last
-    if last is not None:
-        return last
-    raise MexcWebError(f"order {client_order_id} was not observable after submit")
+class ProfitHoldRuntime:
+    """Scoped Testnet execution policy. All temporary overrides live here."""
 
+    def __init__(self, args) -> None:
+        self.args = args
+        self.saved_policy: dict[str, float | int] = {}
+        self.original_arm_bps = float(args.profit_runner_arm_bps)
+        self.base_trailing = fixed.PositiveTrailing
+        self.original_resolve = fixed._resolve_remote_position
+        self.original_close = fixed._close_position_fully
+        self.original_wait = MexcWebExecutionAdapter._wait_for_order_result
 
-async def _immediate_position_from_fill(
-    adapter: MexcWebExecutionAdapter,
-    symbol: str,
-    side: OrderSide,
-    fill: OrderFill,
-    leverage: int,
-) -> PositionSnapshot:
-    """Start position management immediately after confirmed fill.
+    def capture_pre_profit_policy(self) -> None:
+        if self.saved_policy:
+            return
+        self.saved_policy = {
+            "mid_adverse_cut_bps": self.args.mid_adverse_cut_bps,
+            "leader_retrace_exit_bps": self.args.leader_retrace_exit_bps,
+            "reversal_edge_bps": self.args.reversal_edge_bps,
+            "no_progress_ms": self.args.no_progress_ms,
+            "max_hold_ms": self.args.max_hold_ms,
+        }
 
-    No get_positions() call is made here. The fill is already the exchange-confirmed
-    execution result, so waiting for a second private endpoint only adds delay.
-    """
-    del adapter
-    if fill.filled_qty <= 0:
-        raise MexcWebError("IOC returned no fill")
-    return PositionSnapshot(
-        symbol=symbol,
-        side=side,
-        qty=fill.filled_qty,
-        entry_price=fill.avg_price,
-        leverage=leverage,
-        isolated=True,
-        position_id=fill.position_id,
-        liquidation_price=None,
-    )
+    def restore_pre_profit_policy(self) -> None:
+        if not self.saved_policy:
+            return
+        self.args.mid_adverse_cut_bps = self.saved_policy["mid_adverse_cut_bps"]
+        self.args.leader_retrace_exit_bps = self.saved_policy["leader_retrace_exit_bps"]
+        self.args.reversal_edge_bps = self.saved_policy["reversal_edge_bps"]
+        self.args.no_progress_ms = self.saved_policy["no_progress_ms"]
+        self.args.max_hold_ms = self.saved_policy["max_hold_ms"]
 
+    def arm_profit_hold(self) -> None:
+        self.capture_pre_profit_policy()
+        self.args.leader_retrace_exit_bps = math.inf
+        self.args.reversal_edge_bps = math.inf
+        self.args.no_progress_ms = 2_147_483_647
+        self.args.max_hold_ms = 2_147_483_647
 
-async def _submit_exact_close(
-    adapter: MexcWebExecutionAdapter,
-    position: PositionSnapshot,
-) -> OrderFill:
-    client_id = f"tn-exit-{uuid.uuid4().hex}"[:32]
-    if position.position_id:
-        return await adapter.close_position_snapshot_reduce_only(position, client_order_id=client_id)
-    return await adapter.close_market_reduce_only(
-        symbol=position.symbol,
-        qty=position.qty,
-        side=OrderSide.SHORT if position.side is OrderSide.LONG else OrderSide.LONG,
-        client_order_id=client_id,
-    )
+    def trailing_factory(self, distance_bps: float) -> ProfitHoldTrailing:
+        return ProfitHoldTrailing(self, distance_bps)
 
-
-async def _find_same_position(
-    adapter: MexcWebExecutionAdapter,
-    position: PositionSnapshot,
-) -> PositionSnapshot | None:
-    rows = await adapter.get_positions(position.symbol)
-    if position.position_id is not None:
-        return next((row for row in rows if row.position_id == position.position_id), None)
-    return next((row for row in rows if row.side is position.side), None)
-
-
-async def _network_only_close_position_fully(
-    adapter: MexcWebExecutionAdapter,
-    position: PositionSnapshot,
-    *,
-    attempts: int = 4,
-) -> OrderFill:
-    """Preserve residual-close verification without fixed polling sleeps."""
-    current = position
-    last_fill: OrderFill | None = None
-    for _ in range(max(1, attempts)):
-        last_fill = await _submit_exact_close(adapter, current)
-        deadline = time.monotonic() + 0.75
+    async def network_only_wait_for_order_result(
+        self,
+        adapter: MexcWebExecutionAdapter,
+        symbol: str,
+        client_order_id: str,
+        timeout_seconds: float = 1.2,
+    ) -> dict:
+        deadline = time.monotonic() + timeout_seconds
+        last: dict | None = None
         while time.monotonic() < deadline:
-            residual = await _find_same_position(adapter, current)
-            if residual is None:
-                return last_fill
-            current = residual
+            try:
+                last = await adapter._get_order_by_external_id(symbol, client_order_id)
+            except MexcWebError:
+                last = None
+            if last and int(last.get("state") or 0) in (3, 4, 5):
+                return last
+        if last is not None:
+            return last
+        raise MexcWebError(f"order {client_order_id} was not observable after submit")
 
-    residual = await _find_same_position(adapter, current)
-    if residual is not None:
-        raise MexcWebError(
-            f"Demo reduce-only close left residual position {residual.symbol} "
-            f"positionId={residual.position_id} qty={residual.qty:g}"
+    async def immediate_position_from_fill(
+        self,
+        adapter: MexcWebExecutionAdapter,
+        symbol: str,
+        side: OrderSide,
+        fill: OrderFill,
+        leverage: int,
+    ) -> PositionSnapshot:
+        del adapter
+        if fill.filled_qty <= 0:
+            raise MexcWebError("IOC returned no fill")
+        return PositionSnapshot(
+            symbol=symbol,
+            side=side,
+            qty=fill.filled_qty,
+            entry_price=fill.avg_price,
+            leverage=leverage,
+            isolated=True,
+            position_id=fill.position_id,
+            liquidation_price=None,
         )
-    if last_fill is None:
-        raise MexcWebError("Demo close did not submit")
-    return last_fill
+
+    async def submit_exact_close(
+        self,
+        adapter: MexcWebExecutionAdapter,
+        position: PositionSnapshot,
+    ) -> OrderFill:
+        client_id = f"tn-exit-{uuid.uuid4().hex}"[:32]
+        if position.position_id:
+            return await adapter.close_position_snapshot_reduce_only(position, client_order_id=client_id)
+        return await adapter.close_market_reduce_only(
+            symbol=position.symbol,
+            qty=position.qty,
+            side=OrderSide.SHORT if position.side is OrderSide.LONG else OrderSide.LONG,
+            client_order_id=client_id,
+        )
+
+    async def find_same_position(
+        self,
+        adapter: MexcWebExecutionAdapter,
+        position: PositionSnapshot,
+    ) -> PositionSnapshot | None:
+        rows = await adapter.get_positions(position.symbol)
+        if position.position_id is not None:
+            return next((row for row in rows if row.position_id == position.position_id), None)
+        return next((row for row in rows if row.side is position.side), None)
+
+    async def close_position_fully(
+        self,
+        adapter: MexcWebExecutionAdapter,
+        position: PositionSnapshot,
+        *,
+        attempts: int = 4,
+    ) -> OrderFill:
+        current = position
+        last_fill: OrderFill | None = None
+        for _ in range(max(1, attempts)):
+            last_fill = await self.submit_exact_close(adapter, current)
+            deadline = time.monotonic() + 0.75
+            while time.monotonic() < deadline:
+                residual = await self.find_same_position(adapter, current)
+                if residual is None:
+                    return last_fill
+                current = residual
+
+        residual = await self.find_same_position(adapter, current)
+        if residual is not None:
+            raise MexcWebError(
+                f"Demo reduce-only close left residual position {residual.symbol} "
+                f"positionId={residual.position_id} qty={residual.qty:g}"
+            )
+        if last_fill is None:
+            raise MexcWebError("Demo close did not submit")
+        return last_fill
+
+    async def run(self) -> None:
+        self.args.profit_runner_arm_bps = 1e-9
+
+        async def wait_override(adapter, symbol, client_order_id, timeout_seconds=1.2):
+            return await self.network_only_wait_for_order_result(
+                adapter, symbol, client_order_id, timeout_seconds
+            )
+
+        fixed.PositiveTrailing = self.trailing_factory
+        fixed._resolve_remote_position = self.immediate_position_from_fill
+        fixed._close_position_fully = self.close_position_fully
+        MexcWebExecutionAdapter._wait_for_order_result = wait_override
+        try:
+            fixed.console.print(
+                "[bold cyan]TESTNET PROFIT-HOLD POLICY[/bold cyan] "
+                "entry baseline unchanged; confirmed fill -> immediate management; "
+                "first positive executable PnL -> profit hold"
+            )
+            await fixed.run(self.args)
+        finally:
+            self.restore_pre_profit_policy()
+            self.args.profit_runner_arm_bps = self.original_arm_bps
+            fixed.PositiveTrailing = self.base_trailing
+            fixed._resolve_remote_position = self.original_resolve
+            fixed._close_position_fully = self.original_close
+            MexcWebExecutionAdapter._wait_for_order_result = self.original_wait
 
 
 async def run(args) -> None:
-    global _ACTIVE_ARGS, _SAVED_PRE_PROFIT_POLICY, _ORIGINAL_ARM_BPS
-
-    # Do not touch entry parameters. baseline_v1 remains exactly 8 bps / 3x.
-    _ACTIVE_ARGS = args
-    _SAVED_PRE_PROFIT_POLICY = {}
-    _ORIGINAL_ARM_BPS = float(args.profit_runner_arm_bps)
-
-    # Exit-only change: arm winner mode on the first positive executable tick.
-    args.profit_runner_arm_bps = 1e-9
-
-    original_trailing = fixed.PositiveTrailing
-    original_resolve = fixed._resolve_remote_position
-    original_close = fixed._close_position_fully
-    original_wait = MexcWebExecutionAdapter._wait_for_order_result
-
-    fixed.PositiveTrailing = ProfitHoldTrailing
-    fixed._resolve_remote_position = _immediate_position_from_fill
-    fixed._close_position_fully = _network_only_close_position_fully
-    MexcWebExecutionAdapter._wait_for_order_result = _network_only_wait_for_order_result
-
-    try:
-        fixed.console.print(
-            "[bold cyan]XRP TESTNET VERIFIED MODE[/bold cyan] "
-            "entry=baseline 8bps/3x unchanged; only network/MEXC waits remain; "
-            "confirmed fill -> immediate position management; first positive PnL -> profit hold"
-        )
-        await fixed.run(args)
-    finally:
-        _restore_pre_profit_policy()
-        if _ORIGINAL_ARM_BPS is not None:
-            args.profit_runner_arm_bps = _ORIGINAL_ARM_BPS
-        fixed.PositiveTrailing = original_trailing
-        fixed._resolve_remote_position = original_resolve
-        fixed._close_position_fully = original_close
-        MexcWebExecutionAdapter._wait_for_order_result = original_wait
-        _ACTIVE_ARGS = None
-        _SAVED_PRE_PROFIT_POLICY = {}
-        _ORIGINAL_ARM_BPS = None
+    await ProfitHoldRuntime(args).run()
 
 
 def main() -> None:
@@ -254,7 +229,7 @@ def main() -> None:
     except KeyboardInterrupt:
         raise SystemExit(130)
     except Exception as exc:
-        fixed.console.print(f"[red]XRP VERIFIED TESTNET STOPPED:[/red] {type(exc).__name__}: {exc}")
+        fixed.console.print(f"[red]TESTNET PROFIT-HOLD STOPPED:[/red] {type(exc).__name__}: {exc}")
         raise SystemExit(2)
 
 
