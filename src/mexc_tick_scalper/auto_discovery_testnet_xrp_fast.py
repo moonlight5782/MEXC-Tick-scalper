@@ -10,8 +10,9 @@ from .execution import OrderFill, OrderSide, PositionSnapshot
 from .web_execution import MexcWebExecutionAdapter
 
 # Temporary XRP Testnet plumbing policy only. Production/shadow strategy is untouched.
-TESTNET_MIN_RESIDUAL_BPS = 20.0
-TESTNET_MIN_STRENGTH_RATIO = 4.0
+# Preserve the original strategy entry gate exactly: residual >= 8 bps, strength >= 3x.
+TESTNET_MIN_RESIDUAL_BPS = 8.0
+TESTNET_MIN_STRENGTH_RATIO = 3.0
 
 # Demo depth HTTP itself is ~300 ms. Keep the latest already-fetched top for the IOC
 # limit so no blocking depth GET is inserted between signal and order POST.
@@ -48,35 +49,14 @@ def _arm_profit_hold() -> None:
     """Disable only lead-lag thesis exits; hard safety remains available."""
     if _ACTIVE_ARGS is None:
         return
-    # These are thesis exits. Once the actual Demo position is profitable, the
-    # original cross-exchange thesis has done its job and trailing owns the trade.
     _ACTIVE_ARGS.leader_retrace_exit_bps = math.inf
     _ACTIVE_ARGS.reversal_edge_bps = math.inf
     _ACTIVE_ARGS.no_progress_ms = 2_147_483_647
     _ACTIVE_ARGS.max_hold_ms = 2_147_483_647
 
-    # mid_adverse_cut is intentionally NOT disabled here. It remains a last-resort
-    # emergency fallback if execution/trailing observation fails catastrophically.
-
 
 class _ProfitHoldTrailing:
-    """Hold every winner until its positive trailing stop is hit.
-
-    Entry is still driven by the strong Binance->MEXC residual/spread signal.
-    Before first positive executable Demo PnL, normal lead-lag protections operate.
-
-    On the first positive executable PnL:
-      * profit-hold mode arms permanently for this position;
-      * convergence / leader retrace / residual reversal / no-progress / timeout
-        stop being valid thesis exits;
-      * the trailing floor is moved into positive territory as soon as the observed
-        profit is large enough to support it;
-      * the stop can only ratchet upward, never downward;
-      * existing trailing ladder is preserved (+3 -> +0.5, +5 -> +2, >=+6 ->
-        peak minus trailing distance).
-
-    Hard exchange/safety protections remain outside this thesis-exit suppression.
-    """
+    """Hold every winner until its positive trailing stop is hit."""
 
     def __init__(self, distance_bps: float) -> None:
         _restore_normal_exit_policy()
@@ -101,10 +81,6 @@ class _ProfitHoldTrailing:
         self._inner.stop_bps = value
 
     def _ratchet_positive_floor(self, move_bps: float) -> None:
-        # A stop cannot logically be placed above the currently observed executable
-        # profit. As soon as profit is > floor, lock a positive floor. For smaller
-        # first-positive ticks, arm immediately and keep watching until +0.10 bps is
-        # actually available, then lock it. The stop never moves backward afterward.
         if move_bps >= PROFIT_LOCK_FLOOR_BPS:
             floor = PROFIT_LOCK_FLOOR_BPS
         elif move_bps > 0.0:
@@ -271,8 +247,6 @@ async def run(args) -> None:
     args.min_absolute_residual_bps = max(float(args.min_absolute_residual_bps), TESTNET_MIN_RESIDUAL_BPS)
     args.min_signal_strength_ratio = max(float(args.min_signal_strength_ratio), TESTNET_MIN_STRENGTH_RATIO)
 
-    # Arm the fixed runner's runner flag on the first positive tick too. Our custom
-    # trailing then owns the exact stop floor/ratchet behavior.
     args.profit_runner_arm_bps = min(float(args.profit_runner_arm_bps), 1e-9)
     _ACTIVE_ARGS = args
     _EXIT_POLICY = {
@@ -297,7 +271,7 @@ async def run(args) -> None:
             f"strength>={args.min_signal_strength_ratio:.1f}x; no blocking Demo-depth GET on signal path"
         )
         fixed.console.print(
-            "Winner policy: strong residual opens trade; first positive executable PnL -> profit hold; "
+            "Winner policy: original 8bps/3x entry; first positive executable PnL -> profit hold; "
             "lead-lag convergence/retrace/reversal no longer close the winner; positive trailing ratchets upward; "
             "hard safety remains enabled."
         )
