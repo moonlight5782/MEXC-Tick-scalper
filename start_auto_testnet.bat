@@ -12,8 +12,7 @@ echo  ORDERS: MEXC TESTNET XRP_USDT ONLY
 echo  LIVE REAL-MONEY WRITES: NOT USED BY THIS RUNNER
 echo.
 echo  TEMP ONLY: AUTO pair selection / zero-fee eligibility bypassed
-echo  RESTORED entry gate: residual >= 15bps, strength >= 4x
-echo  Entry logic is unchanged from the run that was opening trades
+echo  ORIGINAL entry gate: residual >= 8bps, strength >= 3x
 echo  LIVE prices are signal/thesis only
 echo  DEMO prices are execution/slippage/PnL/trailing only
 echo  Demo best price is cached before the signal critical path
@@ -44,7 +43,7 @@ echo.
 echo Full stderr will also be saved to %LOG_FILE%
 echo.
 
-.venv\Scripts\python.exe -m mexc_tick_scalper.auto_discovery_testnet_xrp_entry15 ^
+.venv\Scripts\python.exe -m mexc_tick_scalper.auto_discovery_testnet_xrp_fast ^
   --profit-runner-arm-bps 5 ^
   --target-closed-trades 100 ^
   --session-seconds 86400 ^
