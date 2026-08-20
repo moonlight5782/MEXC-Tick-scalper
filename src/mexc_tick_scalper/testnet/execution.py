@@ -2,10 +2,19 @@ from __future__ import annotations
 
 import time
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 from ..execution import OrderFill, OrderSide, PositionSnapshot
 from ..web_execution import MexcWebError, MexcWebExecutionAdapter, WebExecutionConfig
+
+
+@dataclass(frozen=True, slots=True)
+class CloseExecution:
+    fill: OrderFill
+    fill_confirmed_ms: float
+    reconciled_ms: float
+    attempts: int
 
 
 class TestnetExecutionAdapter(MexcWebExecutionAdapter):
@@ -116,23 +125,55 @@ class TestnetExecutionAdapter(MexcWebExecutionAdapter):
             return next((row for row in rows if row.position_id == position.position_id), None)
         return next((row for row in rows if row.side is position.side), None)
 
+    @staticmethod
+    def _aggregate_close_fills(position: PositionSnapshot, fills: list[OrderFill]) -> OrderFill:
+        total_qty = sum(max(0.0, fill.filled_qty) for fill in fills)
+        total_fee = sum(float(fill.fee_usdt) for fill in fills)
+        weighted_quote = sum(
+            max(0.0, fill.filled_qty) * float(fill.avg_price)
+            for fill in fills
+            if fill.avg_price > 0
+        )
+        avg_price = weighted_quote / total_qty if total_qty > 0 else position.entry_price
+        return OrderFill(
+            symbol=position.symbol,
+            side=OrderSide.SHORT if position.side is OrderSide.LONG else OrderSide.LONG,
+            requested_qty=position.qty,
+            filled_qty=total_qty,
+            avg_price=avg_price,
+            fee_usdt=total_fee,
+            order_id=",".join(fill.order_id for fill in fills if fill.order_id),
+            client_order_id=",".join(fill.client_order_id for fill in fills if fill.client_order_id),
+            position_id=position.position_id,
+        )
+
     async def close_position_fully(
         self,
         position: PositionSnapshot,
         *,
         attempts: int = 4,
-    ) -> OrderFill:
-        """Submit close immediately, then reconcile residual state using network-only polls."""
+    ) -> CloseExecution:
+        """Submit close immediately, then reconcile residual state using network only."""
         current = position
-        last_fill: OrderFill | None = None
-        for _ in range(max(1, attempts)):
-            last_fill = await self.submit_close(current)
+        fills: list[OrderFill] = []
+        final_fill_confirmed_ms = 0.0
+
+        for attempt in range(1, max(1, attempts) + 1):
+            fill = await self.submit_close(current)
+            fills.append(fill)
+            final_fill_confirmed_ms = time.time_ns() / 1_000_000.0
 
             deadline = time.monotonic() + 0.75
             while time.monotonic() < deadline:
                 residual = await self.find_same_position(current)
                 if residual is None:
-                    return last_fill
+                    reconciled_ms = time.time_ns() / 1_000_000.0
+                    return CloseExecution(
+                        fill=self._aggregate_close_fills(position, fills),
+                        fill_confirmed_ms=final_fill_confirmed_ms,
+                        reconciled_ms=reconciled_ms,
+                        attempts=attempt,
+                    )
                 current = residual
 
         residual = await self.find_same_position(current)
@@ -141,6 +182,13 @@ class TestnetExecutionAdapter(MexcWebExecutionAdapter):
                 f"Demo reduce-only close left residual position {residual.symbol} "
                 f"positionId={residual.position_id} qty={residual.qty:g}"
             )
-        if last_fill is None:
+        if not fills:
             raise MexcWebError("Demo close did not submit")
-        return last_fill
+
+        reconciled_ms = time.time_ns() / 1_000_000.0
+        return CloseExecution(
+            fill=self._aggregate_close_fills(position, fills),
+            fill_confirmed_ms=final_fill_confirmed_ms,
+            reconciled_ms=reconciled_ms,
+            attempts=len(fills),
+        )
