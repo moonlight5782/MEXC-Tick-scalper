@@ -7,7 +7,8 @@ import uuid
 
 from . import auto_discovery_testnet_xrp_fixed as fixed
 from .execution import OrderFill, OrderSide, PositionSnapshot
-from .web_execution import MexcWebError, MexcWebExecutionAdapter
+from .web_execution import MexcWebError, MexcWebExecutionAdapter, WebExecutionConfig
+from .web_fee import read_web_fee_status
 
 # This wrapper is deliberately narrow:
 #   * entry thresholds/gates/sizing/IOC remain 100% in xrp_fixed + baseline_v1;
@@ -208,6 +209,23 @@ async def _network_only_close_position_fully(
     return last_fill
 
 
+async def _load_selected_live_fee(args) -> None:
+    """Read selected-symbol LIVE fee once before the trading feeds start."""
+    if hasattr(args, "selected_live_taker_fee_rate"):
+        return
+    cfg = WebExecutionConfig.from_env(write_enabled=False)
+    async with MexcWebExecutionAdapter(cfg) as adapter:
+        status = await read_web_fee_status(adapter, fixed.SYMBOL)
+    args.selected_live_maker_fee_rate = status.maker
+    args.selected_live_taker_fee_rate = status.taker
+    maker = "?" if status.maker is None else f"{status.maker * 10_000.0:.2f}bps"
+    taker = "?" if status.taker is None else f"{status.taker * 10_000.0:.2f}bps"
+    fixed.console.print(
+        f"[cyan]SELECTED LIVE FEE[/cyan] {fixed.SYMBOL} maker={maker} taker={taker}; "
+        "fee is reporting-only and never blocks this selected pair from trading"
+    )
+
+
 async def _close_with_live_fee_reporting(adapter, pos, stats, output, reason) -> None:
     """Report LIVE fee economics after close without affecting any trade decision."""
     global _LIVE_FEE_EST_TOTAL_USDT, _LIVE_NET_EST_TOTAL_USDT
@@ -252,6 +270,9 @@ async def _close_with_live_fee_reporting(adapter, pos, stats, output, reason) ->
 async def run(args) -> None:
     global _ACTIVE_ARGS, _SAVED_PRE_PROFIT_POLICY, _ORIGINAL_ARM_BPS
     global _LIVE_FEE_EST_TOTAL_USDT, _LIVE_NET_EST_TOTAL_USDT
+
+    # Read fee metadata before fixed.run starts its market feeds/trading loop.
+    await _load_selected_live_fee(args)
 
     # Do not touch entry parameters. baseline_v1 remains exactly 8 bps / 3x.
     _ACTIVE_ARGS = args
