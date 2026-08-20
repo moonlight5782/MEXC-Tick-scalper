@@ -1,13 +1,13 @@
 import asyncio
-from types import SimpleNamespace
 import math
+from types import SimpleNamespace
 
-import mexc_tick_scalper.auto_discovery_testnet_xrp_profit_hold as ph
+from mexc_tick_scalper.auto_discovery_testnet_xrp_profit_hold import ProfitHoldRuntime
 from mexc_tick_scalper.execution import OrderSide
 
 
-def test_profit_hold_changes_only_after_first_positive_tick() -> None:
-    args = SimpleNamespace(
+def make_args():
+    return SimpleNamespace(
         mid_adverse_cut_bps=0.01,
         leader_retrace_exit_bps=1.5,
         reversal_edge_bps=0.75,
@@ -17,58 +17,46 @@ def test_profit_hold_changes_only_after_first_positive_tick() -> None:
         min_absolute_residual_bps=8.0,
         min_signal_strength_ratio=3.0,
     )
-    old_args = ph._ACTIVE_ARGS
-    old_policy = ph._SAVED_PRE_PROFIT_POLICY
-    try:
-        ph._ACTIVE_ARGS = args
-        ph._SAVED_PRE_PROFIT_POLICY = {}
-        trail = ph.ProfitHoldTrailing(distance_bps=1.5)
 
-        # Losing/flat position keeps the exact original policy.
-        assert trail.update(-1.0) is None
-        assert args.mid_adverse_cut_bps == 0.01
-        assert args.leader_retrace_exit_bps == 1.5
-        assert args.reversal_edge_bps == 0.75
-        assert args.no_progress_ms == 3000
-        assert args.max_hold_ms == 15000
-        assert args.min_absolute_residual_bps == 8.0
-        assert args.min_signal_strength_ratio == 3.0
 
-        # First positive executable tick arms winner hold and a positive floor.
-        stop = trail.update(0.20)
-        assert stop is not None and 0.0 < stop <= 0.20
+def test_profit_hold_changes_only_after_first_positive_tick() -> None:
+    args = make_args()
+    runtime = ProfitHoldRuntime(args)
+    trail = runtime.trailing_factory(distance_bps=1.5)
 
-        # Hard adverse protection remains active.
-        assert args.mid_adverse_cut_bps == 0.01
+    assert trail.update(-1.0) is None
+    assert args.mid_adverse_cut_bps == 0.01
+    assert args.leader_retrace_exit_bps == 1.5
+    assert args.reversal_edge_bps == 0.75
+    assert args.no_progress_ms == 3000
+    assert args.max_hold_ms == 15000
+    assert args.min_absolute_residual_bps == 8.0
+    assert args.min_signal_strength_ratio == 3.0
 
-        # Lead-lag thesis/lifecycle exits no longer cut the profitable winner.
-        assert math.isinf(args.leader_retrace_exit_bps)
-        assert math.isinf(args.reversal_edge_bps)
-        assert args.no_progress_ms > 1_000_000
-        assert args.max_hold_ms > 1_000_000
+    stop = trail.update(0.20)
+    assert stop is not None and 0.0 < stop <= 0.20
+    assert args.mid_adverse_cut_bps == 0.01
+    assert math.isinf(args.leader_retrace_exit_bps)
+    assert math.isinf(args.reversal_edge_bps)
+    assert args.no_progress_ms > 1_000_000
+    assert args.max_hold_ms > 1_000_000
+    assert args.min_absolute_residual_bps == 8.0
+    assert args.min_signal_strength_ratio == 3.0
 
-        # Entry thresholds were never touched.
-        assert args.min_absolute_residual_bps == 8.0
-        assert args.min_signal_strength_ratio == 3.0
-    finally:
-        ph._ACTIVE_ARGS = old_args
-        ph._SAVED_PRE_PROFIT_POLICY = old_policy
+    runtime.restore_pre_profit_policy()
+    assert args.leader_retrace_exit_bps == 1.5
+    assert args.reversal_edge_bps == 0.75
+    assert args.no_progress_ms == 3000
+    assert args.max_hold_ms == 15000
 
 
 def test_profit_hold_preserves_original_trailing_ratchet() -> None:
-    old_args = ph._ACTIVE_ARGS
-    old_policy = ph._SAVED_PRE_PROFIT_POLICY
-    try:
-        ph._ACTIVE_ARGS = None
-        ph._SAVED_PRE_PROFIT_POLICY = {}
-        trail = ph.ProfitHoldTrailing(distance_bps=1.5)
-        assert trail.update(3.0) == 0.5
-        assert trail.update(5.0) == 2.0
-        assert trail.update(10.0) == 8.5
-        assert trail.update(9.0) == 8.5
-    finally:
-        ph._ACTIVE_ARGS = old_args
-        ph._SAVED_PRE_PROFIT_POLICY = old_policy
+    runtime = ProfitHoldRuntime(make_args())
+    trail = runtime.trailing_factory(distance_bps=1.5)
+    assert trail.update(3.0) == 0.5
+    assert trail.update(5.0) == 2.0
+    assert trail.update(10.0) == 8.5
+    assert trail.update(9.0) == 8.5
 
 
 def test_network_only_order_poll_adds_no_asyncio_sleep(monkeypatch) -> None:
@@ -85,9 +73,10 @@ def test_network_only_order_poll_adds_no_asyncio_sleep(monkeypatch) -> None:
         raise AssertionError("network-only order polling must not call asyncio.sleep")
 
     monkeypatch.setattr(asyncio, "sleep", forbidden_sleep)
+    runtime = ProfitHoldRuntime(make_args())
     adapter = FakeAdapter()
     result = asyncio.run(
-        ph._network_only_wait_for_order_result(adapter, "XRP_USDT", "test-order", 1.0)
+        runtime.network_only_wait_for_order_result(adapter, "XRP_USDT", "test-order", 1.0)
     )
     assert result["state"] == 3
     assert adapter.calls == 2
@@ -103,8 +92,9 @@ def test_confirmed_fill_starts_position_management_without_get_positions() -> No
         async def get_positions(self, symbol):
             raise AssertionError("get_positions must not block management after confirmed fill")
 
+    runtime = ProfitHoldRuntime(make_args())
     result = asyncio.run(
-        ph._immediate_position_from_fill(
+        runtime.immediate_position_from_fill(
             FakeAdapter(), "XRP_USDT", OrderSide.LONG, Fill(), 200
         )
     )
