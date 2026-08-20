@@ -7,7 +7,7 @@ if exist "%LOG_FILE%" del /q "%LOG_FILE%"
 
 echo ============================================================
 echo  STRUCTURED TESTNET APP
-echo  universe -^> scan -^> pair selection -^> trading
+echo  config -^> universe -^> discovery -^> selection -^> trading
 echo  LIVE REAL-MONEY WRITES: NOT USED
 echo.
 echo  AUTH BOUNDARY:
@@ -15,14 +15,22 @@ echo  Testnet uses MEXC_DEMO_WEB_TOKEN only
 echo  MEXC_WEB_TOKEN is NOT required by this launcher
 echo.
 echo  ENTRY:
-echo  baseline residual ^>= 8bps and strength ^>= 3x unchanged
-echo  signal gate / arrival economics / sizing / IOC unchanged
+echo  real trading residual ^>= 8bps and strength ^>= 3x unchanged
+echo  discovery is broader and only ranks candidate pairs
+echo  signal gate / arrival economics / sizing / IOC remain separate checks
 echo.
 echo  LATENCY:
-echo  scanner may wait only BEFORE trading mode
+echo  scanner may sample only BEFORE trading mode
 echo  scanner stops before trading starts
-echo  no synthetic RTT / no fixed execution sleep
-echo  confirmed fill -^> immediate position management
+echo  no synthetic RTT / no fixed execution polling sleep
+echo  confirmed fill -^> immediate local position management
+echo  hard adverse exit is decided before optional Demo price lookup
+echo.
+echo  PROFIT HOLD:
+echo  first positive executable Demo PnL arms Profit Hold
+echo  ordinary thesis exits stop cutting the winner
+echo  positive trailing ratchets upward
+echo  hard adverse / cleanup safety remains active
 echo.
 echo  TESTNET FEES:
 echo  fee scope is selectable before scan
@@ -48,11 +56,10 @@ echo.
 .venv\Scripts\python.exe -m mexc_tick_scalper.testnet_app ^
   --discovery-top 10 ^
   --scan-seconds 30 ^
-  --profit-runner-arm-bps 5 ^
   --target-closed-trades 100 ^
   --session-seconds 86400 ^
   --max-signals 3000 ^
-  --testnet-output persistent_end2end_TESTNET_SELECTED_PROFIT_HOLD.csv 2>"%LOG_FILE%"
+  --testnet-output persistent_end2end_TESTNET_STRUCTURED.csv 2>"%LOG_FILE%"
 
 set "RC=%ERRORLEVEL%"
 if not "%RC%"=="0" goto :failed
