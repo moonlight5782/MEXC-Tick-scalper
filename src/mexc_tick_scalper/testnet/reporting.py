@@ -56,7 +56,8 @@ class TradeReporter:
         "management_start_ms",
         "exit_decision_ms",
         "exit_submit_ms",
-        "exit_ms",
+        "exit_fill_ms",
+        "exit_reconciled_ms",
         "symbol",
         "direction",
         "requested_notional_usdt",
@@ -84,6 +85,8 @@ class TradeReporter:
         "fill_to_management_ms",
         "exit_decision_to_submit_ms",
         "exit_submit_to_fill_ms",
+        "exit_reconcile_ms",
+        "close_attempts",
         "exit_reason",
         "profit_hold_armed",
         "entry_order_id",
@@ -125,9 +128,11 @@ class TradeReporter:
         signal_ms: int,
         entry_ms: int,
         management_start_ms: int,
-        exit_decision_ms: int,
+        exit_decision_ms: float,
         exit_submit_ms: float,
-        exit_done_ms: float,
+        exit_fill_ms: float,
+        exit_reconciled_ms: float,
+        close_attempts: int,
         mfe_bps: float,
         mae_bps: float,
         reason: str,
@@ -141,7 +146,7 @@ class TradeReporter:
         gross_bps = gross / max(filled_notional, 1e-12) * 10_000.0
         margin = filled_notional / max(float(leverage), 1.0)
         gross_roe = gross / max(margin, 1e-12) * 100.0
-        hold_ms = max(0, int(exit_done_ms) - entry_ms)
+        hold_ms = max(0, int(exit_fill_ms) - entry_ms)
 
         before = bank.balance_usdt
         bank.balance_usdt = max(0.0, bank.balance_usdt + gross)
@@ -165,7 +170,8 @@ class TradeReporter:
             "management_start_ms": management_start_ms,
             "exit_decision_ms": exit_decision_ms,
             "exit_submit_ms": exit_submit_ms,
-            "exit_ms": int(exit_done_ms),
+            "exit_fill_ms": exit_fill_ms,
+            "exit_reconciled_ms": exit_reconciled_ms,
             "symbol": exit_fill.symbol,
             "direction": "LONG" if direction > 0 else "SHORT",
             "requested_notional_usdt": requested_notional,
@@ -192,7 +198,9 @@ class TradeReporter:
             "signal_to_fill_ms": entry_ms - signal_ms,
             "fill_to_management_ms": management_start_ms - entry_ms,
             "exit_decision_to_submit_ms": exit_submit_ms - exit_decision_ms,
-            "exit_submit_to_fill_ms": exit_done_ms - exit_submit_ms,
+            "exit_submit_to_fill_ms": exit_fill_ms - exit_submit_ms,
+            "exit_reconcile_ms": exit_reconciled_ms - exit_fill_ms,
+            "close_attempts": close_attempts,
             "exit_reason": reason,
             "profit_hold_armed": profit_hold_armed,
             "entry_order_id": entry_fill.order_id,
@@ -202,7 +210,9 @@ class TradeReporter:
         self.console.print(
             f"[{'green' if gross > 0 else 'red'}]TESTNET EXIT[/] {exit_fill.symbol} reason={reason} "
             f"GROSS={gross_bps:+.2f}bps ${gross:+.2f} DEMO_FEES=${fees:.4f} "
-            f"DEMO_NET=${net:+.2f} hold={hold_ms}ms logical_bank=${before:.2f}->${bank.balance_usdt:.2f}"
+            f"DEMO_NET=${net:+.2f} hold={hold_ms}ms "
+            f"exit_fill={exit_fill_ms-exit_submit_ms:.1f}ms reconcile={exit_reconciled_ms-exit_fill_ms:.1f}ms "
+            f"logical_bank=${before:.2f}->${bank.balance_usdt:.2f}"
         )
         return gross, net
 
