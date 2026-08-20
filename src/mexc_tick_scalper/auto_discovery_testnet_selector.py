@@ -81,15 +81,12 @@ class SelectableCandidate:
         return self.candidate.profile.symbol
 
 
-
 def _median(values: list[float]) -> float:
     return statistics.median(values) if values else 0.0
 
 
-
 def _fee_bps(value: float | None) -> str:
     return "?" if value is None else f"{value * 10_000.0:.2f}bps"
-
 
 
 def _zero_fee_choice(raw: str) -> bool:
@@ -99,7 +96,6 @@ def _zero_fee_choice(raw: str) -> bool:
     if choice in {"n", "no", "н", "нет"}:
         return False
     raise ValueError("enter Y/Yes or N/No")
-
 
 
 def _terminal_reason(signal: ScanSignal, residual_bps: float, args) -> str | None:
@@ -112,13 +108,24 @@ def _terminal_reason(signal: ScanSignal, residual_bps: float, args) -> str | Non
     return None
 
 
-async def _discover_live_crosslisted(zero_fee_only: bool) -> list[LiveScanContract]:
-    """Build the current LIVE Binance USD-M x MEXC Futures universe.
+def _contract_rows(payload) -> list[dict]:
+    data = payload.get("data") if isinstance(payload, dict) else payload
+    if isinstance(data, list):
+        return [row for row in data if isinstance(row, dict)]
+    if isinstance(data, dict):
+        if "symbol" in data:
+            return [data]
+        return [row for row in data.values() if isinstance(row, dict)]
+    return []
 
-    Fee status is metadata for selection. It is never assumed to be zero when the
-    account fee endpoint does not provide a value. When ``zero_fee_only`` is True,
-    only explicit maker=0 and taker=0 rows are retained.
+
+async def _discover_live_crosslisted(zero_fee_only: bool) -> list[LiveScanContract]:
+    """Build current Binance USD-M x LIVE MEXC Futures universe.
+
+    Fee is selection metadata only in Testnet mode. Unknown fee is never treated as
+    zero. If zero_fee_only=True, only explicit maker=0 and taker=0 pairs remain.
     """
+    fixed.console.print("[cyan][1/4][/cyan] Loading Binance USD-M + LIVE MEXC contracts and account fee rates...")
     binance_symbols = await fetch_binance_usdm_symbols()
     market = MexcPublicMarket(LIVE_REST, LIVE_WS)
     mexc_rows = await market.contracts()
@@ -128,6 +135,8 @@ async def _discover_live_crosslisted(zero_fee_only: bool) -> list[LiveScanContra
         fee_provider = await read_web_fee_provider(adapter)
 
     out: list[LiveScanContract] = []
+    crosslisted = 0
+    confirmed_zero = 0
     for row in mexc_rows:
         symbol = str(row.get("symbol") or "").upper()
         if not symbol:
@@ -135,6 +144,7 @@ async def _discover_live_crosslisted(zero_fee_only: bool) -> list[LiveScanContra
         binance_symbol = mexc_to_binance_symbol(symbol)
         if binance_symbol not in binance_symbols:
             continue
+        crosslisted += 1
 
         contract_size = float(row.get("contractSize") or 0)
         if contract_size <= 0:
@@ -143,7 +153,9 @@ async def _discover_live_crosslisted(zero_fee_only: bool) -> list[LiveScanContra
         fee_status = fee_provider.status(symbol)
         maker = fee_status.maker
         taker = fee_status.taker
-        if zero_fee_only and not (maker == 0.0 and taker == 0.0):
+        is_zero = maker == 0.0 and taker == 0.0
+        confirmed_zero += int(is_zero)
+        if zero_fee_only and not is_zero:
             continue
 
         contract = LiveZeroFeeContract(
@@ -163,45 +175,58 @@ async def _discover_live_crosslisted(zero_fee_only: bool) -> list[LiveScanContra
         out.append(LiveScanContract(contract, maker, taker))
 
     out.sort(key=lambda item: item.symbol)
+    fixed.console.print(
+        f"[cyan][1/4][/cyan] Cross-listed={crosslisted}; confirmed LIVE 0/0={confirmed_zero}; "
+        f"selected fee universe={len(out)}"
+    )
     return out
 
 
 async def _testnet_universe(contracts: list[LiveScanContract]) -> list[TestnetContract]:
-    """Keep LIVE Binance/MEXC contracts that are also executable on MEXC Testnet.
-
-    The request round trips are measured only during PRE-TRADE scanning. They are
-    never reused as synthetic trading latency and add no delay after trading starts.
-    """
+    """Intersect with MEXC Testnet using one metadata request, not N serial calls."""
+    fixed.console.print(
+        f"[cyan][2/4][/cyan] Checking MEXC Testnet availability for {len(contracts)} candidates in one metadata request..."
+    )
     cfg = WebExecutionConfig.demo_from_env(write_enabled=False)
-    rows: list[TestnetContract] = []
     async with MexcWebExecutionAdapter(cfg) as adapter:
-        for live_row in contracts:
-            started = time.perf_counter_ns()
-            try:
-                detail = await adapter.get_contract_detail(live_row.symbol)
-            except Exception:
-                continue
-            elapsed_ms = (time.perf_counter_ns() - started) / 1_000_000.0
-            contract_size = float(detail.get("contractSize") or 0)
-            price_unit = float(detail.get("priceUnit") or 0)
-            max_lev = int(detail.get("maxLeverage") or 1)
-            if contract_size <= 0 or price_unit <= 0 or max_lev <= 0:
-                continue
-            rows.append(
-                TestnetContract(
-                    contract=live_row.contract,
-                    maker_fee=live_row.maker_fee,
-                    taker_fee=live_row.taker_fee,
-                    demo_max_leverage=max_lev,
-                    demo_rtt_ms=elapsed_ms,
-                )
+        started = time.perf_counter_ns()
+        payload = await adapter._request("GET", "/contract/detail")
+        elapsed_ms = (time.perf_counter_ns() - started) / 1_000_000.0
+
+    detail_by_symbol: dict[str, dict] = {}
+    for detail in _contract_rows(payload):
+        symbol = str(detail.get("symbol") or "").upper()
+        if symbol:
+            detail_by_symbol[symbol] = detail
+
+    rows: list[TestnetContract] = []
+    for live_row in contracts:
+        detail = detail_by_symbol.get(live_row.symbol)
+        if detail is None:
+            continue
+        contract_size = float(detail.get("contractSize") or 0)
+        price_unit = float(detail.get("priceUnit") or 0)
+        max_lev = int(detail.get("maxLeverage") or 1)
+        if contract_size <= 0 or price_unit <= 0 or max_lev <= 0:
+            continue
+        rows.append(
+            TestnetContract(
+                contract=live_row.contract,
+                maker_fee=live_row.maker_fee,
+                taker_fee=live_row.taker_fee,
+                demo_max_leverage=max_lev,
+                demo_rtt_ms=elapsed_ms,
             )
+        )
+
+    fixed.console.print(
+        f"[cyan][2/4][/cyan] Testnet contracts={len(detail_by_symbol)}; usable intersection={len(rows)}; "
+        f"metadata RTT={elapsed_ms:.0f}ms"
+    )
     return rows
 
 
-
 def _score_profile(profile: PairLagProfile, survival: float) -> float:
-    # Ranking only; trading thresholds remain the immutable baseline 8 bps / 3x.
     evidence = math.log1p(max(0, profile.signals))
     convergence_quality = max(0.10, profile.convergence_rate + 0.25 * (1.0 - profile.reversal_rate))
     return (
@@ -211,7 +236,6 @@ def _score_profile(profile: PairLagProfile, survival: float) -> float:
         * evidence
         * convergence_quality
     )
-
 
 
 def _candidate_from_scan(row: TestnetContract, stats: ScanStats, scan_end_ms: int) -> SelectableCandidate | None:
@@ -314,17 +338,19 @@ async def _scan_live_candidates(args, *, zero_fee_only: bool) -> list[Selectable
     mexc = EventMexcDepthFeed(symbols, models, wake, depth_limit=args.depth_limit)
     stats = {symbol: ScanStats() for symbol in symbols}
 
+    fixed.console.print(f"[cyan][3/4][/cyan] Starting LIVE feeds for {len(symbols)} pairs...")
     await binance.start()
     await mexc.start()
-    fee_scope = "exact 0/0 fee only" if zero_fee_only else "all fees (shown in result table)"
+    fee_scope = "exact 0/0 fee only" if zero_fee_only else "all fees (fees are reporting-only in Testnet)"
     fixed.console.print(
-        f"Fresh LIVE scan: {len(symbols)} Binance+MEXC+Testnet pairs; fees={fee_scope}; "
-        f"warmup={args.warmup_seconds:g}s sample={args.scan_seconds:g}s; "
-        "qualifying signal = SAME baseline residual>=8bps AND strength>=3x."
+        f"[cyan][3/4][/cyan] LIVE scan active: fees={fee_scope}; warmup={args.warmup_seconds:g}s; "
+        f"sample={args.scan_seconds:g}s; qualifying signal=baseline >=8bps AND >=3x."
     )
 
     warmup_until = time.monotonic() + args.warmup_seconds
     deadline = warmup_until + args.scan_seconds
+    started_scan = time.monotonic()
+    next_progress = started_scan + 5.0
     try:
         while time.monotonic() < deadline:
             now = time.monotonic()
@@ -356,7 +382,8 @@ async def _scan_live_candidates(args, *, zero_fee_only: bool) -> list[Selectable
                     )
                     strength = abs(decision.residual_bps) / max(decision.threshold_bps, 1e-12)
                     if (
-                        decision.ready
+                        bucket.active is None
+                        and decision.ready
                         and strength >= args.min_signal_strength_ratio
                         and abs(decision.residual_bps) >= args.min_absolute_residual_bps
                     ):
@@ -368,6 +395,16 @@ async def _scan_live_candidates(args, *, zero_fee_only: bool) -> list[Selectable
                         )
                         bucket.signals.append(signal)
                         bucket.active = signal
+
+            if now >= next_progress:
+                signal_count = sum(len(bucket.signals) for bucket in stats.values())
+                signaled_pairs = sum(bool(bucket.signals) for bucket in stats.values())
+                phase = "warmup" if now < warmup_until else "sampling"
+                fixed.console.print(
+                    f"[cyan]SCAN[/cyan] {phase} elapsed={now-started_scan:.0f}s "
+                    f"qualifying_signals={signal_count} pairs_with_signal={signaled_pairs}"
+                )
+                next_progress = now + 5.0
 
             wake.clear()
             try:
@@ -387,8 +424,10 @@ async def _scan_live_candidates(args, *, zero_fee_only: bool) -> list[Selectable
     candidates.sort(key=lambda row: row.candidate.score, reverse=True)
     if args.discovery_top > 0:
         candidates = candidates[: args.discovery_top]
+    fixed.console.print(
+        f"[cyan][4/4][/cyan] Scan complete: qualifying candidates={len(candidates)}. Scanner feeds are stopped."
+    )
     return candidates
-
 
 
 def _show_selectable(rows: list[SelectableCandidate]) -> None:
@@ -419,7 +458,6 @@ def _show_selectable(rows: list[SelectableCandidate]) -> None:
     fixed.console.print(table)
 
 
-
 def _select(rows: list[SelectableCandidate], raw: str) -> SelectableCandidate:
     if not rows:
         raise ValueError("no selectable candidates")
@@ -441,15 +479,14 @@ def _select(rows: list[SelectableCandidate], raw: str) -> SelectableCandidate:
 async def _run_selected(args) -> None:
     fixed.console.print("[bold cyan]PRE-TRADE PAIR SCAN[/bold cyan]")
     fixed.console.print(
-        "Fresh observation only: no historical prelive_lag_lifetime CSV is used. "
-        "Scanner is completely stopped before trading mode starts."
+        "Fresh observation only: no historical lifetime CSV. Scanner stops completely before trading mode."
     )
 
     raw_fee_scope = input("Scan only exact 0/0-fee pairs? [Y/n]: ")
     zero_fee_only = _zero_fee_choice(raw_fee_scope)
     fixed.console.print(
         "Fee filter: "
-        + ("ONLY explicit maker=0 / taker=0 pairs" if zero_fee_only else "ALL Binance/MEXC pairs; fees will be shown")
+        + ("ONLY explicit maker=0 / taker=0 pairs" if zero_fee_only else "ALL Binance/MEXC pairs; fee does NOT block Testnet trading")
     )
 
     rows = await _scan_live_candidates(args, zero_fee_only=zero_fee_only)
@@ -474,19 +511,24 @@ async def _run_selected(args) -> None:
     )
     fixed.console.print(
         "[bold cyan]TRADING MODE[/bold cyan] starts now: scanner feeds are closed; "
-        "no synthetic RTT, no fixed sleep; confirmed fill -> immediate position management."
+        "fee never blocks Testnet trading; no synthetic RTT/fixed sleep; confirmed fill -> immediate management."
     )
 
     original_symbol = fixed.SYMBOL
     original_gate = fixed.LeadLagGate
+    previous_maker = getattr(args, "selected_live_maker_fee_rate", None)
+    previous_taker = getattr(args, "selected_live_taker_fee_rate", None)
     fixed.SYMBOL = symbol
     fixed.LeadLagGate = runtime_diag.DiagnosticLeadLagGate
+    args.selected_live_maker_fee_rate = selected.maker_fee
+    args.selected_live_taker_fee_rate = selected.taker_fee
     try:
         await profit_hold.run(args)
     finally:
         fixed.LeadLagGate = original_gate
         fixed.SYMBOL = original_symbol
-
+        args.selected_live_maker_fee_rate = previous_maker
+        args.selected_live_taker_fee_rate = previous_taker
 
 
 def build_parser():
@@ -499,7 +541,6 @@ def build_parser():
         help="fresh pre-trade observation window; applies only before trading starts",
     )
     return parser
-
 
 
 def main() -> None:
