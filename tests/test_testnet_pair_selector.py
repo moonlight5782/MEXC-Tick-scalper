@@ -2,7 +2,8 @@ from dataclasses import dataclass
 
 import pytest
 
-from mexc_tick_scalper.testnet_app import FeeScope, PairSelector
+from mexc_tick_scalper.testnet.models import FeeScope
+from mexc_tick_scalper.testnet.selector import PairSelector
 
 
 @dataclass
