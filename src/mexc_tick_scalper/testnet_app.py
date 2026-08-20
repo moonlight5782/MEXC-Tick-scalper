@@ -61,6 +61,7 @@ class ScanSignal:
     direction: int
     residual_bps: float
     strength: float
+    trade_entry_seen: bool = False
     lifetime_ms: float | None = None
     terminal_reason: str = ""
 
@@ -74,6 +75,7 @@ class ScanStats:
 @dataclass(frozen=True, slots=True)
 class CandidateView:
     candidate: auto.Candidate
+    trade_entry_hits: int
     demo_maker_fee: float | None
     demo_taker_fee: float | None
     demo_max_leverage: int
@@ -205,7 +207,7 @@ class TestnetUniverseService:
 
 
 class LeadLagScanner:
-    """Observes only public market data and returns ranked candidates."""
+    """Observes public market data and ranks pairs; it never decides a trade entry."""
 
     def __init__(self, args, console) -> None:
         self.args = args
@@ -247,6 +249,7 @@ class LeadLagScanner:
         convergences = 0
         reversals = 0
         survived = 0
+        trade_entry_hits = 0
         for signal in stats.signals:
             lifetime = signal.lifetime_ms
             if lifetime is None:
@@ -257,6 +260,7 @@ class LeadLagScanner:
             survived += int(lifetime >= row.metadata_rtt_ms)
             convergences += int(signal.terminal_reason == "convergence")
             reversals += int(signal.terminal_reason == "residual_reversal")
+            trade_entry_hits += int(signal.trade_entry_seen)
 
         count = len(lifetimes)
         survival = survived / count
@@ -282,6 +286,7 @@ class LeadLagScanner:
         )
         return CandidateView(
             candidate=candidate,
+            trade_entry_hits=trade_entry_hits,
             demo_maker_fee=row.demo_maker_fee,
             demo_taker_fee=row.demo_taker_fee,
             demo_max_leverage=row.demo_max_leverage,
@@ -325,7 +330,15 @@ class LeadLagScanner:
         mexc = EventMexcDepthFeed(symbols, models, wake, depth_limit=self.args.depth_limit)
         stats = {symbol: ScanStats() for symbol in symbols}
 
-        self.console.print(f"[cyan][3/4][/cyan] Starting public LIVE signal feeds for {len(symbols)} Testnet-compatible pairs.")
+        discovery_strength = float(self.args.pair_min_strength_ratio)
+        discovery_residual = float(self.args.min_edge_bps)
+        self.console.print(
+            f"[cyan][3/4][/cyan] Starting public LIVE signal feeds for {len(symbols)} Testnet-compatible pairs."
+        )
+        self.console.print(
+            f"[cyan][3/4][/cyan] Discovery >= {discovery_residual:.1f}bps / {discovery_strength:.2f}x; "
+            f"real trading remains >= {self.args.min_absolute_residual_bps:.1f}bps / {self.args.min_signal_strength_ratio:.2f}x."
+        )
         await binance.start()
         await mexc.start()
         warmup_until = time.monotonic() + self.args.warmup_seconds
@@ -361,27 +374,43 @@ class LeadLagScanner:
                             event_key=_event_key(model),
                         )
                         strength = abs(decision.residual_bps) / max(decision.threshold_bps, 1e-12)
-                        if (
-                            bucket.active is None
-                            and decision.ready
+                        is_trade_entry = (
+                            decision.ready
                             and strength >= self.args.min_signal_strength_ratio
                             and abs(decision.residual_bps) >= self.args.min_absolute_residual_bps
-                        ):
+                        )
+                        if bucket.active is not None and is_trade_entry:
+                            bucket.active.trade_entry_seen = True
+
+                        is_discovery_event = (
+                            bucket.active is None
+                            and decision.ready
+                            and strength >= discovery_strength
+                            and abs(decision.residual_bps) >= discovery_residual
+                        )
+                        if is_discovery_event:
                             signal = ScanSignal(
                                 started_ms=now_ms,
                                 direction=decision.direction,
                                 residual_bps=float(decision.residual_bps),
                                 strength=float(strength),
+                                trade_entry_seen=bool(is_trade_entry),
                             )
                             bucket.signals.append(signal)
                             bucket.active = signal
 
                 if now >= next_report:
-                    signal_count = sum(len(bucket.signals) for bucket in stats.values())
+                    discovery_count = sum(len(bucket.signals) for bucket in stats.values())
+                    entry_hits = sum(
+                        int(signal.trade_entry_seen)
+                        for bucket in stats.values()
+                        for signal in bucket.signals
+                    )
                     pairs = sum(bool(bucket.signals) for bucket in stats.values())
                     phase = "warmup" if now < warmup_until else "sampling"
                     self.console.print(
-                        f"[cyan]SCAN[/cyan] {phase} elapsed={now-started:.0f}s qualifying_signals={signal_count} pairs={pairs}"
+                        f"[cyan]SCAN[/cyan] {phase} elapsed={now-started:.0f}s "
+                        f"discovery_signals={discovery_count} trading_8/3_hits={entry_hits} pairs={pairs}"
                     )
                     next_report = now + 5.0
 
@@ -403,7 +432,11 @@ class LeadLagScanner:
         candidates.sort(key=lambda item: item.candidate.score, reverse=True)
         if self.args.discovery_top > 0:
             candidates = candidates[: self.args.discovery_top]
-        self.console.print(f"[cyan][4/4][/cyan] Scan complete; candidates={len(candidates)}; scanner feeds stopped.")
+        total_hits = sum(item.trade_entry_hits for item in candidates)
+        self.console.print(
+            f"[cyan][4/4][/cyan] Scan complete; discovery candidates={len(candidates)}; "
+            f"8/3 hits in shown candidates={total_hits}; scanner feeds stopped."
+        )
         return candidates
 
 
@@ -447,9 +480,9 @@ class PairSelector:
         return self.fee_scope(input("Choice [A/z]: "))
 
     def show(self, rows: list[CandidateView]) -> None:
-        table = Table(title="Fresh Binance + MEXC scan; executable on MEXC Testnet")
+        table = Table(title="Fresh Binance + MEXC discovery; executable on MEXC Testnet")
         for column in (
-            "#", "Symbol", "Signals", "Med lag", "Survive@RTT", "Residual", "Strength",
+            "#", "Symbol", "Discovery", "8/3 hits", "Med lag", "Survive@RTT", "Residual", "Strength",
             "Demo maker", "Demo taker", "LIVE lev", "Demo lev", "Score",
         ):
             table.add_column(column)
@@ -459,6 +492,7 @@ class PairSelector:
                 str(index),
                 row.symbol,
                 str(profile.signals),
+                str(row.trade_entry_hits),
                 f"{profile.median_lifetime_ms:.0f}ms",
                 f"{row.candidate.current_survival:.0%}",
                 f"{profile.median_signal_residual_bps:.1f}bps",
@@ -485,6 +519,7 @@ class TradingSession:
     async def run(self, selected: CandidateView) -> None:
         self.console.print(
             f"[bold green]SELECTED[/bold green] {selected.symbol} "
+            f"discovery={selected.candidate.profile.signals} 8/3_hits={selected.trade_entry_hits} "
             f"Demo maker={PairSelector._fee(selected.demo_maker_fee)} "
             f"Demo taker={PairSelector._fee(selected.demo_taker_fee)}"
         )
@@ -526,7 +561,8 @@ class TestnetApp:
         candidates = await self.scanner.scan(universe)
         if not candidates:
             raise RuntimeError(
-                "Fresh scan saw no baseline 8bps/3x signal. Increase --scan-seconds or run again; trading thresholds were not relaxed."
+                "Fresh scan saw no discovery-grade lead-lag event. Run again or increase --scan-seconds; "
+                "real trading entry remains fixed at 8bps/3x."
             )
         self.selector.show(candidates)
         selected = self.selector.ask_pair(candidates)
