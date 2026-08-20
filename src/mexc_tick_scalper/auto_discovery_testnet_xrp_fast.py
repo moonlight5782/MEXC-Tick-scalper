@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import time
 from typing import Any
 
@@ -14,10 +15,8 @@ from .web_execution import MexcWebExecutionAdapter
 TESTNET_MIN_RESIDUAL_BPS = 20.0
 TESTNET_MIN_STRENGTH_RATIO = 4.0
 
-# Demo depth HTTP itself is ~300 ms. A 100 ms cache-age rule caused the signal path
-# to synchronously refetch depth while the background refresh was in flight. Keep
-# the latest already-fetched top for the IOC limit instead. A stale LIMIT can cause
-# a safe no-fill, but cannot cross beyond its own limit merely because the cache is old.
+# Demo depth HTTP itself is ~300 ms. Keep the latest already-fetched top for the IOC
+# limit so no blocking depth GET is inserted between signal and order POST.
 DEMO_PRICE_CACHE_SOFT_AGE_MS = 750.0
 DEMO_PRICE_REFRESH_SECONDS = 0.025
 
@@ -25,6 +24,87 @@ _ORIGINAL_PROBE = MexcWebExecutionAdapter.probe
 _ORIGINAL_GET_BEST = MexcWebExecutionAdapter.get_best_price
 _ORIGINAL_CLOSE = MexcWebExecutionAdapter.close
 _ORIGINAL_OPEN_IOC = MexcWebExecutionAdapter.open_ioc
+_ORIGINAL_TRAILING = fixed.PositiveTrailing
+
+_ACTIVE_ARGS = None
+_EXIT_POLICY: dict[str, float | int] = {}
+
+
+def _restore_normal_exit_policy() -> None:
+    """Restore normal losing/flat-position exits before a new position is tracked."""
+    if _ACTIVE_ARGS is None or not _EXIT_POLICY:
+        return
+    _ACTIVE_ARGS.mid_adverse_cut_bps = _EXIT_POLICY["mid_adverse_cut_bps"]
+    _ACTIVE_ARGS.leader_retrace_exit_bps = _EXIT_POLICY["leader_retrace_exit_bps"]
+    _ACTIVE_ARGS.reversal_edge_bps = _EXIT_POLICY["reversal_edge_bps"]
+    _ACTIVE_ARGS.no_progress_ms = _EXIT_POLICY["no_progress_ms"]
+    _ACTIVE_ARGS.max_hold_ms = _EXIT_POLICY["max_hold_ms"]
+
+
+def _arm_profit_hold() -> None:
+    """Once executable Demo PnL is positive, trailing owns the exit decision."""
+    if _ACTIVE_ARGS is None:
+        return
+    _ACTIVE_ARGS.mid_adverse_cut_bps = math.inf
+    _ACTIVE_ARGS.leader_retrace_exit_bps = math.inf
+    _ACTIVE_ARGS.reversal_edge_bps = math.inf
+    _ACTIVE_ARGS.no_progress_ms = 2_147_483_647
+    _ACTIVE_ARGS.max_hold_ms = 2_147_483_647
+
+
+class _ProfitHoldTrailing:
+    """Arm on first positive executable PnL and never give the winner back to strategy exits.
+
+    Before the position becomes profitable, the normal lead-lag exits remain active.
+    On the first positive Demo executable PnL:
+      * floor stop is immediately moved to breakeven (0 bps),
+      * leader retrace / residual reversal / convergence / no-progress / timeout
+        cease to close the winner,
+      * the existing trailing ladder keeps ratcheting the stop upward:
+        +3 bps peak -> +0.5 bps stop,
+        +5 bps peak -> +2 bps stop,
+        +6 bps and above -> peak minus trailing distance.
+    """
+
+    def __init__(self, distance_bps: float) -> None:
+        # A new position starts with the normal exit policy until it first turns positive.
+        _restore_normal_exit_policy()
+        self._inner = _ORIGINAL_TRAILING(distance_bps=distance_bps)
+        self._profit_hold_armed = False
+
+    @property
+    def distance_bps(self) -> float:
+        return self._inner.distance_bps
+
+    @property
+    def peak_bps(self) -> float:
+        return self._inner.peak_bps
+
+    @property
+    def stop_bps(self) -> float | None:
+        return self._inner.stop_bps
+
+    @stop_bps.setter
+    def stop_bps(self, value: float | None) -> None:
+        self._inner.stop_bps = value
+
+    def update(self, move_bps: float) -> float | None:
+        stop = self._inner.update(move_bps)
+        if move_bps > 0.0 and not self._profit_hold_armed:
+            self._profit_hold_armed = True
+            _arm_profit_hold()
+            self._inner.stop_bps = max(0.0, self._inner.stop_bps or 0.0)
+            stop = self._inner.stop_bps
+            fixed.console.print(
+                f"[bold green]PROFIT HOLD ARMED[/bold green] {fixed.SYMBOL} "
+                f"executable={move_bps:+.2f}bps stop_floor=0.00bps; "
+                "leader/reversal/convergence/no-progress/timeout suppressed; trailing owns exit"
+            )
+        elif self._profit_hold_armed:
+            # Never lower the floor below breakeven after the position has been profitable.
+            self._inner.stop_bps = max(0.0, self._inner.stop_bps or 0.0)
+            stop = self._inner.stop_bps
+        return stop
 
 
 def _cache(adapter: MexcWebExecutionAdapter) -> dict[OrderSide, tuple[float, float]]:
@@ -38,8 +118,6 @@ def _cache(adapter: MexcWebExecutionAdapter) -> dict[OrderSide, tuple[float, flo
 async def _refresh_demo_best(adapter: MexcWebExecutionAdapter) -> None:
     while True:
         try:
-            # Fetch both sides concurrently before signals arrive. The request is
-            # deliberately never awaited from the signal/IOC critical path.
             long_task = asyncio.create_task(_ORIGINAL_GET_BEST(adapter, fixed.SYMBOL, OrderSide.LONG))
             short_task = asyncio.create_task(_ORIGINAL_GET_BEST(adapter, fixed.SYMBOL, OrderSide.SHORT))
             long_best, short_best = await asyncio.gather(long_task, short_task)
@@ -50,8 +128,6 @@ async def _refresh_demo_best(adapter: MexcWebExecutionAdapter) -> None:
         except asyncio.CancelledError:
             raise
         except Exception:
-            # Preserve the last known LIMIT top across a transient Demo depth error.
-            # LIMIT semantics make stale pricing prefer no-fill over unbounded crossing.
             pass
         await asyncio.sleep(DEMO_PRICE_REFRESH_SECONDS)
 
@@ -61,7 +137,6 @@ async def _fast_probe(self: MexcWebExecutionAdapter) -> dict[str, Any]:
     task = getattr(self, "_xrp_demo_best_task", None)
     if task is None or task.done():
         setattr(self, "_xrp_demo_best_task", asyncio.create_task(_refresh_demo_best(self)))
-    # Warm the cache once during startup, outside the signal critical path.
     deadline = time.monotonic() + 3.0
     while time.monotonic() < deadline:
         rows = _cache(self)
@@ -76,8 +151,6 @@ async def _cached_get_best(self: MexcWebExecutionAdapter, symbol: str, side: Ord
         return await _ORIGINAL_GET_BEST(self, symbol, side)
     row = _cache(self).get(side)
     if row is None:
-        # This should only be possible during startup before _fast_probe warms the
-        # cache. Do not alter behavior in that exceptional case.
         return await _ORIGINAL_GET_BEST(self, symbol, side)
     price, recv_ms = row
     age_ms = time.time_ns() / 1_000_000.0 - recv_ms
@@ -145,8 +218,6 @@ async def _provisional_position(
     del adapter
     if fill.filled_qty <= 0:
         raise RuntimeError("IOC returned no fill")
-    # open_ioc already observed dealVol/dealAvgPrice/positionId. Do not add a
-    # private get_positions RTT before recording the entry timestamp.
     return PositionSnapshot(
         symbol=symbol,
         side=side,
@@ -160,12 +231,27 @@ async def _provisional_position(
 
 
 async def run(args) -> None:
-    # Temporary stronger-signal filter for forced-XRP Testnet plumbing only.
+    global _ACTIVE_ARGS, _EXIT_POLICY
+
     args.min_absolute_residual_bps = max(float(args.min_absolute_residual_bps), TESTNET_MIN_RESIDUAL_BPS)
     args.min_signal_strength_ratio = max(float(args.min_signal_strength_ratio), TESTNET_MIN_STRENGTH_RATIO)
 
+    # The previously agreed winner policy: first positive executable PnL arms the
+    # runner immediately. The trailing ladder then owns the exit.
+    args.profit_runner_arm_bps = min(float(args.profit_runner_arm_bps), 1e-9)
+    _ACTIVE_ARGS = args
+    _EXIT_POLICY = {
+        "mid_adverse_cut_bps": args.mid_adverse_cut_bps,
+        "leader_retrace_exit_bps": args.leader_retrace_exit_bps,
+        "reversal_edge_bps": args.reversal_edge_bps,
+        "no_progress_ms": args.no_progress_ms,
+        "max_hold_ms": args.max_hold_ms,
+    }
+
     original_resolve = fixed._resolve_remote_position
+    original_trailing = fixed.PositiveTrailing
     fixed._resolve_remote_position = _provisional_position
+    fixed.PositiveTrailing = _ProfitHoldTrailing
     MexcWebExecutionAdapter.probe = _fast_probe
     MexcWebExecutionAdapter.get_best_price = _cached_get_best
     MexcWebExecutionAdapter.open_ioc = _timed_open_ioc
@@ -176,12 +262,16 @@ async def run(args) -> None:
             f"strength>={args.min_signal_strength_ratio:.1f}x; no blocking Demo-depth GET on signal path"
         )
         fixed.console.print(
-            "Critical path: cached Demo LIMIT top -> IOC POST -> order confirmation. "
-            "Background Demo depth and post-fill get_positions are outside the entry path."
+            "Winner policy: first positive executable PnL -> breakeven floor -> trailing only; "
+            "leader/reversal/convergence/no-progress/timeout cannot cut a profitable runner."
         )
         await fixed.run(args)
     finally:
+        _restore_normal_exit_policy()
+        _ACTIVE_ARGS = None
+        _EXIT_POLICY = {}
         fixed._resolve_remote_position = original_resolve
+        fixed.PositiveTrailing = original_trailing
         MexcWebExecutionAdapter.probe = _ORIGINAL_PROBE
         MexcWebExecutionAdapter.get_best_price = _ORIGINAL_GET_BEST
         MexcWebExecutionAdapter.open_ioc = _ORIGINAL_OPEN_IOC
