@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from . import auto_discovery_testnet as testnet
 from .lead_lag import fetch_binance_usdm_symbols, mexc_to_binance_symbol
-from .live_zero_fee_universe import LIVE_REST, LIVE_WS, LiveZeroFeeContract
+from .live_zero_fee_universe import LIVE_REST, LIVE_WS, LiveZeroFeeContract, _load_project_env
 from .market import MexcPublicMarket
 
 
@@ -65,6 +65,9 @@ async def _xrp_only_discover(args):
 
 
 async def run(args):
+    # XRP override bypasses the normal AUTO discovery path which normally loads
+    # the repository-root .env. Load it explicitly before Demo config is built.
+    _load_project_env()
     original_discover = testnet.auto.discover
     testnet.auto.discover = _xrp_only_discover
     try:
