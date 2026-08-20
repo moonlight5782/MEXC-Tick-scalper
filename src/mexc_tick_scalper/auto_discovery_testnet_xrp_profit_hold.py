@@ -22,11 +22,14 @@ _ORIGINAL_TRAILING = fixed.PositiveTrailing
 _ORIGINAL_WAIT_FOR_ORDER_RESULT = MexcWebExecutionAdapter._wait_for_order_result
 _ORIGINAL_RESOLVE_REMOTE_POSITION = fixed._resolve_remote_position
 _ORIGINAL_CLOSE_POSITION_FULLY = fixed._close_position_fully
+_ORIGINAL_ACCOUNT_CLOSE = fixed._close
 
 _ACTIVE_ARGS = None
 _SAVED_PRE_PROFIT_POLICY: dict[str, float | int] = {}
 _ORIGINAL_ARM_BPS: float | None = None
 PROFIT_LOCK_FLOOR_BPS = 0.10
+_LIVE_FEE_EST_TOTAL_USDT = 0.0
+_LIVE_NET_EST_TOTAL_USDT = 0.0
 
 
 def _capture_pre_profit_policy() -> None:
@@ -205,13 +208,57 @@ async def _network_only_close_position_fully(
     return last_fill
 
 
+async def _close_with_live_fee_reporting(adapter, pos, stats, output, reason) -> None:
+    """Report LIVE fee economics after close without affecting any trade decision."""
+    global _LIVE_FEE_EST_TOTAL_USDT, _LIVE_NET_EST_TOTAL_USDT
+
+    gross_before = float(stats.gross_pnl_usdt)
+    await _ORIGINAL_ACCOUNT_CLOSE(adapter, pos, stats, output, reason)
+    gross = float(stats.gross_pnl_usdt) - gross_before
+
+    maker = getattr(_ACTIVE_ARGS, "selected_live_maker_fee_rate", None) if _ACTIVE_ARGS is not None else None
+    taker = getattr(_ACTIVE_ARGS, "selected_live_taker_fee_rate", None) if _ACTIVE_ARGS is not None else None
+    if taker is None:
+        fixed.console.print(
+            f"[yellow]LIVE FEE[/yellow] {fixed.SYMBOL} maker={'?' if maker is None else maker} taker=?; "
+            f"GROSS=${gross:+.4f}; LIVE_NET_EST=unknown (fee rate unavailable)"
+        )
+        return
+
+    qty = max(0.0, float(pos.remote.qty))
+    direction = float(pos.signal.direction)
+    exit_price = float(pos.entry_price)
+    if qty > 0 and direction != 0:
+        exit_price = float(pos.entry_price) + gross / (direction * qty)
+    entry_notional = abs(float(pos.entry_price) * qty)
+    exit_notional = abs(exit_price * qty)
+    live_fee = (entry_notional + exit_notional) * max(0.0, float(taker))
+    live_net = gross - live_fee
+    fee_bps = live_fee / max(float(pos.filled_notional), 1e-12) * 10_000.0
+
+    _LIVE_FEE_EST_TOTAL_USDT += live_fee
+    _LIVE_NET_EST_TOTAL_USDT += live_net
+    maker_text = "?" if maker is None else f"{float(maker) * 10_000.0:.2f}bps"
+    taker_text = f"{float(taker) * 10_000.0:.2f}bps"
+    fixed.console.print(
+        f"[bold cyan]LIVE FEE ECONOMICS[/bold cyan] {fixed.SYMBOL} "
+        f"maker={maker_text} taker={taker_text} (IOC/market estimate uses taker both sides) "
+        f"LIVE_FEE_EST=${live_fee:.4f} ({fee_bps:.2f}bps round-trip) "
+        f"GROSS=${gross:+.4f} LIVE_NET_EST=${live_net:+.4f} "
+        f"CUM_LIVE_FEES=${_LIVE_FEE_EST_TOTAL_USDT:.4f} CUM_LIVE_NET_EST=${_LIVE_NET_EST_TOTAL_USDT:+.4f}"
+    )
+
+
 async def run(args) -> None:
     global _ACTIVE_ARGS, _SAVED_PRE_PROFIT_POLICY, _ORIGINAL_ARM_BPS
+    global _LIVE_FEE_EST_TOTAL_USDT, _LIVE_NET_EST_TOTAL_USDT
 
     # Do not touch entry parameters. baseline_v1 remains exactly 8 bps / 3x.
     _ACTIVE_ARGS = args
     _SAVED_PRE_PROFIT_POLICY = {}
     _ORIGINAL_ARM_BPS = float(args.profit_runner_arm_bps)
+    _LIVE_FEE_EST_TOTAL_USDT = 0.0
+    _LIVE_NET_EST_TOTAL_USDT = 0.0
 
     # Exit-only change: arm winner mode on the first positive executable tick.
     args.profit_runner_arm_bps = 1e-9
@@ -219,11 +266,13 @@ async def run(args) -> None:
     original_trailing = fixed.PositiveTrailing
     original_resolve = fixed._resolve_remote_position
     original_close = fixed._close_position_fully
+    original_account_close = fixed._close
     original_wait = MexcWebExecutionAdapter._wait_for_order_result
 
     fixed.PositiveTrailing = ProfitHoldTrailing
     fixed._resolve_remote_position = _immediate_position_from_fill
     fixed._close_position_fully = _network_only_close_position_fully
+    fixed._close = _close_with_live_fee_reporting
     MexcWebExecutionAdapter._wait_for_order_result = _network_only_wait_for_order_result
 
     try:
@@ -240,6 +289,7 @@ async def run(args) -> None:
         fixed.PositiveTrailing = original_trailing
         fixed._resolve_remote_position = original_resolve
         fixed._close_position_fully = original_close
+        fixed._close = original_account_close
         MexcWebExecutionAdapter._wait_for_order_result = original_wait
         _ACTIVE_ARGS = None
         _SAVED_PRE_PROFIT_POLICY = {}
