@@ -6,27 +6,26 @@ set "LOG_FILE=testnet_last_run.log"
 if exist "%LOG_FILE%" del /q "%LOG_FILE%"
 
 echo ============================================================
-echo  FAST XRP_USDT - MEXC TESTNET EXECUTION TEST
+echo  XRP_USDT - KNOWN-GOOD ENTRY + PROFIT HOLD
 echo  SIGNALS: LIVE Binance XRPUSDT + LIVE MEXC XRP_USDT
 echo  ORDERS: MEXC TESTNET XRP_USDT ONLY
 echo  LIVE REAL-MONEY WRITES: NOT USED BY THIS RUNNER
 echo.
-echo  TEMP ONLY: AUTO pair selection / zero-fee eligibility bypassed
-echo  ORIGINAL entry gate: residual >= 8bps, strength >= 3x
+echo  ENTRY: original baseline residual >= 8bps, strength >= 3x
+echo  Entry gate / arrival economics / sizing / IOC are unchanged
+echo  from auto_discovery_testnet_xrp_fixed that was opening trades.
+echo.
+echo  ONLY CHANGE AFTER ENTRY:
+echo  first positive executable PnL -> PROFIT HOLD
+echo  positive trailing stop ratchets upward
+echo  convergence/retrace/reversal/no-progress/timeout do not cut winner
+echo  pre-profit protections remain original
+echo  exchange/forced cleanup protections remain
+echo.
 echo  LIVE prices are signal/thesis only
 echo  DEMO prices are execution/slippage/PnL/trailing only
-echo  Demo best price is cached before the signal critical path
-echo  extra post-fill get_positions RTT removed from entry timing
-echo  WINNER POLICY: first positive executable PnL -> profit hold
-echo  profitable position is held and trailing stop only ratchets upward
-echo  convergence/retrace/reversal/no-progress do not cut a winner
-echo  hard safety protections remain enabled
 echo  logical bank uses GROSS zero-fee strategy PnL
-echo  Demo entry+exit fees and Demo net PnL are reported separately
-echo  same arrival economics / depth / IOC / cost gates
-echo  same 100 USDT logical bank and dynamic isolated sizing
-echo  same 10000 USDT historical target notional
-echo  requested leverage 200x, capped by LIVE + TESTNET XRP max
+echo  Demo fees and Demo net are reported separately
 echo ============================================================
 
 if not exist ".venv\Scripts\python.exe" (
@@ -43,19 +42,19 @@ echo.
 echo Full stderr will also be saved to %LOG_FILE%
 echo.
 
-.venv\Scripts\python.exe -m mexc_tick_scalper.auto_discovery_testnet_xrp_fast ^
+.venv\Scripts\python.exe -m mexc_tick_scalper.auto_discovery_testnet_xrp_profit_hold ^
   --profit-runner-arm-bps 5 ^
   --target-closed-trades 100 ^
   --session-seconds 86400 ^
   --max-signals 3000 ^
   --testnet-position-poll-ms 250 ^
-  --testnet-output persistent_end2end_TESTNET_XRP_FAST.csv 2>"%LOG_FILE%"
+  --testnet-output persistent_end2end_TESTNET_XRP_PROFIT_HOLD.csv 2>"%LOG_FILE%"
 
 set "RC=%ERRORLEVEL%"
 if not "%RC%"=="0" goto :failed
 
 echo.
-echo Fast XRP Testnet runner finished normally. Exit code: %RC%
+echo XRP Testnet profit-hold runner finished normally. Exit code: %RC%
 echo Error log (if any): %CD%\%LOG_FILE%
 pause
 exit /b 0
@@ -65,7 +64,7 @@ set "RC=%ERRORLEVEL%"
 if "%RC%"=="0" set "RC=2"
 echo.
 echo ============================================================
-echo FAST XRP TESTNET RUNNER FAILED. Exit code: %RC%
+echo XRP TESTNET PROFIT-HOLD RUNNER FAILED. Exit code: %RC%
 echo Error log: %CD%\%LOG_FILE%
 echo ============================================================
 if exist "%LOG_FILE%" (
