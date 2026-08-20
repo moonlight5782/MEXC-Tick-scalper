@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 
 from . import auto_discovery_shadow_v2 as liq
 
@@ -9,29 +10,32 @@ base = liq.base
 _ORIGINAL_TRAILING = base.runner.PositiveTrailing
 _ORIGINAL_LIQ_RECORD_CLOSE = liq._ORIGINAL_AUTO_RECORD_CLOSE
 _ACTIVE_ARGS = None
-_ORIGINAL_CONVERGENCE_BPS = None
-_ORIGINAL_CONVERGENCE_FRACTION = None
+_ORIGINAL_MIN_CATCHUP_BPS = None
 _PROFIT_RUNNER_ARMED = False
 
 
 def _restore_convergence() -> None:
     global _PROFIT_RUNNER_ARMED
-    if _ACTIVE_ARGS is not None:
-        if _ORIGINAL_CONVERGENCE_BPS is not None:
-            _ACTIVE_ARGS.convergence_bps = _ORIGINAL_CONVERGENCE_BPS
-        if _ORIGINAL_CONVERGENCE_FRACTION is not None:
-            _ACTIVE_ARGS.convergence_fraction = _ORIGINAL_CONVERGENCE_FRACTION
+    if _ACTIVE_ARGS is not None and _ORIGINAL_MIN_CATCHUP_BPS is not None:
+        _ACTIVE_ARGS.min_catchup_bps = _ORIGINAL_MIN_CATCHUP_BPS
     _PROFIT_RUNNER_ARMED = False
 
 
 class ProfitRunnerTrailing(_ORIGINAL_TRAILING):
-    """Keep frozen trailing logic, but let a confirmed winner outrun convergence.
+    """Let a confirmed executable winner outrun the convergence take-profit.
 
-    Before the executable position reaches ``profit_runner_arm_bps`` the frozen
-    lead-lag exits are unchanged. Once that profit has actually been observable
-    on executable MEXC depth, convergence is disabled only for the current
-    position. Emergency adverse/reversal/leader-retrace, trailing, timeout and
-    the separate fair-price liquidation guard remain active.
+    Before ``profit_runner_arm_bps`` all frozen exits remain unchanged. Once the
+    executable peak reaches the threshold, only the convergence take-profit is
+    suppressed for the current position. Emergency adverse, leader retrace,
+    residual reversal, trailing, timeout/no-progress and the separate LIVE MEXC
+    fair-price liquidation guard remain active.
+
+    Core computes its local convergence threshold before calling ``update()``,
+    but reads ``args.min_catchup_bps`` afterwards when it evaluates the actual
+    convergence branch.  Setting min_catchup_bps to +inf therefore suppresses
+    convergence in the SAME market iteration in which the runner arms, avoiding
+    the previous same-tick race where an armed winner could still close by
+    ``mexc_catchup_convergence``.
     """
 
     def update(self, move_bps: float):
@@ -42,11 +46,7 @@ class ProfitRunnerTrailing(_ORIGINAL_TRAILING):
             arm_bps = max(0.0, float(getattr(args, "profit_runner_arm_bps", 5.0)))
             if self.peak_bps + 1e-9 >= arm_bps:
                 _PROFIT_RUNNER_ARMED = True
-                # Core computes conv=max(convergence_bps,
-                # abs(entry_residual)*convergence_fraction). Negative values make
-                # the non-negative abs(residual) <= conv condition impossible.
-                args.convergence_bps = -1.0
-                args.convergence_fraction = -1.0
+                args.min_catchup_bps = math.inf
                 base.console.print(
                     f"[bold green]PROFIT RUNNER ARMED[/bold green] peak={self.peak_bps:.2f}bps "
                     f"threshold={arm_bps:.2f}bps; convergence exit disabled for this position; "
@@ -63,10 +63,9 @@ def _profit_runner_record_close(stats, row) -> None:
 
 
 async def run(args):
-    global _ACTIVE_ARGS, _ORIGINAL_CONVERGENCE_BPS, _ORIGINAL_CONVERGENCE_FRACTION
+    global _ACTIVE_ARGS, _ORIGINAL_MIN_CATCHUP_BPS
     _ACTIVE_ARGS = args
-    _ORIGINAL_CONVERGENCE_BPS = float(args.convergence_bps)
-    _ORIGINAL_CONVERGENCE_FRACTION = float(args.convergence_fraction)
+    _ORIGINAL_MIN_CATCHUP_BPS = float(args.min_catchup_bps)
     _restore_convergence()
 
     original_trailing = base.runner.PositiveTrailing
@@ -84,8 +83,7 @@ async def run(args):
         base.runner.PositiveTrailing = original_trailing
         liq._ORIGINAL_AUTO_RECORD_CLOSE = original_liq_record
         _ACTIVE_ARGS = None
-        _ORIGINAL_CONVERGENCE_BPS = None
-        _ORIGINAL_CONVERGENCE_FRACTION = None
+        _ORIGINAL_MIN_CATCHUP_BPS = None
 
 
 def build_parser():
