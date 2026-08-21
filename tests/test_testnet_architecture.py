@@ -5,8 +5,6 @@ from rich.console import Console
 import mexc_tick_scalper.testnet as testnet_package
 import mexc_tick_scalper.testnet_app as testnet_app
 from mexc_tick_scalper.baseline_v1 import apply_baseline_v1
-from mexc_tick_scalper.testnet.session import TradingSession
-from mexc_tick_scalper.testnet.universe import TestnetUniverseService
 
 
 LEGACY_EXECUTION_IMPORTS = (
@@ -84,6 +82,29 @@ def test_trading_session_receives_execution_dependency_explicitly():
     source = _source(Path(testnet_package.__file__).resolve().parent / "session.py")
     assert "execution_config" in source
     assert "TestnetTradingEngine(" in source
+
+
+def test_trading_engine_delegates_open_position_lifecycle():
+    root = Path(testnet_package.__file__).resolve().parent
+    engine = _source(root / "trading_engine.py")
+    manager = _source(root / "position_manager.py")
+
+    assert "PositionManager(" in engine
+    assert "self.position_manager.manage_position(" in engine
+    assert "self.position_manager.close_position(" in engine
+    assert "def _manage_position(" not in engine
+    assert "def _close_position(" not in engine
+    assert "class PositionManager:" in manager
+    assert "async def manage_position(" in manager
+    assert "async def close_position(" in manager
+
+
+def test_position_manager_does_not_own_discovery_or_entry_submission():
+    source = _source(Path(testnet_package.__file__).resolve().parent / "position_manager.py")
+    assert "LeadLagGate" not in source
+    assert "PairSelector" not in source
+    assert "open_ioc(" not in source
+    assert "requested_notional(" not in source
 
 
 def test_scanner_does_not_depend_on_prelive_or_execution_modules():
